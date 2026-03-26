@@ -1,12 +1,21 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { execFile } from "node:child_process";
+import { execFile, spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { MacbethClient } from "./client.js";
+import type { KeyStroke } from "./types.js";
 
-const SKILLS_DIR = resolve(process.cwd(), "skills");
+const MODULE_DIR = dirname(fileURLToPath(import.meta.url));
+const INSTALL_DIR = resolve(MODULE_DIR, "..");
+const SKILLS_DIR_CANDIDATES = [
+  resolve(INSTALL_DIR, "skills"),
+  resolve(INSTALL_DIR, "..", "skills"),
+];
+const SKILLS_DIR = SKILLS_DIR_CANDIDATES.find(existsSync) ?? SKILLS_DIR_CANDIDATES[0];
 
 const client = new MacbethClient({ verbose: false });
 
@@ -28,6 +37,19 @@ const querySchema = z
     })
   )
   .describe("Locator chain — each step recursively searches descendants of the previous match. No need to specify intermediate containers. Example: [{role:'window'}, {role:'button', title:'Submit'}] finds any button titled 'Submit' anywhere in the window.");
+
+const keyStrokeSchema = z.object({
+  key: z.string().optional().describe("Key name"),
+  text: z.string().optional().describe("Literal text to type"),
+  modifiers: z.array(z.string()).optional().describe('Modifier keys for `key` entries only (e.g. ["cmd", "shift"])'),
+  delayMs: z.number().int().nonnegative().optional().describe("Optional delay after this item, in milliseconds"),
+}).refine(
+  (value) => (value.key ? 1 : 0) + (value.text ? 1 : 0) === 1,
+  { message: 'Each item must include exactly one of "key" or "text"' }
+).refine(
+  (value) => value.text === undefined || value.modifiers === undefined,
+  { message: '"modifiers" is only supported with "key"' }
+);
 
 server.registerTool("list_apps", {
   description: "List running macOS apps with accessibility support",
@@ -124,7 +146,7 @@ server.registerTool("wait_for", {
 });
 
 server.registerTool("press_key", {
-  description: 'Send keyboard input. Key names: "return", "tab", "escape", "a"-"z", "1"-"9", "f1"-"f12", "up", "down", "left", "right", "space", "delete". Modifiers: "cmd", "shift", "alt", "ctrl".',
+  description: 'Activate the target app, then send keyboard input. Key names: "return", "tab", "escape", "a"-"z", "1"-"9", "f1"-"f12", "up", "down", "left", "right", "space", "delete". Modifiers: "cmd", "shift", "alt", "ctrl".',
   inputSchema: {
     app: z.string().describe("App name or PID"),
     key: z.string().describe("Key name"),
@@ -134,6 +156,18 @@ server.registerTool("press_key", {
   const handle = await client.connect(app);
   await handle.pressKey(key, modifiers);
   return { content: [{ type: "text", text: `Pressed ${modifiers?.length ? modifiers.join("+") + "+" : ""}${key}` }] };
+});
+
+server.registerTool("press_keys", {
+  description: 'Activate the target app, then send a sequence of keyboard inputs in one call. Each step accepts either `key` plus optional `modifiers`, or `text` to type literally, plus optional `delayMs`.',
+  inputSchema: {
+    app: z.string().describe("App name or PID"),
+    keys: z.array(keyStrokeSchema).min(1).describe("Ordered list of key or text items to send"),
+  },
+}, async ({ app, keys }) => {
+  const handle = await client.connect(app);
+  await handle.pressKeys(keys as KeyStroke[]);
+  return { content: [{ type: "text", text: `Sent ${keys.length} input item${keys.length === 1 ? "" : "s"}` }] };
 });
 
 server.registerTool("screenshot", {
@@ -171,6 +205,91 @@ server.registerTool("get_element", {
     content: [{
       type: "text",
       text: JSON.stringify(info, null, 2),
+    }],
+  };
+});
+
+// --- Shortcuts ---
+
+function getShortcutsList(): string[] {
+  try {
+    const result = spawnSync("shortcuts", ["list"], { encoding: "utf8", timeout: 10_000 });
+    if (result.error || result.status !== 0) return [];
+    return (result.stdout ?? "").split("\n").map((l) => l.trim()).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+function resolveShortcutName(query: string, shortcuts: string[]): string | null {
+  if (!query || shortcuts.length === 0) return null;
+  const lowered = query.toLowerCase();
+  const exact = shortcuts.find((s) => s.toLowerCase() === lowered);
+  if (exact) return exact;
+  const normalized = (v: string) => v.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const normMatch = shortcuts.find((s) => normalized(s) === normalized(query));
+  if (normMatch) return normMatch;
+  const partial = shortcuts.find((s) => s.toLowerCase().includes(lowered));
+  if (partial) return partial;
+  return null;
+}
+
+server.registerTool("list_shortcuts", {
+  description: "List all Apple Shortcuts available on this Mac.",
+  annotations: { readOnlyHint: true },
+}, async () => {
+  const shortcuts = getShortcutsList();
+  if (shortcuts.length === 0) {
+    return { content: [{ type: "text", text: "No shortcuts found (or Shortcuts app not available)." }] };
+  }
+  return { content: [{ type: "text", text: shortcuts.map((s) => `- ${s}`).join("\n") }] };
+});
+
+server.registerTool("run_shortcut", {
+  description: "Run an Apple Shortcut by name. Shortcuts are system-level automations, not tied to any specific app.",
+  inputSchema: {
+    name: z.string().describe("Shortcut name"),
+    input: z.string().optional().describe("Input text to pass to the shortcut"),
+  },
+}, async ({ name, input }) => {
+  const available = getShortcutsList();
+  const resolved = resolveShortcutName(name, available);
+
+  if (!resolved) {
+    const hint = available.length > 0
+      ? `\nAvailable shortcuts:\n${available.slice(0, 30).map((s) => `  - ${s}`).join("\n")}`
+      : "";
+    return { content: [{ type: "text", text: `Shortcut not found: "${name}"${hint}` }], isError: true };
+  }
+
+  const args = ["run", resolved];
+  if (input !== undefined) args.push("--input", input);
+
+  const result = spawnSync("shortcuts", args, { encoding: "utf8", timeout: 30_000 });
+
+  if (result.error) {
+    return { content: [{ type: "text", text: `Shortcut error: ${result.error.message}` }], isError: true };
+  }
+
+  const stdout = (result.stdout ?? "").trim();
+  const stderr = (result.stderr ?? "").trim();
+
+  if (result.status !== 0) {
+    const msg = stderr || stdout || `Shortcut exited with code ${result.status}`;
+    if (/empty shortcut/i.test(msg)) {
+      return { content: [{ type: "text", text: `Shortcut "${resolved}" exists but has no actions.` }] };
+    }
+    return { content: [{ type: "text", text: `Shortcut failed: ${msg}` }], isError: true };
+  }
+
+  return {
+    content: [{
+      type: "text",
+      text: JSON.stringify({
+        ok: true,
+        shortcut: resolved,
+        output: stdout || "Shortcut completed.",
+      }, null, 2),
     }],
   };
 });
