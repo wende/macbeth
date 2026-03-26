@@ -1,5 +1,5 @@
 // @name get-last-messages
-// @description Get recent conversations and optionally their messages from Messages.app
+// @description Get recent conversations and messages from Messages.app
 // @usage node scripts/get-last-messages.mjs [--since "2 days ago"] [--mode people|messages] [--limit 5]
 
 import { connect } from "macbeth";
@@ -78,9 +78,6 @@ function parseConversationDate(label) {
 const app = await connect("Messages");
 const win = app.locator({ role: "window" });
 const convList = win.locator({ role: "group", identifier: "ConversationList" });
-const searchField = win
-  .locator({ role: "group", identifier: "CKConversationListCollectionView" })
-  .locator({ role: "text_field" });
 const transcript = win.locator({ role: "group", identifier: "TranscriptCollectionView" });
 
 const results = [];
@@ -110,100 +107,73 @@ for (let i = 0; ; i++) {
   results.push({ name, pinned: false, date: convDate, messages: [] });
 }
 
-// Phase 2: For each conversation, navigate via search and read messages
+// Phase 2: In "messages" mode, read messages from the currently open conversation
 if (mode === "messages") {
-  for (const conv of results) {
-    try {
-      // Navigate: type name in search, click first result, then clear search
-      await searchField.fill(conv.name);
-      await new Promise((r) => setTimeout(r, 400));
+  // Determine which conversation is currently open
+  let currentConv = null;
+  try {
+    const titleInfo = await win.locator({ role: "button", identifier: "ConversationTitle" }).getInfo();
+    const currentName = titleInfo.label;
+    currentConv = results.find((c) => currentName?.includes(c.name));
+    if (!currentConv && currentName) {
+      // The open conversation might not be in our filtered results — add it
+      currentConv = { name: currentName, pinned: false, date: null, messages: [] };
+      results.unshift(currentConv);
+    }
+  } catch {
+    // No conversation open
+  }
 
-      // Click the first search result
+  if (currentConv) {
+    // Binary search for total message count
+    let lo = 0, hi = 200;
+    while (true) {
       try {
-        await convList.locator({ role: "text", index: 0 }).click({ timeout: 3000 });
+        await transcript.locator({ role: "group", identifier: "Sticker", index: hi - 1 }).getInfo();
+        hi *= 2;
       } catch {
-        // If click on text doesn't work, try pressing Return to select
-        await app.pressKey("return");
+        break;
       }
-      await new Promise((r) => setTimeout(r, 300));
-
-      // Clear search by pressing Escape
-      await app.pressKey("escape");
-      await new Promise((r) => setTimeout(r, 200));
-
-      // Verify we're in the right conversation by checking the title
-      let titleInfo;
+    }
+    while (lo < hi) {
+      const mid = Math.floor((lo + hi) / 2);
       try {
-        titleInfo = await win.locator({ role: "button", identifier: "ConversationTitle" }).getInfo();
+        await transcript.locator({ role: "group", identifier: "Sticker", index: mid }).getInfo();
+        lo = mid + 1;
       } catch {
-        console.error(`Could not verify conversation: ${conv.name}`);
-        continue;
+        hi = mid;
       }
+    }
+    const total = lo;
 
-      // Wait for transcript to load
-      let loaded = false;
-      for (let attempt = 0; attempt < 8; attempt++) {
+    const startIdx = Math.max(0, total - limit);
+    for (let j = startIdx; j < total; j++) {
+      try {
+        const sticker = transcript.locator({ role: "group", identifier: "Sticker", index: j });
+        const stickerInfo = await sticker.getInfo();
+        const stickerLabel = stickerInfo.label ?? "";
+
+        let text;
         try {
-          await transcript.locator({ role: "group", identifier: "Sticker", index: 0 }).getInfo();
-          loaded = true;
-          break;
+          const balloon = await sticker
+            .locator({ role: "text_area", identifier: "CKBalloonTextView" })
+            .getInfo();
+          text = balloon.value;
         } catch {
-          await new Promise((r) => setTimeout(r, 250));
-        }
-      }
-
-      if (!loaded) {
-        console.error(`Transcript did not load for: ${conv.name}`);
-        continue;
-      }
-
-      // Binary search for total message count
-      let lo = 0, hi = 200;
-      while (true) {
-        try {
-          await transcript.locator({ role: "group", identifier: "Sticker", index: hi - 1 }).getInfo();
-          hi *= 2;
-        } catch {
-          break;
-        }
-      }
-      while (lo < hi) {
-        const mid = Math.floor((lo + hi) / 2);
-        try {
-          await transcript.locator({ role: "group", identifier: "Sticker", index: mid }).getInfo();
-          lo = mid + 1;
-        } catch {
-          hi = mid;
-        }
-      }
-      const total = lo;
-
-      // Read last `limit` messages
-      const startIdx = Math.max(0, total - limit);
-      for (let j = startIdx; j < total; j++) {
-        try {
-          const sticker = transcript.locator({ role: "group", identifier: "Sticker", index: j });
-          const stickerInfo = await sticker.getInfo();
-          const stickerLabel = stickerInfo.label ?? "";
-
-          let text;
-          try {
-            const balloon = await sticker
-              .locator({ role: "text_area", identifier: "CKBalloonTextView" })
-              .getInfo();
-            text = balloon.value;
-          } catch {
-            text = null;
+          // No CKBalloonTextView (e.g. SMS). Extract text from the sticker label.
+          // Label format: "Sender, message text, time"
+          const parts = stickerLabel.split(", ");
+          if (parts.length >= 3) {
+            // Remove first part (sender) and last part (time), join the rest
+            text = parts.slice(1, -1).join(", ");
           }
-
-          const isMe = stickerLabel.startsWith("Your ");
-          conv.messages.push({ from: isMe ? "me" : conv.name, text });
-        } catch {
-          break;
         }
+
+        const isMe = stickerLabel.startsWith("Your ");
+        currentConv.messages.push({ from: isMe ? "me" : currentConv.name, text });
+      } catch {
+        break;
       }
-    } catch (err) {
-      console.error(`Error reading ${conv.name}: ${err.message}`);
     }
   }
 }
