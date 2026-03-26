@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "macbeth": {
+      "command": "node",
+      "args": ["client/dist/mcp.js"]
+    }
+  }
+}

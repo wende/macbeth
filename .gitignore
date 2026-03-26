@@ -1,0 +1,16 @@
+# Swift
+.build/
+.swiftpm/
+xcuserdata/
+DerivedData/
+
+# Node
+node_modules/
+dist/
+
+# macbeth
+*.sock
+client/bin/macbethd
+
+# OS
+.DS_Store

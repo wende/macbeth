@@ -1,0 +1,5 @@
+{
+  "name": "macbeth-monorepo",
+  "private": true,
+  "workspaces": ["client"]
+}
