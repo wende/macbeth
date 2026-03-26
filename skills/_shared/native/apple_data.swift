@@ -336,10 +336,8 @@ struct AppleDataBridge {
         ])
     }
 
-    static func contactsSearch(_ cli: CLI) throws {
-        let store = CNContactStore()
+    static func requestContactsAccess(_ store: CNContactStore) throws {
         var granted = false
-
         let sem = DispatchSemaphore(value: 0)
         store.requestAccess(for: .contacts) { ok, _ in
             granted = ok
@@ -347,8 +345,13 @@ struct AppleDataBridge {
         }
         sem.wait()
         guard granted else {
-            throw BridgeError.parseError("Contacts permission denied")
+            throw BridgeError.parseError("Contacts permission denied. Grant access in System Settings > Privacy & Security > Contacts.")
         }
+    }
+
+    static func contactsSearch(_ cli: CLI) throws {
+        let store = CNContactStore()
+        try requestContactsAccess(store)
 
         let query = (cli.option("query") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let limit = Int(cli.option("limit") ?? "20") ?? 20
@@ -390,17 +393,7 @@ struct AppleDataBridge {
 
     static func contactsAdd(_ cli: CLI) throws {
         let store = CNContactStore()
-        var granted = false
-
-        let sem = DispatchSemaphore(value: 0)
-        store.requestAccess(for: .contacts) { ok, _ in
-            granted = ok
-            sem.signal()
-        }
-        sem.wait()
-        guard granted else {
-            throw BridgeError.parseError("Contacts permission denied")
-        }
+        try requestContactsAccess(store)
 
         let given = try cli.required("given")
         let family = cli.option("family") ?? ""

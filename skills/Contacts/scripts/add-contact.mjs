@@ -20,7 +20,16 @@ if (family) bridgeArgs.push("--family", family);
 if (email) bridgeArgs.push("--email", email);
 if (phone) bridgeArgs.push("--phone", phone);
 
-const out = runNativeBridge(bridgeArgs);
+let out;
+try {
+  out = runNativeBridge(bridgeArgs);
+} catch (err) {
+  out = { ok: false, error: err.message };
+  if (/permission denied/i.test(err.message)) {
+    out.hint = "Grant access in System Settings > Privacy & Security > Contacts, then retry.";
+  }
+}
+
 console.log(JSON.stringify(out, null, 2));
 if (out?.ok === false) process.exit(1);
 

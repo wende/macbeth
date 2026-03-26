@@ -1,6 +1,6 @@
-// @name click-control-ax
-// @description Click a Music UI control button using AX
-// @usage node skills/Music/scripts/click-control-ax.mjs [--title "Play"] [--pattern "Play|Pause"]
+// @name click-toolbar-button
+// @description Click a Mail toolbar button by exact title or regex pattern
+// @usage node skills/Mail/scripts/click-toolbar-button.mjs [--title "Reply"] [--pattern "Send|Reply"]
 
 import { connect } from "macbeth";
 
@@ -14,14 +14,14 @@ if (!title && !pattern) {
 }
 
 try {
-  const app = await connect("Music");
+  const app = await connect("Mail");
   const win = app.locator({ role: "window" });
   const query = { role: "button" };
   if (title) query.title = title;
   else query.titlePattern = pattern;
 
   await win.locator(query).click({ timeout: 15_000 });
-  console.log("Clicked control.");
+  console.log("Clicked toolbar button.");
 } catch (err) {
   console.log(JSON.stringify({ ok: false, error: err.message }, null, 2));
   process.exit(1);
