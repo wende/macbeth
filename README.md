@@ -1,6 +1,4 @@
-# macbeth
-
-Playwright for macOS native apps.
+# MacBeth - Playwright for MacOS native apps
 
 macbeth automates any macOS application through the [Accessibility API](https://developer.apple.com/documentation/accessibility). It provides a TypeScript client with chainable locators, auto-waiting, and screenshot capture — the same patterns you know from Playwright, applied to native macOS UI elements instead of the browser DOM.
 
