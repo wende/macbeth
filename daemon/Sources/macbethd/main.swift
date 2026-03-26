@@ -70,7 +70,8 @@ registerQueryTree(dispatcher: dispatcher, appManager: appManager, handleTable: h
 registerGetElement(dispatcher: dispatcher, appManager: appManager, handleTable: handleTable)
 registerClick(dispatcher: dispatcher, appManager: appManager, handleTable: handleTable)
 registerFill(dispatcher: dispatcher, appManager: appManager, handleTable: handleTable)
-registerPressKey(dispatcher: dispatcher)
+registerPressKey(dispatcher: dispatcher, appManager: appManager)
+registerPressKeys(dispatcher: dispatcher, appManager: appManager)
 registerWaitFor(dispatcher: dispatcher, appManager: appManager, handleTable: handleTable)
 registerScreenshot(dispatcher: dispatcher, appManager: appManager)
 

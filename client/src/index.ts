@@ -11,6 +11,7 @@ import type { ConnectOptions } from "./types.js";
  * const app = await connect('TextEdit');
  * await app.window('Untitled').textField().fill('Hello');
  * await app.pressKey('s', ['cmd']);
+ * await app.pressKeys([{ key: 'return' }, { key: 'tab', delayMs: 100 }]);
  * ```
  */
 export async function connect(
@@ -30,6 +31,7 @@ export type {
   TreeOptions,
   ElementInfo,
   ScreenshotResult,
+  KeyStroke,
   QueryStep,
   AXNodeJSON,
 } from "./types.js";

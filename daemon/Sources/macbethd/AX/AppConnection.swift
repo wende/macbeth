@@ -73,6 +73,28 @@ actor AppConnectionManager {
         connections[handleId]?.appElement
     }
 
+    /// Bring the connected app to the front so HID-posted keyboard events land there.
+    func activate(_ handleId: String) async {
+        guard let connection = connections[handleId] else { return }
+
+        if let app = NSRunningApplication(processIdentifier: connection.pid) {
+            _ = await MainActor.run {
+                app.activate(options: [])
+            }
+        }
+
+        let appElement = AXUIElementCreateApplication(connection.pid)
+        AXUIElementPerformAction(appElement, kAXRaiseAction as CFString)
+        AXUIElementSetAttributeValue(appElement, kAXFrontmostAttribute as CFString, true as CFBoolean)
+
+        for _ in 0..<10 {
+            if let app = NSRunningApplication(processIdentifier: connection.pid), app.isActive {
+                break
+            }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+    }
+
     private nonisolated func findApp(byName name: String) -> NSRunningApplication? {
         let apps = NSWorkspace.shared.runningApplications
             .filter { $0.activationPolicy == .regular }

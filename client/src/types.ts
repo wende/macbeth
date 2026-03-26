@@ -43,6 +43,17 @@ export interface ScreenshotResult {
   format: "png";
 }
 
+export type KeyStroke =
+  | {
+      key: string;
+      modifiers?: string[];
+      delayMs?: number;
+    }
+  | {
+      text: string;
+      delayMs?: number;
+    };
+
 export interface AXNodeJSON {
   handleId: string;
   role: string;

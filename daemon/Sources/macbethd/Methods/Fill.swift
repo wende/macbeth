@@ -33,6 +33,7 @@ func registerFill(
             }
 
             // Fallback: focus, select all, type the value
+            await appManager.activate(appHandle)
             AXUIElementSetAttributeValue(
                 element.element, kAXFocusedAttribute as CFString, true as CFTypeRef
             )
@@ -54,7 +55,7 @@ func registerFill(
 }
 
 /// Type a single character via CGEvent.
-private func typeCharacter(_ char: Character) {
+func typeCharacter(_ char: Character) {
     let str = String(char)
     guard let event = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: true) else { return }
     var utf16 = Array(str.utf16)

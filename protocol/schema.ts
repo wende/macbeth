@@ -114,6 +114,22 @@ export interface PressKeyParams {
   modifiers?: string[];
 }
 
+export type KeyStroke =
+  | {
+      key: string;
+      modifiers?: string[];
+      delayMs?: number;
+    }
+  | {
+      text: string;
+      delayMs?: number;
+    };
+
+export interface PressKeysParams {
+  appHandle: string;
+  keys: KeyStroke[];
+}
+
 // screenshot
 export interface ScreenshotParams {
   appHandle: string;

@@ -4,6 +4,7 @@ import { Locator } from "./elements.js";
 import type {
   ConnectOptions,
   AppInfo,
+  KeyStroke,
   TreeOptions,
   ScreenshotResult,
   QueryStep,
@@ -61,6 +62,14 @@ export class AppHandle extends Locator {
       appHandle: this.appHandle,
       key,
       modifiers,
+    });
+  }
+
+  /** Send a sequence of keyboard inputs in one RPC call */
+  async pressKeys(keys: KeyStroke[]): Promise<void> {
+    await this.rpc.call("press_keys", {
+      appHandle: this.appHandle,
+      keys,
     });
   }
 }

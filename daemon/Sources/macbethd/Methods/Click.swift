@@ -32,14 +32,7 @@ func registerClick(
 
                 let center = CGPoint(x: point.x + size.width / 2, y: point.y + size.height / 2)
 
-                // Bring app to front via AX API (raises windows without Cmd state side-effects)
-                if let conn = await appManager.get(appHandle) {
-                    let appEl = AXUIElementCreateApplication(conn.pid)
-                    AXUIElementPerformAction(appEl, kAXRaiseAction as CFString)
-                    AXUIElementSetAttributeValue(appEl, kAXFrontmostAttribute as CFString, true as CFBoolean)
-                    usleep(100_000)
-                }
-
+                await appManager.activate(appHandle)
                 postClickEvent(at: center)
             }
 

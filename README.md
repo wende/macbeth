@@ -29,6 +29,7 @@ import { connect } from "macbeth";
 const app = await connect("TextEdit");
 await app.window("Untitled").textField().fill("Hello from macbeth");
 await app.pressKey("s", ["cmd"]);
+await app.pressKeys([{ key: "return" }, { key: "tab", delayMs: 100 }]);
 // process exits cleanly — no cleanup needed
 ```
 
@@ -171,6 +172,12 @@ const json = await app.queryTree({ format: "json", maxDepth: 5 });
 await app.pressKey("return");
 await app.pressKey("a", ["cmd"]);          // Cmd+A (select all)
 await app.pressKey("z", ["cmd", "shift"]); // Cmd+Shift+Z (redo)
+await app.pressKeys([
+  { key: "l", modifiers: ["cmd"] },        // Focus address bar / location field
+  { key: "a", modifiers: ["cmd"], delayMs: 75 },
+  { text: "https://example.com" },
+  { key: "return" },
+]);
 ```
 
 Supported keys: `a`–`z`, `0`–`9`, `f1`–`f12`, `return`, `tab`, `escape`, `space`, `delete`, `up`, `down`, `left`, `right`, and common symbols.
@@ -285,7 +292,8 @@ Add to your Claude Code MCP config (`.mcp.json`):
 | `click` | Click a UI element (auto-waits) |
 | `fill` | Set a text field's value (auto-waits) |
 | `wait_for` | Wait for an element to appear |
-| `press_key` | Send keyboard input |
+| `press_key` | Activate the target app, then send keyboard input |
+| `press_keys` | Activate the target app, then send a sequence of key presses |
 | `screenshot` | Capture a window screenshot |
 
 ### Skills
