@@ -7,9 +7,9 @@ It also ships as an MCP server, so LLM agents can drive macOS apps through tool 
 ## How it works
 
 ```
-┌──────────────┐     JSON-RPC      ┌──────────────┐     AX API      ┌─────────────┐
-│  TypeScript  │◄──── over ────────►│    macbethd   │◄──────────────►│  macOS App   │
-│   Client     │   Unix socket     │  (Swift daemon)│               │  (any app)   │
+┌──────────────┐     JSON-RPC      ┌──────────────┐     AX API    ┌─────────────┐
+│  TypeScript  │◄──── over ───────►│    macbethd  │◄─────────────►│  macOS App  │
+│   Client     │   Unix socket     │(Swift daemon)│               │  (any app)  │
 └──────────────┘                   └──────────────┘               └─────────────┘
        ▲
        │
