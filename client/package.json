@@ -16,11 +16,14 @@
   },
   "files": [
     "dist/",
-    "bin/"
+    "bin/",
+    "skills/"
   ],
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
+    "prepack": "node ./scripts/sync-skills.mjs",
+    "postpack": "node ./scripts/clean-skills.mjs",
     "test": "vitest run",
     "test:watch": "vitest"
   },
