@@ -1,8 +1,11 @@
 import { spawnSync } from "node:child_process";
 
-export function runAppleScript(sourceLines, argv = []) {
+export function runAppleScript(
+  sourceLines: string | string[],
+  argv: string[] = []
+): string {
   const lines = Array.isArray(sourceLines) ? sourceLines : [sourceLines];
-  const args = [];
+  const args: string[] = [];
   for (const line of lines) {
     args.push("-e", line);
   }
@@ -12,7 +15,9 @@ export function runAppleScript(sourceLines, argv = []) {
 
   if (result.error) throw result.error;
   if (result.status !== 0) {
-    const err = (result.stderr ?? result.stdout ?? "AppleScript failed").trim();
+    const err = (
+      result.stderr ?? result.stdout ?? "AppleScript failed"
+    ).trim();
     throw new Error(err);
   }
 

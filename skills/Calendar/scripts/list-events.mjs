@@ -2,7 +2,7 @@
 // @description List upcoming calendar events via EventKit bridge
 // @usage node skills/Calendar/scripts/list-events.mjs [--calendar "Work"] [--days 7]
 
-import { runNativeBridge } from "../../_shared/lib/native-bridge.mjs";
+import { runNativeBridge } from "macbeth";
 
 const args = process.argv.slice(2);
 const calendar = getArg(args, "calendar");

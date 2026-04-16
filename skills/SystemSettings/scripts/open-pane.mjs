@@ -2,7 +2,7 @@
 // @description Open a System Settings pane by identifier
 // @usage node skills/SystemSettings/scripts/open-pane.mjs --id "com.apple.Network-Settings.extension"
 
-import { run } from "../../_shared/lib/shell.mjs";
+import { run } from "macbeth";
 
 const args = process.argv.slice(2);
 const paneId = getArg(args, "id");

@@ -2,7 +2,7 @@
 // @description Read metadata for the currently selected Mail message via AppleScript
 // @usage node skills/Mail/scripts/selected-message-applescript.mjs
 
-import { runAppleScript } from "../../_shared/lib/applescript.mjs";
+import { runAppleScript } from "macbeth";
 
 const output = runAppleScript([
   "tell application \"Mail\"",

@@ -11,7 +11,7 @@ description: Minimal Calendar automation using EventKit with optional Shortcuts 
 
 ## Backends
 
-- Primary: EventKit bridge (`skills/_shared/native/apple_data.swift`)
+- Primary: EventKit bridge (`client/native/apple_data.swift`)
 - Integration: Shortcuts for custom calendar workflows
 
 ## Runnable Scripts

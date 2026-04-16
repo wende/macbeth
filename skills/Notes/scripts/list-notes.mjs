@@ -2,7 +2,7 @@
 // @description List notes from Apple Notes (optional folder filter)
 // @usage node skills/Notes/scripts/list-notes.mjs [--folder "Work"] [--limit 20]
 
-import { runAppleScript } from "../../_shared/lib/applescript.mjs";
+import { runAppleScript } from "macbeth";
 
 const args = process.argv.slice(2);
 const folder = getArg(args, "folder") ?? "";

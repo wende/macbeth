@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 const here = dirname(fileURLToPath(import.meta.url));
 const bridge = join(here, "..", "native", "apple_data.swift");
 
-export function runNativeBridge(args) {
+export function runNativeBridge(args: string[]): unknown {
   const result = spawnSync("swift", [bridge, ...args], { encoding: "utf8" });
   if (result.error) throw result.error;
 
@@ -19,10 +19,12 @@ export function runNativeBridge(args) {
   }
 
   if (parsed !== null) return parsed;
-  throw new Error(stderr || stdout || `Native bridge failed with status ${result.status}`);
+  throw new Error(
+    stderr || stdout || `Native bridge failed with status ${result.status}`
+  );
 }
 
-function tryParseJson(text) {
+function tryParseJson(text: string): unknown {
   if (!text) return null;
   try {
     return JSON.parse(text);

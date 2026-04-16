@@ -2,7 +2,7 @@
 // @description Search contacts using CNContactStore bridge
 // @usage node skills/Contacts/scripts/search-contacts.mjs [--query "john"] [--limit 20]
 
-import { runNativeBridge } from "../../_shared/lib/native-bridge.mjs";
+import { runNativeBridge } from "macbeth";
 
 const args = process.argv.slice(2);
 const query = getArg(args, "query") ?? "";

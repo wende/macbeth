@@ -2,7 +2,7 @@
 // @description Create a Mail draft via AppleScript (does not auto-send)
 // @usage node skills/Mail/scripts/compose-draft-applescript.mjs [--to "user@example.com"] [--subject "Hello"] [--body "Hi there"]
 
-import { runAppleScript } from "../../_shared/lib/applescript.mjs";
+import { runAppleScript } from "macbeth";
 
 const args = process.argv.slice(2);
 const to = getArg(args, "to") ?? "";

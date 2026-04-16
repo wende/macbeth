@@ -2,7 +2,7 @@
 // @description Create a new note in Apple Notes
 // @usage node skills/Notes/scripts/create-note.mjs --title "Ideas" --body "Text" [--folder "Work"]
 
-import { runAppleScript } from "../../_shared/lib/applescript.mjs";
+import { runAppleScript } from "macbeth";
 
 const args = process.argv.slice(2);
 const title = getArg(args, "title");

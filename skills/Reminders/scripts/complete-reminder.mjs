@@ -3,7 +3,7 @@
 // @usage node skills/Reminders/scripts/complete-reminder.mjs --id "<reminder-id>" [--title "Pay rent"] [--list "Personal"]
 // @usage node skills/Reminders/scripts/complete-reminder.mjs --title "Pay rent" [--list "Personal"]
 
-import { runNativeBridge } from "../../_shared/lib/native-bridge.mjs";
+import { runNativeBridge } from "macbeth";
 
 const args = process.argv.slice(2);
 const id = getArg(args, "id");

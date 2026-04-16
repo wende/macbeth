@@ -2,7 +2,7 @@
 // @description Search Music library by name and play first match
 // @usage node skills/Music/scripts/search-and-play.mjs --query "Daft Punk"
 
-import { runAppleScript } from "../../_shared/lib/applescript.mjs";
+import { runAppleScript } from "macbeth";
 
 const args = process.argv.slice(2);
 const query = getArg(args, "query");

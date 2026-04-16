@@ -2,7 +2,7 @@
 // @description Create a reminder via EventKit bridge
 // @usage node skills/Reminders/scripts/create-reminder.mjs --title "Pay rent" [--list "Personal"] [--due "2026-03-31T09:00:00+01:00"]
 
-import { runNativeBridge } from "../../_shared/lib/native-bridge.mjs";
+import { runNativeBridge } from "macbeth";
 
 const args = process.argv.slice(2);
 const title = getArg(args, "title");

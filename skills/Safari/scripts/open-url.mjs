@@ -2,8 +2,7 @@
 // @description Opens a URL in Safari and waits for it to load
 // @usage node scripts/open-url.mjs <url>
 
-import { execSync } from "node:child_process";
-import { connect } from "macbeth";
+import { connect, run } from "macbeth";
 
 const url = process.argv[2];
 if (!url) {
@@ -11,7 +10,7 @@ if (!url) {
   process.exit(1);
 }
 
-execSync(`open -a Safari "${url}"`);
+run("open", ["-a", "Safari", url]);
 
 const app = await connect("Safari");
 

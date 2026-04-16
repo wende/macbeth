@@ -35,3 +35,7 @@ export type {
   QueryStep,
   AXNodeJSON,
 } from "./types.js";
+export { run, runJson } from "./shell.js";
+export { runAppleScript } from "./applescript.js";
+export { runShortcut, listShortcuts } from "./shortcuts.js";
+export { runNativeBridge } from "./native-bridge.js";

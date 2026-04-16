@@ -2,7 +2,7 @@
 // @description Create a calendar event via EventKit bridge
 // @usage node skills/Calendar/scripts/create-event.mjs --title "Standup" --start "2026-03-27T09:00:00+01:00" --end "2026-03-27T09:15:00+01:00" [--calendar "Work"]
 
-import { runNativeBridge } from "../../_shared/lib/native-bridge.mjs";
+import { runNativeBridge } from "macbeth";
 
 const args = process.argv.slice(2);
 const title = getArg(args, "title");

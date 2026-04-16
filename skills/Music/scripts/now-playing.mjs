@@ -2,7 +2,7 @@
 // @description Get current track metadata from Music.app
 // @usage node skills/Music/scripts/now-playing.mjs
 
-import { runAppleScript } from "../../_shared/lib/applescript.mjs";
+import { runAppleScript } from "macbeth";
 
 const output = runAppleScript([
   "tell application \"Music\"",

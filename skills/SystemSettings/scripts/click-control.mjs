@@ -2,8 +2,7 @@
 // @description Click a System Settings control by role and title/pattern
 // @usage node skills/SystemSettings/scripts/click-control.mjs [--role "button"] [--title "Wi-Fi"] [--pattern "Wi-Fi|Bluetooth"]
 
-import { execSync } from "node:child_process";
-import { connect } from "macbeth";
+import { connect, run } from "macbeth";
 
 const args = process.argv.slice(2);
 const role = getArg(args, "role") ?? "button";
@@ -16,9 +15,7 @@ if (!title && !pattern) {
 }
 
 try {
-  execSync('open -a "System Settings"', { stdio: "ignore" });
-  await sleep(1000);
-
+  run("open", ["-a", "System Settings"]);
   const app = await connect("System Settings");
   const query = { role };
   if (title) query.title = title;
@@ -29,10 +26,6 @@ try {
 } catch (err) {
   console.log(JSON.stringify({ ok: false, error: err.message }, null, 2));
   process.exit(1);
-}
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function getArg(argv, name) {

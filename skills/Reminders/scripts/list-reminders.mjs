@@ -2,7 +2,7 @@
 // @description List reminders via EventKit bridge
 // @usage node skills/Reminders/scripts/list-reminders.mjs [--list "Work"] [--include-completed]
 
-import { runNativeBridge } from "../../_shared/lib/native-bridge.mjs";
+import { runNativeBridge } from "macbeth";
 
 const args = process.argv.slice(2);
 const list = getArg(args, "list");

@@ -2,7 +2,7 @@
 // @description List contact groups via AppleScript
 // @usage node skills/Contacts/scripts/list-groups-applescript.mjs
 
-import { runAppleScript } from "../../_shared/lib/applescript.mjs";
+import { runAppleScript } from "macbeth";
 
 const output = runAppleScript([
   "tell application \"Contacts\"",

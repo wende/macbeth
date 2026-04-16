@@ -2,8 +2,7 @@
 // @description Search in System Settings using AX text field fill
 // @usage node skills/SystemSettings/scripts/search-setting.mjs --query "firewall"
 
-import { execSync } from "node:child_process";
-import { connect } from "macbeth";
+import { connect, run } from "macbeth";
 
 const args = process.argv.slice(2);
 const query = getArg(args, "query");
@@ -13,9 +12,7 @@ if (!query) {
 }
 
 try {
-  execSync('open -a "System Settings"', { stdio: "ignore" });
-  await sleep(1000);
-
+  run("open", ["-a", "System Settings"]);
   const app = await connect("System Settings");
   const searchField = app
     .locator({ role: "window" })
@@ -25,10 +22,6 @@ try {
 } catch (err) {
   console.log(JSON.stringify({ ok: false, error: err.message }, null, 2));
   process.exit(1);
-}
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function getArg(argv, name) {

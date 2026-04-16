@@ -2,7 +2,7 @@
 // @description Create a contact via CNContactStore bridge
 // @usage node skills/Contacts/scripts/add-contact.mjs --given "Ada" [--family "Lovelace"] [--email "ada@example.com"] [--phone "+48123123123"]
 
-import { runNativeBridge } from "../../_shared/lib/native-bridge.mjs";
+import { runNativeBridge } from "macbeth";
 
 const args = process.argv.slice(2);
 const given = getArg(args, "given");

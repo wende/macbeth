@@ -11,7 +11,7 @@ description: List, create, and complete reminders using EventKit with AppleScrip
 
 ## Backends
 
-- Primary: EventKit bridge (`skills/_shared/native/apple_data.swift`)
+- Primary: EventKit bridge (`client/native/apple_data.swift`)
 - Fallback: AppleScript for simple app-level interactions
 - Integration: Shortcuts for custom workflows
 

@@ -2,7 +2,7 @@
 // @description Open Maps directions using maps:// URL scheme
 // @usage node skills/Maps/scripts/open-directions.mjs --to "Warsaw Central Station" [--from "Current Location"]
 
-import { run } from "../../_shared/lib/shell.mjs";
+import { run } from "macbeth";
 
 const args = process.argv.slice(2);
 const to = getArg(args, "to");

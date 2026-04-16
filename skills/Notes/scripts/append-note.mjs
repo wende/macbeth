@@ -2,7 +2,7 @@
 // @description Append text to a note selected by exact title
 // @usage node skills/Notes/scripts/append-note.mjs --title "Ideas" --text "Another item"
 
-import { runAppleScript } from "../../_shared/lib/applescript.mjs";
+import { runAppleScript } from "macbeth";
 
 const args = process.argv.slice(2);
 const title = getArg(args, "title");
