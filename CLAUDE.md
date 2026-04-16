@@ -69,10 +69,49 @@ Swift script executed directly for EventKit access (Calendar, Reminders, Contact
 4. Add TypeScript client method in `client/src/client.ts`
 5. If exposing via MCP, add tool in `client/src/mcp.ts`
 
+## Dev Notes
+
+### AX limitations in complex apps (Unity, Electron IDEs)
+
+Apps like Unity expose only window + menu bar through the Accessibility API. Panel
+internals (Inspector, Hierarchy, Scene) are invisible to AX queries — `query_tree`
+returns a flat structure with 3-5 nodes, and `read_form` finds zero controls. This
+is a host app limitation, not a macbeth bug.
+
+For these apps, the primary interaction model is:
+- **Menus**: `select_menu_item` / `list_menu_bar` (deterministic, fast)
+- **OCR**: `extract_text` via Vision framework bridges the AX gap — extracts on-screen
+  labels, values, and field names from screenshots
+- **Screenshots**: `screenshot` with optional `region` crop for visual confirmation
+
+`read_form` works well on native macOS apps with proper AX support (System Settings,
+Xcode, TextEdit, etc.) where controls expose `AXValue`, `AXTitleUIElement`, and
+`AXSettable` attributes.
+
+### Error codes
+
+RPC errors use codes -32000 to -32009. AppleScript/JXA errors are classified by OSA
+error number: -1728 → `menuItemNotFound`, -1719 → `menuItemDisabled`, -600/-609 →
+`appBusy`. The MCP layer formats these as `[error_kind]: message` for agent readability.
+
+### Handle lifecycle
+
+Handles expire after 5 minutes of inactivity. Use `pin_handle` to exempt long-lived
+references. `Locator.scope()` pins automatically and rediscovers on expiry. Handles
+are daemon-local — if the daemon crashes, all handles are invalidated (the client
+auto-reconnects and re-spawns the daemon transparently).
+
+### Auto-reconnect
+
+`JsonRpcClient.call()` retries once on connection errors (ECONNREFUSED, connection
+closed, socket missing). The retry re-spawns the daemon via `DaemonManager.ensureRunning()`.
+App handles must be re-obtained after a daemon restart since handle IDs are not stable
+across daemon processes.
+
 ## Key Constraints
 
 - **Swift 6 strict concurrency**: All daemon code must be Sendable-compliant
-- **Zero external Swift dependencies**: Daemon uses only Foundation, ApplicationServices, ScreenCaptureKit, CoreGraphics
+- **Zero external Swift dependencies**: Daemon uses only Foundation, ApplicationServices, ScreenCaptureKit, CoreGraphics, Vision
 - **macOS 14+** minimum, **Node 20+**, **Swift 6.0+**
 - **No mouse/CGEvent clicks**: Use AX `AXUIElementPerformAction` (press action), never `CGEvent` mouse simulation or app activation
 - **Fix bugs at the source**: If the daemon/client has a bug, fix it there — don't work around it in skill scripts
