@@ -53,6 +53,7 @@ export class Locator {
   menu(title: string): Locator { return this.child("menu", title); }
   menuItem(title: string): Locator { return this.child("menu_item", title); }
   menuBar(): Locator { return this.child("menubar"); }
+  menuBarItem(title: string): Locator { return this.child("menu_bar_item", title); }
   toolbar(): Locator { return this.child("toolbar"); }
   group(title?: string, opts?: { identifier?: string }): Locator { return this.child("group", title, opts); }
   list(title?: string): Locator { return this.child("list", title); }
