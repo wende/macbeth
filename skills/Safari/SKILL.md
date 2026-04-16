@@ -46,9 +46,8 @@ The `value` field contains the current URL.
 { "query": [{ "role": "window" }, { "role": "toolbar" }, { "role": "button", "identifier": "BackButton" }] }
 { "query": [{ "role": "window" }, { "role": "toolbar" }, { "role": "button", "identifier": "ForwardButton" }] }
 ```
-Or use keyboard: `press_key("left", ["cmd"])` / `press_key("right", ["cmd"])`
 
-**Reload:** `press_key("r", ["cmd"])` or click `ReloadButton`
+**Reload:** `select_menu_item({ app: "Safari", menuPath: ["View", "Reload Page"] })` or click `ReloadButton`
 
 ## Common Queries
 
@@ -86,30 +85,31 @@ Tabs are `radio` elements inside an `opaqueprovidergroup` (TabBar):
 - Active tab has `value: "1"`, inactive tabs have `value: "0"`
 - Each tab has a close button child
 
-## Keyboard Shortcuts
+## Menu Actions
 
-| Action | Shortcut |
+Use `select_menu_item` instead of `press_key` — it doesn't steal focus.
+
+| Action | Menu path |
 |---|---|
-| Focus address bar | `press_key("l", ["cmd"])` |
-| New tab | `press_key("t", ["cmd"])` |
-| Close tab | `press_key("w", ["cmd"])` |
-| Reopen closed tab | `press_key("z", ["cmd", "shift"])` |
-| Next tab | `press_key("right", ["cmd", "shift"])` |
-| Previous tab | `press_key("left", ["cmd", "shift"])` |
-| Back | `press_key("left", ["cmd"])` |
-| Forward | `press_key("right", ["cmd"])` |
-| Reload | `press_key("r", ["cmd"])` |
-| Find on page | `press_key("f", ["cmd"])` |
-| New window | `press_key("n", ["cmd"])` |
-| New private window | `press_key("n", ["cmd", "shift"])` |
-| Show all history | `press_key("y", ["cmd"])` |
-| Zoom in | `press_key("=", ["cmd"])` |
-| Zoom out | `press_key("-", ["cmd"])` |
-| Actual size | `press_key("0", ["cmd"])` |
+| New tab | `["File", "New Tab"]` |
+| Close tab | `["File", "Close Tab"]` |
+| New window | `["File", "New Window"]` |
+| New private window | `["File", "New Private Window"]` |
+| Find on page | `["Edit", "Find", "Find…"]` |
+| Back | `["History", "Back"]` |
+| Forward | `["History", "Forward"]` |
+| Reopen closed tab | `["History", "Reopen Last Closed Tab"]` |
+| Show all history | `["History", "Show All History"]` |
+| Reload | `["View", "Reload Page"]` |
+| Zoom in | `["View", "Zoom In"]` |
+| Zoom out | `["View", "Zoom Out"]` |
+| Actual size | `["View", "Actual Size"]` |
+| Next tab | `["Window", "Show Next Tab"]` |
+| Previous tab | `["Window", "Show Previous Tab"]` |
 
 ## Gotchas
 
-1. **Address bar click fails** — Safari's address bar does not support `AXPress`. Use `press_key("l", ["cmd"])` to focus it.
+1. **Address bar click fails** — Safari's address bar does not support `AXPress`. Use `fill` to set its value, or `open -a Safari <url>` to navigate.
 2. **fill on address bar doesn't navigate** — It sets the AX value but Safari ignores it for navigation. Use `open -a Safari <url>` instead.
 3. **query_tree on web pages can be huge** — Use `maxDepth: 4-5` to keep output manageable. For the web content area specifically, the DOM adds several levels of nesting.
 5. **Page load timing** — After navigation, use `wait_for` on a known page element to confirm the page has loaded before interacting.
@@ -130,4 +130,4 @@ Tabs are `radio` elements inside an `opaqueprovidergroup` (TabBar):
 
 ### Switch Tabs
 1. Click a tab by title: `[{ "role": "window" }, { "role": "opaqueprovidergroup" }, { "role": "radio", "title": "Tab Title" }]`
-2. Or use keyboard: `press_key("right", ["cmd", "shift"])` / `press_key("left", ["cmd", "shift"])`
+2. Or via menu: `select_menu_item({ app: "Safari", menuPath: ["Window", "Show Next Tab"] })`

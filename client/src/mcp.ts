@@ -146,7 +146,7 @@ server.registerTool("wait_for", {
 });
 
 server.registerTool("press_key", {
-  description: 'Activate the target app, then send keyboard input. Key names: "return", "tab", "escape", "a"-"z", "1"-"9", "f1"-"f12", "up", "down", "left", "right", "space", "delete". Modifiers: "cmd", "shift", "alt", "ctrl".',
+  description: 'WARNING: This tool steals focus — it activates the target app window before sending input. Use as a last resort when click/fill cannot achieve the goal (e.g. keyboard shortcuts, arrow-key navigation). Prefer "fill" for text entry and "click" for buttons. Key names: "return", "tab", "escape", "a"-"z", "1"-"9", "f1"-"f12", "up", "down", "left", "right", "space", "delete". Modifiers: "cmd", "shift", "alt", "ctrl".',
   inputSchema: {
     app: z.string().describe("App name or PID"),
     key: z.string().describe("Key name"),
@@ -159,7 +159,7 @@ server.registerTool("press_key", {
 });
 
 server.registerTool("press_keys", {
-  description: 'Activate the target app, then send a sequence of keyboard inputs in one call. Each step accepts either `key` plus optional `modifiers`, or `text` to type literally, plus optional `delayMs`.',
+  description: 'WARNING: This tool steals focus — it activates the target app window before sending input. Use as a last resort when click/fill cannot achieve the goal. Prefer "fill" for text entry and "click" for buttons. Sends a sequence of keyboard inputs in one call. Each step accepts either `key` plus optional `modifiers`, or `text` to type literally, plus optional `delayMs`.',
   inputSchema: {
     app: z.string().describe("App name or PID"),
     keys: z.array(keyStrokeSchema).min(1).describe("Ordered list of key or text items to send"),
@@ -207,6 +207,102 @@ server.registerTool("get_element", {
       text: JSON.stringify(info, null, 2),
     }],
   };
+});
+
+server.registerTool("select_menu_item", {
+  description: "Select a menu bar item by path (e.g. [\"Track\", \"New Audio Track\"]). Uses System Events — no focus stealing, no intermediate clicks. Prefer this over click for menu bar actions.",
+  inputSchema: {
+    app: z.string().describe("App name (must match the process name in System Events)"),
+    menuPath: z.array(z.string()).min(1).describe('Menu path from menu bar, e.g. ["File", "Save"] or ["Track", "New Audio Track"]'),
+  },
+}, async ({ app, menuPath }) => {
+  const [topMenu, ...items] = menuPath;
+  if (items.length === 0) {
+    return { content: [{ type: "text", text: "menuPath must have at least 2 elements (menu bar item + menu item)" }], isError: true };
+  }
+
+  // Build the AppleScript chain: menu item "X" of menu 1 of menu bar item "Y" of menu bar 1
+  let chain = `menu bar item "${topMenu}" of menu bar 1`;
+  for (const item of items) {
+    chain = `menu item "${item}" of menu 1 of ${chain}`;
+  }
+
+  const source = `tell application "System Events"\ntell process "${app}"\nclick ${chain}\nend tell\nend tell`;
+
+  try {
+    await client.runAppleScript(source);
+    return { content: [{ type: "text", text: `Selected: ${menuPath.join(" > ")}` }] };
+  } catch (err: any) {
+    return { content: [{ type: "text", text: `Menu action failed: ${err.message}` }], isError: true };
+  }
+});
+
+server.registerTool("list_menu_bar", {
+  description: "List the full menu bar hierarchy of an app — all menus, items, and submenus — without opening any menus. Use this to discover exact menu item names for select_menu_item.",
+  inputSchema: {
+    app: z.string().describe("App process name"),
+  },
+  annotations: { readOnlyHint: true },
+}, async ({ app: appName }) => {
+  const escaped = appName.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  // Bulk-fetch .name() and .enabled() per menu to minimize Apple Event round-trips
+  const script = `
+const se = Application("System Events");
+const proc = se.processes.byName("${escaped}");
+const menuBar = proc.menuBars[0];
+function walkMenu(menu, depth) {
+  if (depth > 3) return "";
+  let result = "";
+  const indent = "  ".repeat(depth);
+  let names, enableds;
+  try { names = menu.menuItems.name(); enableds = menu.menuItems.enabled(); } catch(e) { return ""; }
+  for (let i = 0; i < names.length; i++) {
+    if (!names[i]) { result += indent + "---\\n"; continue; }
+    result += indent + names[i] + (enableds[i] ? "" : " [disabled]") + "\\n";
+    try {
+      const subs = menu.menuItems[i].menus();
+      if (subs.length > 0) result += walkMenu(subs[0], depth + 1);
+    } catch(e) {}
+  }
+  return result;
+}
+let output = "";
+const barNames = menuBar.menuBarItems.name();
+for (let i = 0; i < barNames.length; i++) {
+  if (barNames[i] === "Apple") continue;
+  output += barNames[i] + "\\n";
+  try { output += walkMenu(menuBar.menuBarItems[i].menus[0], 1); } catch(e) {}
+}
+output;`;
+
+  try {
+    const output = await client.runAppleScript(script, "JavaScript");
+    return { content: [{ type: "text", text: output || "No menu items found." }] };
+  } catch (err: any) {
+    return { content: [{ type: "text", text: `Failed to list menu bar: ${err.message}` }], isError: true };
+  }
+});
+
+server.registerTool("run_applescript", {
+  description: "Run an AppleScript or JavaScript for Automation (JXA) script. Returns the script's output as text.",
+  inputSchema: {
+    source: z.string().describe("Script source code"),
+    language: z.enum(["AppleScript", "JavaScript"]).optional().default("AppleScript").describe("Script language (default: AppleScript)"),
+    timeout: z.number().optional().default(30).describe("Timeout in seconds (default: 30)"),
+  },
+}, async ({ source, language, timeout }) => {
+  const timeoutMs = (timeout ?? 30) * 1000;
+  try {
+    const output = await Promise.race([
+      client.runAppleScript(source, language),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error(`Script timed out after ${timeout ?? 30}s`)), timeoutMs)
+      ),
+    ]);
+    return { content: [{ type: "text", text: output || "(no output)" }] };
+  } catch (err: any) {
+    return { content: [{ type: "text", text: `Script failed: ${err.message}` }], isError: true };
+  }
 });
 
 // --- Shortcuts ---

@@ -129,9 +129,9 @@ Messages uses a SwiftUI list for the conversation sidebar. Synthesized CGEvent c
 
 iMessage bubbles have a `text_area id:"CKBalloonTextView"` child with the full text in `value`. SMS bubbles may not. Fall back to parsing the Sticker group's `label` field: format is `"Sender, message text, time"` — strip the first and last comma-separated segments to get the message body.
 
-### press_key activates the target app first
+### Avoid press_key — it steals focus
 
-`press_key` still posts keyboard events through the system-wide HID event tap, but Macbeth now activates the requested app first. In practice the keypress should land in Messages, though macOS can still misroute it if the system steals focus between activation and delivery.
+`press_key` activates the target app before posting keyboard events. Prefer `select_menu_item` for menu actions (e.g. `select_menu_item({ app: "Messages", menuPath: ["Edit", "Send Message"] })`) and `click`/`fill` for UI elements. Only use `press_key` as a last resort when no AX or menu alternative exists.
 
 ### Pinned contacts have no date in label
 
@@ -172,7 +172,7 @@ for index 0..N:
 
 ```
 fill [window, {group id:"MessageEntryView"}, {text_field id:"messageBodyField"}] with "Hello!"
-press_key "return"
+select_menu_item({ app: "Messages", menuPath: ["Edit", "Send Message"] })
 ```
 
 ### Start a new conversation
