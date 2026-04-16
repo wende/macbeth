@@ -74,6 +74,7 @@ registerPressKey(dispatcher: dispatcher, appManager: appManager)
 registerPressKeys(dispatcher: dispatcher, appManager: appManager)
 registerWaitFor(dispatcher: dispatcher, appManager: appManager, handleTable: handleTable)
 registerScreenshot(dispatcher: dispatcher, appManager: appManager)
+registerRunAppleScript(dispatcher: dispatcher)
 
 // Debug: dump all attributes of an element
 await dispatcher.register(method: "dump_attributes") { params in

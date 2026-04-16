@@ -135,6 +135,16 @@ export class MacbethClient {
     }, { timeout: this.options.timeout });
   }
 
+  /** Run AppleScript or JXA via the daemon (uses OSAKit, no osascript spawn) */
+  async runAppleScript(source: string, language?: "AppleScript" | "JavaScript"): Promise<string> {
+    await this.ensureConnected();
+    const result = await this.rpc.call<{ output: string }>("run_applescript", {
+      source,
+      ...(language ? { language } : {}),
+    });
+    return result.output;
+  }
+
   /** Shut down the daemon and clean up */
   async close(): Promise<void> {
     this.rpc.close();
