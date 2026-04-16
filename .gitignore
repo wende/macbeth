@@ -11,6 +11,7 @@ dist/
 # macbeth
 *.sock
 client/bin/macbethd
+client/*.tgz
 
 # OS
 .DS_Store
