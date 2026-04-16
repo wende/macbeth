@@ -16,7 +16,7 @@ func registerFill(
                 throw RPCError.invalidParams("Missing 'appHandle' or 'value'")
             }
 
-            let timeout = obj["timeout"]?.numberValue ?? 30.0
+            let timeout = obj["timeout"]?.numberValue ?? 5.0
             let element = try await resolveTarget(
                 obj: obj, appHandle: appHandle,
                 appManager: appManager, handleTable: handleTable,

@@ -26,7 +26,7 @@ func registerWaitFor(
                 throw RPCError.invalidParams("Missing 'query'")
             }
 
-            let timeout = obj["timeout"]?.numberValue ?? 30.0
+            let timeout = obj["timeout"]?.numberValue ?? 5.0
             let path = QueryPath(steps: querySteps)
 
             let deadline = Date().addingTimeInterval(timeout)
@@ -40,7 +40,11 @@ func registerWaitFor(
                 try await Task.sleep(for: .milliseconds(500))
             }
 
-            throw RPCError.timeout("Element not found within \(timeout)s")
+            // Final attempt — let the detailed error propagate
+            let (element, handleId) = try await resolveQuery(
+                path: path, root: appElement.element, pid: conn.pid, handleTable: handleTable
+            )
+            return elementInfoJSON(element, handleId: handleId)
         }
     }
 }
@@ -88,5 +92,9 @@ func resolveTarget(
         try await Task.sleep(for: .milliseconds(500))
     }
 
-    throw RPCError.timeout("Element not found within \(timeout)s")
+    // Final attempt — let the detailed error propagate
+    let (element, _) = try await resolveQuery(
+        path: path, root: appElement.element, pid: conn.pid, handleTable: handleTable
+    )
+    return SendableElement(element)
 }
