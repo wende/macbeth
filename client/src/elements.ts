@@ -1,4 +1,4 @@
-import type { JsonRpcClient } from "./rpc.js";
+import { type JsonRpcClient, JsonRpcError } from "./rpc.js";
 import type { QueryStep, ElementInfo } from "./types.js";
 
 /**
@@ -121,4 +121,92 @@ export class Locator {
     const info = await this.getInfo();
     return info.focused;
   }
+
+  /** Resolve this locator once and return a scoped locator that uses the handle directly.
+   *  Falls back to re-querying if the handle expires. Pins the handle to prevent TTL expiry. */
+  async scope(): Promise<ScopedLocator> {
+    const info = await this.getInfo();
+    await this.rpc.call("pin_handle", { handleId: info.handleId });
+    return new ScopedLocator(this.rpc, this.appHandle, this.queryPath, info.handleId, { timeout: this.defaultTimeout });
+  }
+}
+
+class ScopedLocator extends Locator {
+  private handleId: string;
+
+  constructor(
+    rpc: JsonRpcClient,
+    appHandle: string,
+    queryPath: QueryStep[],
+    handleId: string,
+    options?: { timeout?: number }
+  ) {
+    super(rpc, appHandle, queryPath, options);
+    this.handleId = handleId;
+  }
+
+  override async click(options?: { timeout?: number }): Promise<void> {
+    try {
+      await this.rpc.call("click", {
+        appHandle: this.appHandle,
+        handleId: this.handleId,
+        timeout: (options?.timeout ?? this.defaultTimeout) / 1000,
+      });
+    } catch (err) {
+      if (isHandleExpired(err)) {
+        await this.rediscover();
+        return this.click(options);
+      }
+      throw err;
+    }
+  }
+
+  override async fill(value: string, options?: { timeout?: number }): Promise<void> {
+    try {
+      await this.rpc.call("fill", {
+        appHandle: this.appHandle,
+        handleId: this.handleId,
+        value,
+        timeout: (options?.timeout ?? this.defaultTimeout) / 1000,
+      });
+    } catch (err) {
+      if (isHandleExpired(err)) {
+        await this.rediscover();
+        return this.fill(value, options);
+      }
+      throw err;
+    }
+  }
+
+  override async getInfo(): Promise<ElementInfo> {
+    try {
+      return await this.rpc.call<ElementInfo>("get_element", {
+        appHandle: this.appHandle,
+        handleId: this.handleId,
+      });
+    } catch (err) {
+      if (isHandleExpired(err)) {
+        await this.rediscover();
+        return this.getInfo();
+      }
+      throw err;
+    }
+  }
+
+  private async rediscover(): Promise<void> {
+    const info = await this.rpc.call<ElementInfo>("get_element", {
+      appHandle: this.appHandle,
+      query: this.queryPath,
+    });
+    this.handleId = info.handleId;
+    await this.rpc.call("pin_handle", { handleId: this.handleId });
+  }
+
+  async unpin(): Promise<void> {
+    await this.rpc.call("unpin_handle", { handleId: this.handleId });
+  }
+}
+
+function isHandleExpired(err: unknown): boolean {
+  return err instanceof JsonRpcError && err.code === -32000 && err.message.includes("expired");
 }

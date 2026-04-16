@@ -41,6 +41,11 @@ enum RPCError: Error {
     case permissionDenied(String)
     case appNotFound(String)
     case actionFailed(String)
+    case menuItemNotFound(String)
+    case menuItemDisabled(String)
+    case appBusy(String)
+    case scriptFailed(String, data: JSONValue? = nil)
+    case axLookupFailed(String)
 
     func toJSONRPC() -> JSONRPCErrorData {
         switch self {
@@ -50,6 +55,11 @@ enum RPCError: Error {
         case .permissionDenied(let msg): .permissionDenied(msg)
         case .appNotFound(let msg): .appNotFound(msg)
         case .actionFailed(let msg): .actionFailed(msg)
+        case .menuItemNotFound(let msg): .menuItemNotFound(msg)
+        case .menuItemDisabled(let msg): .menuItemDisabled(msg)
+        case .appBusy(let msg): .appBusy(msg)
+        case .scriptFailed(let msg, let data): .scriptFailed(msg, data: data)
+        case .axLookupFailed(let msg): .axLookupFailed(msg)
         }
     }
 }

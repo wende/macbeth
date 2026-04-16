@@ -31,12 +31,16 @@ export class JsonRpcClient {
   private nextId = 1;
   private buffer = "";
   private requestTimeout: number;
+  private socketPath: string | null = null;
+  private onReconnect?: () => Promise<void>;
 
-  constructor(options?: { timeout?: number }) {
+  constructor(options?: { timeout?: number; onReconnect?: () => Promise<void> }) {
     this.requestTimeout = options?.timeout ?? 60_000;
+    this.onReconnect = options?.onReconnect;
   }
 
   async connect(socketPath: string): Promise<void> {
+    this.socketPath = socketPath;
     return new Promise((resolve, reject) => {
       const socket = net.createConnection({ path: socketPath }, () => {
         this.socket = socket;
@@ -69,6 +73,21 @@ export class JsonRpcClient {
   }
 
   async call<T = unknown>(
+    method: string,
+    params?: Record<string, unknown>
+  ): Promise<T> {
+    try {
+      return await this.callOnce<T>(method, params);
+    } catch (err: unknown) {
+      if (this.onReconnect && isConnectionError(err)) {
+        await this.onReconnect();
+        return await this.callOnce<T>(method, params);
+      }
+      throw err;
+    }
+  }
+
+  private async callOnce<T = unknown>(
     method: string,
     params?: Record<string, unknown>
   ): Promise<T> {
@@ -111,6 +130,10 @@ export class JsonRpcClient {
     return this.socket !== null && !this.socket.destroyed;
   }
 
+  get path(): string | null {
+    return this.socketPath;
+  }
+
   private processBuffer(): void {
     const lines = this.buffer.split("\n");
     this.buffer = lines.pop() ?? "";
@@ -149,4 +172,13 @@ export class JsonRpcClient {
       }
     }
   }
+}
+
+function isConnectionError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const msg = err.message;
+  return msg === "Not connected" ||
+    msg === "Connection closed" ||
+    msg.includes("ECONNREFUSED") ||
+    msg.includes("ENOENT");
 }

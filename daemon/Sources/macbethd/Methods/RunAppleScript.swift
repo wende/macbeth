@@ -12,7 +12,7 @@ func registerRunAppleScript(dispatcher: Dispatcher) {
 
             let languageParam = obj["language"]?.stringValue ?? "AppleScript"
 
-            let result: (String?, String?) = await MainActor.run {
+            let result: (String?, String?, Int?) = await MainActor.run {
                 let lang: OSALanguage?
                 switch languageParam.lowercased() {
                 case "javascript", "jxa":
@@ -22,7 +22,7 @@ func registerRunAppleScript(dispatcher: Dispatcher) {
                 }
 
                 guard let lang else {
-                    return (nil, "Language not available: \(languageParam)")
+                    return (nil, "Language not available: \(languageParam)", nil)
                 }
 
                 let script = OSAScript(source: source, language: lang)
@@ -30,19 +30,39 @@ func registerRunAppleScript(dispatcher: Dispatcher) {
                 let output = script.executeAndReturnError(&errorDict)
 
                 if let errorDict = errorDict {
-                    let message = errorDict[NSAppleScript.errorMessage] as? String
+                    let message = (errorDict[NSAppleScript.errorMessage] as? String)
+                        ?? (errorDict["OSAScriptErrorMessageKey"] as? String)
                         ?? "Script execution failed"
-                    return (nil, message)
+                    let errorNumber = (errorDict[NSAppleScript.errorNumber] as? Int)
+                        ?? (errorDict["OSAScriptErrorNumberKey"] as? Int)
+                    return (nil, message, errorNumber)
                 }
 
-                return (output?.stringValue ?? "", nil)
+                return (output?.stringValue ?? "", nil, nil)
             }
 
             if let error = result.1 {
-                throw RPCError.actionFailed(error)
+                throw classifyScriptError(message: error, errorNumber: result.2)
             }
 
             return .object(["output": .string(result.0 ?? "")])
         }
+    }
+}
+
+private func classifyScriptError(message: String, errorNumber: Int?) -> RPCError {
+    switch errorNumber {
+    case -1728:
+        return .menuItemNotFound(message)
+    case -1719:
+        return .menuItemDisabled(message)
+    case -600, -609:
+        return .appBusy(message)
+    default:
+        var data: [String: JSONValue] = [:]
+        if let num = errorNumber {
+            data["osaErrorNumber"] = .number(Double(num))
+        }
+        return .scriptFailed(message, data: data.isEmpty ? nil : .object(data))
     }
 }

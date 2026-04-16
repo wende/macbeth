@@ -22,31 +22,106 @@ func registerWaitFor(
                 throw RPCError.appNotFound("Invalid app handle: \(appHandle)")
             }
 
-            guard let querySteps = QueryStep.fromArray(obj["query"]) else {
-                throw RPCError.invalidParams("Missing 'query'")
-            }
-
             let timeout = obj["timeout"]?.numberValue ?? 5.0
-            let path = QueryPath(steps: querySteps)
+            let pollMs = Int(obj["pollMs"]?.numberValue ?? 500)
+            let conditionObj = obj["condition"]?.objectValue
+            let conditionKind = conditionObj?["kind"]?.stringValue ?? "exists"
 
             let deadline = Date().addingTimeInterval(timeout)
 
-            while Date() < deadline {
-                if let (element, handleId) = await tryResolveQuery(
-                    path: path, root: appElement.element, pid: conn.pid, handleTable: handleTable
-                ) {
-                    return elementInfoJSON(element, handleId: handleId)
+            switch conditionKind {
+            case "exists":
+                guard let querySteps = QueryStep.fromArray(obj["query"]) else {
+                    throw RPCError.invalidParams("Missing 'query'")
                 }
-                try await Task.sleep(for: .milliseconds(500))
-            }
+                let path = QueryPath(steps: querySteps)
+                while Date() < deadline {
+                    if let (element, handleId) = await tryResolveQuery(
+                        path: path, root: appElement.element, pid: conn.pid, handleTable: handleTable
+                    ) {
+                        return elementInfoJSON(element, handleId: handleId)
+                    }
+                    try await Task.sleep(for: .milliseconds(pollMs))
+                }
+                let (element, handleId) = try await resolveQuery(
+                    path: path, root: appElement.element, pid: conn.pid, handleTable: handleTable
+                )
+                return elementInfoJSON(element, handleId: handleId)
 
-            // Final attempt — let the detailed error propagate
-            let (element, handleId) = try await resolveQuery(
-                path: path, root: appElement.element, pid: conn.pid, handleTable: handleTable
-            )
-            return elementInfoJSON(element, handleId: handleId)
+            case "value_equals":
+                let targetValue = conditionObj?["value"]?.stringValue ?? ""
+                let element = try await resolveWaitTarget(
+                    obj: obj, appElement: appElement, conn: conn, handleTable: handleTable
+                )
+                while Date() < deadline {
+                    let current = getValueAsString(element)
+                    if current == targetValue {
+                        return .object(["matched": .bool(true), "value": .string(current ?? "")])
+                    }
+                    try await Task.sleep(for: .milliseconds(pollMs))
+                }
+                throw RPCError.timeout("Value did not become \"\(targetValue)\" within \(timeout)s")
+
+            case "value_changes":
+                let element = try await resolveWaitTarget(
+                    obj: obj, appElement: appElement, conn: conn, handleTable: handleTable
+                )
+                let initialValue = getValueAsString(element)
+                while Date() < deadline {
+                    let current = getValueAsString(element)
+                    if current != initialValue {
+                        return .object([
+                            "matched": .bool(true),
+                            "oldValue": .string(initialValue ?? ""),
+                            "newValue": .string(current ?? ""),
+                        ])
+                    }
+                    try await Task.sleep(for: .milliseconds(pollMs))
+                }
+                throw RPCError.timeout("Value did not change within \(timeout)s")
+
+            case "enabled":
+                let element = try await resolveWaitTarget(
+                    obj: obj, appElement: appElement, conn: conn, handleTable: handleTable
+                )
+                while Date() < deadline {
+                    let isEnabled = getBoolAttribute(element, kAXEnabledAttribute) ?? false
+                    if isEnabled {
+                        return .object(["matched": .bool(true), "enabled": .bool(true)])
+                    }
+                    try await Task.sleep(for: .milliseconds(pollMs))
+                }
+                throw RPCError.timeout("Element did not become enabled within \(timeout)s")
+
+            default:
+                throw RPCError.invalidParams("Unknown condition kind: \(conditionKind)")
+            }
         }
     }
+}
+
+private func resolveWaitTarget(
+    obj: [String: JSONValue],
+    appElement: SendableElement,
+    conn: AppConnectionManager.Connection,
+    handleTable: HandleTable
+) async throws -> AXUIElement {
+    if let handleId = obj["handleId"]?.stringValue {
+        guard let resolved = await handleTable.resolve(handleId) else {
+            throw RPCError.elementNotFound("Handle expired: \(handleId)")
+        }
+        return resolved.element
+    }
+
+    guard let querySteps = QueryStep.fromArray(obj["query"]) else {
+        throw RPCError.invalidParams("Missing 'query' or 'handleId'")
+    }
+
+    let path = QueryPath(steps: querySteps)
+    let (element, _) = try await resolveQuery(
+        path: path, root: appElement.element, pid: conn.pid, handleTable: handleTable
+    )
+    return element
 }
 
 // MARK: - Shared target resolution with auto-wait

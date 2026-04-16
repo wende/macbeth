@@ -75,6 +75,28 @@ registerPressKeys(dispatcher: dispatcher, appManager: appManager)
 registerWaitFor(dispatcher: dispatcher, appManager: appManager, handleTable: handleTable)
 registerScreenshot(dispatcher: dispatcher, appManager: appManager)
 registerRunAppleScript(dispatcher: dispatcher)
+registerReadForm(dispatcher: dispatcher, appManager: appManager, handleTable: handleTable)
+registerExtractText(dispatcher: dispatcher, appManager: appManager, handleTable: handleTable)
+
+await dispatcher.register(method: "pin_handle") { params in
+    guard let obj = params?.objectValue,
+          let handleId = obj["handleId"]?.stringValue else {
+        throw RPCError.invalidParams("Missing 'handleId'")
+    }
+    let pinned = await handleTable.pin(handleId)
+    if !pinned { throw RPCError.elementNotFound("Handle not found: \(handleId)") }
+    return .object(["pinned": .bool(true), "handleId": .string(handleId)])
+}
+
+await dispatcher.register(method: "unpin_handle") { params in
+    guard let obj = params?.objectValue,
+          let handleId = obj["handleId"]?.stringValue else {
+        throw RPCError.invalidParams("Missing 'handleId'")
+    }
+    let unpinned = await handleTable.unpin(handleId)
+    if !unpinned { throw RPCError.elementNotFound("Handle not found: \(handleId)") }
+    return .object(["pinned": .bool(false), "handleId": .string(handleId)])
+}
 
 // Debug: dump all attributes of an element
 await dispatcher.register(method: "dump_attributes") { params in

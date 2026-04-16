@@ -89,6 +89,26 @@ struct JSONRPCErrorData: Sendable, Codable {
     static func actionFailed(_ msg: String = "Action failed") -> JSONRPCErrorData {
         JSONRPCErrorData(code: -32004, message: msg)
     }
+
+    static func menuItemNotFound(_ msg: String = "Menu item not found") -> JSONRPCErrorData {
+        JSONRPCErrorData(code: -32005, message: msg)
+    }
+
+    static func menuItemDisabled(_ msg: String = "Menu item disabled") -> JSONRPCErrorData {
+        JSONRPCErrorData(code: -32006, message: msg)
+    }
+
+    static func appBusy(_ msg: String = "App busy or not running") -> JSONRPCErrorData {
+        JSONRPCErrorData(code: -32007, message: msg)
+    }
+
+    static func scriptFailed(_ msg: String, data: JSONValue? = nil) -> JSONRPCErrorData {
+        JSONRPCErrorData(code: -32008, message: msg, data: data)
+    }
+
+    static func axLookupFailed(_ msg: String = "Accessibility lookup failed") -> JSONRPCErrorData {
+        JSONRPCErrorData(code: -32009, message: msg)
+    }
 }
 
 /// A JSON-RPC 2.0 response.

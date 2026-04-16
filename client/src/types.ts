@@ -54,6 +54,20 @@ export type KeyStroke =
       delayMs?: number;
     };
 
+export interface FormField {
+  handleId: string;
+  role: string;
+  kind: "text" | "number" | "boolean" | "choice" | "unknown";
+  label?: string;
+  title?: string;
+  value?: string;
+  identifier?: string;
+  min?: number;
+  max?: number;
+  editable: boolean;
+  enabled: boolean;
+}
+
 export interface AXNodeJSON {
   handleId: string;
   role: string;

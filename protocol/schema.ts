@@ -95,16 +95,29 @@ export interface FillParams {
 }
 
 // wait_for
+export interface WaitForCondition {
+  kind: "exists" | "value_equals" | "value_changes" | "enabled";
+  value?: string;
+}
+
 export interface WaitForParams {
   appHandle: string;
-  query: QueryStep[];
+  query?: QueryStep[];
+  handleId?: string;
   timeout?: number;
+  pollMs?: number;
+  condition?: WaitForCondition;
 }
 
 export interface WaitForResult {
-  handleId: string;
-  role: string;
+  handleId?: string;
+  role?: string;
   title?: string;
+  matched?: boolean;
+  value?: string;
+  oldValue?: string;
+  newValue?: string;
+  enabled?: boolean;
 }
 
 // press_key
@@ -141,6 +154,49 @@ export interface ScreenshotResult {
   width: number;
   height: number;
   format: "png";
+}
+
+// read_form
+export interface ReadFormParams {
+  appHandle: string;
+  handleId?: string;
+  query?: QueryStep[];
+  maxDepth?: number;
+}
+
+export interface FormField {
+  handleId: string;
+  role: string;
+  kind: "text" | "number" | "boolean" | "choice" | "unknown";
+  label?: string;
+  title?: string;
+  value?: string;
+  identifier?: string;
+  min?: number;
+  max?: number;
+  editable: boolean;
+  enabled: boolean;
+}
+
+export interface ReadFormResult {
+  fields: FormField[];
+}
+
+// extract_text
+export interface ExtractTextParams {
+  appHandle?: string;
+  data?: string; // base64 PNG
+  region?: { x: number; y: number; width: number; height: number };
+}
+
+export interface TextItem {
+  text: string;
+  confidence: number;
+  bbox: { x: number; y: number; w: number; h: number };
+}
+
+export interface ExtractTextResult {
+  items: TextItem[];
 }
 
 // --- Generic action result ---

@@ -8,6 +8,7 @@ import type {
   TreeOptions,
   ScreenshotResult,
   QueryStep,
+  FormField,
 } from "./types.js";
 
 /**
@@ -45,12 +46,30 @@ export class AppHandle extends Locator {
       : JSON.stringify(result.tree, null, 2);
   }
 
-  /** Capture a screenshot of the app window */
-  async screenshot(): Promise<Buffer> {
+  /** Capture a screenshot of the app window, optionally cropped to a region */
+  async screenshot(options?: { region?: { x: number; y: number; width: number; height: number } }): Promise<Buffer> {
     const result = await this.rpc.call<ScreenshotResult>("screenshot", {
       appHandle: this.appHandle,
+      ...(options?.region ? { region: options.region } : {}),
     });
     return Buffer.from(result.data, "base64");
+  }
+
+  /** Capture a screenshot and return the raw RPC result (base64 + dimensions) */
+  async screenshotRaw(options?: { region?: { x: number; y: number; width: number; height: number } }): Promise<ScreenshotResult> {
+    return this.rpc.call<ScreenshotResult>("screenshot", {
+      appHandle: this.appHandle,
+      ...(options?.region ? { region: options.region } : {}),
+    });
+  }
+
+  /** Read form-like controls (text fields, sliders, checkboxes, etc.) from a subtree */
+  async readForm(options?: { handleId?: string; query?: QueryStep[]; maxDepth?: number }): Promise<FormField[]> {
+    const result = await this.rpc.call<{ fields: FormField[] }>("read_form", {
+      appHandle: this.appHandle,
+      ...options,
+    });
+    return result.fields;
   }
 
   /** Send a keyboard input */
@@ -92,6 +111,11 @@ export class MacbethClient {
     });
     this.rpc = new JsonRpcClient({
       timeout: options?.timeout ?? 60_000,
+      onReconnect: async () => {
+        this.rpc.close();
+        this.initialized = false;
+        await this.ensureConnected();
+      },
     });
   }
 
@@ -143,6 +167,16 @@ export class MacbethClient {
       ...(language ? { language } : {}),
     });
     return result.output;
+  }
+
+  /** Extract text from an app window or raw image data using OCR */
+  async extractText(params: {
+    appHandle?: string;
+    data?: string;
+    region?: { x: number; y: number; width: number; height: number };
+  }): Promise<{ items: Array<{ text: string; confidence: number; bbox: { x: number; y: number; w: number; h: number } }> }> {
+    await this.ensureConnected();
+    return this.rpc.call("extract_text", params);
   }
 
   /** Shut down the daemon and clean up */

@@ -83,14 +83,14 @@ func walkTree(
 
 // MARK: - AX attribute helpers
 
-private func getStringAttribute(_ element: AXUIElement, _ attribute: String) -> String? {
+func getStringAttribute(_ element: AXUIElement, _ attribute: String) -> String? {
     var ref: CFTypeRef?
     let result = AXUIElementCopyAttributeValue(element, attribute as CFString, &ref)
     guard result == .success, let value = ref else { return nil }
     return value as? String
 }
 
-private func getBoolAttribute(_ element: AXUIElement, _ attribute: String) -> Bool? {
+func getBoolAttribute(_ element: AXUIElement, _ attribute: String) -> Bool? {
     var ref: CFTypeRef?
     let result = AXUIElementCopyAttributeValue(element, attribute as CFString, &ref)
     guard result == .success, let value = ref else { return nil }
@@ -98,7 +98,7 @@ private func getBoolAttribute(_ element: AXUIElement, _ attribute: String) -> Bo
     return nil
 }
 
-private func getValueAsString(_ element: AXUIElement) -> String? {
+func getValueAsString(_ element: AXUIElement) -> String? {
     var ref: CFTypeRef?
     let result = AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &ref)
     guard result == .success, let value = ref else { return nil }
@@ -108,7 +108,7 @@ private func getValueAsString(_ element: AXUIElement) -> String? {
     return nil
 }
 
-private func getChildren(_ element: AXUIElement) -> [AXUIElement] {
+func getChildren(_ element: AXUIElement) -> [AXUIElement] {
     var ref: CFTypeRef?
     let result = AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &ref)
     guard result == .success, let children = ref as? [AXUIElement] else { return [] }
@@ -117,7 +117,7 @@ private func getChildren(_ element: AXUIElement) -> [AXUIElement] {
 
 /// Determine if an element should be skipped in the filtered tree.
 /// Skips decorative/structural-only groups with no title or identifier.
-private func shouldSkipElement(_ element: AXUIElement) -> Bool {
+func shouldSkipElement(_ element: AXUIElement) -> Bool {
     let role = getStringAttribute(element, kAXRoleAttribute) ?? ""
 
     // Only skip generic group-like roles

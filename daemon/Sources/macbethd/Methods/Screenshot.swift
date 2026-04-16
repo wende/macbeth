@@ -60,11 +60,24 @@ func registerScreenshot(
             config.height = Int(targetWindow.frame.height) * 2
             config.showsCursor = false
 
-            let image: CGImage
+            var image: CGImage
             do {
                 image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
             } catch {
                 throw RPCError.actionFailed("Screenshot capture failed: \(error.localizedDescription)")
+            }
+
+            if let regionObj = obj["region"]?.objectValue {
+                let scale = Double(config.width) / targetWindow.frame.width
+                let rx = (regionObj["x"]?.numberValue ?? 0) * scale
+                let ry = (regionObj["y"]?.numberValue ?? 0) * scale
+                let rw = (regionObj["width"]?.numberValue ?? Double(image.width)) * scale
+                let rh = (regionObj["height"]?.numberValue ?? Double(image.height)) * scale
+                let cropRect = CGRect(x: rx, y: ry, width: rw, height: rh)
+                guard let cropped = image.cropping(to: cropRect) else {
+                    throw RPCError.actionFailed("Region crop failed — check coordinates")
+                }
+                image = cropped
             }
 
             let mutableData = CFDataCreateMutable(nil, 0)!

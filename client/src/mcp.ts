@@ -7,6 +7,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { MacbethClient } from "./client.js";
+import { JsonRpcError } from "./rpc.js";
 import type { KeyStroke } from "./types.js";
 
 const MODULE_DIR = dirname(fileURLToPath(import.meta.url));
@@ -18,6 +19,32 @@ const SKILLS_DIR_CANDIDATES = [
 const SKILLS_DIR = SKILLS_DIR_CANDIDATES.find(existsSync) ?? SKILLS_DIR_CANDIDATES[0];
 
 const client = new MacbethClient({ verbose: false });
+
+const ERROR_NAMES: Record<number, string> = {
+  [-32000]: "element_not_found",
+  [-32001]: "timeout",
+  [-32002]: "permission_denied",
+  [-32003]: "app_not_found",
+  [-32004]: "action_failed",
+  [-32005]: "menu_item_not_found",
+  [-32006]: "menu_item_disabled",
+  [-32007]: "app_busy",
+  [-32008]: "script_failed",
+  [-32009]: "ax_lookup_failed",
+};
+
+function formatError(prefix: string, err: unknown): string {
+  if (err instanceof JsonRpcError) {
+    const kind = ERROR_NAMES[err.code] ?? `error_${err.code}`;
+    let msg = `${prefix} [${kind}]: ${err.message}`;
+    if (err.data && typeof err.data === "object") {
+      const d = err.data as Record<string, unknown>;
+      if (d.osaErrorNumber != null) msg += ` (OSA error ${d.osaErrorNumber})`;
+    }
+    return msg;
+  }
+  return `${prefix}: ${err instanceof Error ? err.message : String(err)}`;
+}
 
 const server = new McpServer(
   { name: "macbeth", version: "0.1.0" },
@@ -129,20 +156,39 @@ server.registerTool("fill", {
 });
 
 server.registerTool("wait_for", {
-  description: "Wait for a UI element to appear in the app.",
+  description: "Wait for a UI condition. Conditions: 'exists' (default, wait for element to appear), 'value_equals' (wait for specific value), 'value_changes' (wait for any value change), 'enabled' (wait for element to become enabled).",
   inputSchema: {
     app: z.string().describe("App name or PID"),
-    query: querySchema,
+    query: querySchema.optional().describe("Locator chain to find the element"),
+    handleId: z.string().optional().describe("Direct element handle (alternative to query)"),
     timeout: z.number().optional().default(30).describe("Timeout in seconds"),
+    pollMs: z.number().optional().describe("Polling interval in ms (default: 500)"),
+    condition: z.object({
+      kind: z.enum(["exists", "value_equals", "value_changes", "enabled"]).describe("What to wait for"),
+      value: z.string().optional().describe("Target value (for value_equals)"),
+    }).optional().describe("Wait condition (default: exists)"),
   },
-}, async ({ app, query, timeout }) => {
+}, async ({ app, query, handleId, timeout, pollMs, condition }) => {
   const handle = await client.connect(app);
-  let loc = handle as ReturnType<typeof handle.locator>;
-  for (const step of query) {
-    loc = loc.locator(step);
+  const params: Record<string, unknown> = {
+    appHandle: (handle as any).appHandle,
+    timeout: timeout ?? 30,
+  };
+  if (query) params.query = query;
+  if (handleId) params.handleId = handleId;
+  if (pollMs) params.pollMs = pollMs;
+  if (condition) params.condition = condition;
+
+  const result = await (handle as any).rpc.call("wait_for", params);
+
+  if (result.matched) {
+    const kind = condition?.kind ?? "exists";
+    if (kind === "value_equals") return { content: [{ type: "text", text: `Value matched: "${result.value}"` }] };
+    if (kind === "value_changes") return { content: [{ type: "text", text: `Value changed: "${result.oldValue}" → "${result.newValue}"` }] };
+    if (kind === "enabled") return { content: [{ type: "text", text: "Element is now enabled" }] };
   }
-  const info = await loc.waitFor({ timeout: (timeout ?? 30) * 1000 });
-  return { content: [{ type: "text", text: `Found: ${info.role} "${info.title ?? ""}" (handle: ${info.handleId})` }] };
+
+  return { content: [{ type: "text", text: `Found: ${result.role ?? "element"} "${result.title ?? ""}" (handle: ${result.handleId ?? "?"})` }] };
 });
 
 server.registerTool("press_key", {
@@ -171,21 +217,67 @@ server.registerTool("press_keys", {
 });
 
 server.registerTool("screenshot", {
-  description: "Capture a screenshot of an app window. Returns the image.",
+  description: "Capture a screenshot of an app window, optionally cropped to a region. Returns the image.",
   inputSchema: {
     app: z.string().describe("App name or PID"),
+    region: z.object({
+      x: z.number().describe("X offset in points from the top-left of the window"),
+      y: z.number().describe("Y offset in points from the top-left of the window"),
+      width: z.number().describe("Width in points"),
+      height: z.number().describe("Height in points"),
+    }).optional().describe("Optional region to crop (in window-relative points)"),
   },
   annotations: { readOnlyHint: true },
-}, async ({ app }) => {
+}, async ({ app, region }) => {
   const handle = await client.connect(app);
-  const buf = await handle.screenshot();
+  const result = await handle.screenshotRaw({ region: region ?? undefined });
   return {
     content: [{
       type: "image",
-      data: buf.toString("base64"),
+      data: result.data,
       mimeType: "image/png",
     }],
   };
+});
+
+server.registerTool("extract_text", {
+  description: "Extract text from an app window using OCR (Vision framework). Bridges accessibility gaps in apps with poor AX support. Pass either an app name to capture + OCR, or base64 PNG data to OCR directly.",
+  inputSchema: {
+    app: z.string().optional().describe("App name or PID (captures a screenshot and runs OCR)"),
+    data: z.string().optional().describe("Base64-encoded PNG image to OCR directly (alternative to app)"),
+    region: z.object({
+      x: z.number().describe("X offset in points"),
+      y: z.number().describe("Y offset in points"),
+      width: z.number().describe("Width in points"),
+      height: z.number().describe("Height in points"),
+    }).optional().describe("Optional region to restrict OCR (only with app, not data)"),
+  },
+  annotations: { readOnlyHint: true },
+}, async ({ app, data, region }) => {
+  if (!app && !data) {
+    return { content: [{ type: "text", text: "Provide 'app' or 'data'" }], isError: true };
+  }
+
+  const params: { appHandle?: string; data?: string; region?: typeof region } = {};
+  if (data) {
+    params.data = data;
+  } else if (app) {
+    const handle = await client.connect(app);
+    params.appHandle = (handle as any).appHandle;
+    if (region) params.region = region;
+  }
+
+  const rpcResult = await client.extractText(params);
+
+  if (rpcResult.items.length === 0) {
+    return { content: [{ type: "text", text: "No text detected." }] };
+  }
+
+  const text = rpcResult.items
+    .filter((i) => i.confidence > 0.3)
+    .map((i) => `${i.text} (${Math.round(i.confidence * 100)}%, at ${Math.round(i.bbox.x)},${Math.round(i.bbox.y)})`)
+    .join("\n");
+  return { content: [{ type: "text", text }] };
 });
 
 server.registerTool("get_element", {
@@ -207,6 +299,58 @@ server.registerTool("get_element", {
       text: JSON.stringify(info, null, 2),
     }],
   };
+});
+
+server.registerTool("pin_handle", {
+  description: "Pin an element handle to prevent it from expiring (default TTL is 5 minutes). Useful for long-running workflows where you need a stable reference to a panel or control.",
+  inputSchema: {
+    handleId: z.string().describe("Handle ID to pin (e.g. 'h_42')"),
+  },
+}, async ({ handleId }) => {
+  await (client as any).ensureConnected();
+  await (client as any).rpc.call("pin_handle", { handleId });
+  return { content: [{ type: "text", text: `Pinned handle: ${handleId}` }] };
+});
+
+server.registerTool("unpin_handle", {
+  description: "Unpin a previously pinned handle, resuming normal TTL expiry.",
+  inputSchema: {
+    handleId: z.string().describe("Handle ID to unpin"),
+  },
+}, async ({ handleId }) => {
+  await (client as any).ensureConnected();
+  await (client as any).rpc.call("unpin_handle", { handleId });
+  return { content: [{ type: "text", text: `Unpinned handle: ${handleId}` }] };
+});
+
+server.registerTool("read_form", {
+  description: "Read all form-like controls (text fields, sliders, checkboxes, popups, etc.) from a subtree. Returns each control's label, current value, type, editability, and handle. Use this to inspect panel contents without parsing the full tree.",
+  inputSchema: {
+    app: z.string().describe("App name or PID"),
+    query: querySchema.optional().describe("Optional locator chain to scope the search (e.g. to an Inspector panel)"),
+    maxDepth: z.number().optional().default(10).describe("Maximum depth to traverse (default: 10)"),
+  },
+  annotations: { readOnlyHint: true },
+}, async ({ app, query, maxDepth }) => {
+  const handle = await client.connect(app);
+  const fields = await handle.readForm({
+    query: query ?? undefined,
+    maxDepth,
+  });
+  if (fields.length === 0) {
+    return { content: [{ type: "text", text: "No form controls found in the specified subtree." }] };
+  }
+  const text = fields.map((f) => {
+    let line = `[${f.kind}] ${f.label ?? f.title ?? f.identifier ?? "(unlabeled)"}`;
+    if (f.value != null) line += ` = ${f.value}`;
+    line += ` (${f.role}, handle: ${f.handleId}`;
+    if (!f.editable) line += ", read-only";
+    if (!f.enabled) line += ", disabled";
+    if (f.min != null || f.max != null) line += `, range: ${f.min ?? "?"}–${f.max ?? "?"}`;
+    line += ")";
+    return line;
+  }).join("\n");
+  return { content: [{ type: "text", text }] };
 });
 
 server.registerTool("select_menu_item", {
@@ -232,8 +376,8 @@ server.registerTool("select_menu_item", {
   try {
     await client.runAppleScript(source);
     return { content: [{ type: "text", text: `Selected: ${menuPath.join(" > ")}` }] };
-  } catch (err: any) {
-    return { content: [{ type: "text", text: `Menu action failed: ${err.message}` }], isError: true };
+  } catch (err: unknown) {
+    return { content: [{ type: "text", text: formatError("Menu action failed", err) }], isError: true };
   }
 });
 
@@ -278,8 +422,8 @@ output;`;
   try {
     const output = await client.runAppleScript(script, "JavaScript");
     return { content: [{ type: "text", text: output || "No menu items found." }] };
-  } catch (err: any) {
-    return { content: [{ type: "text", text: `Failed to list menu bar: ${err.message}` }], isError: true };
+  } catch (err: unknown) {
+    return { content: [{ type: "text", text: formatError("Failed to list menu bar", err) }], isError: true };
   }
 });
 
@@ -300,8 +444,8 @@ server.registerTool("run_applescript", {
       ),
     ]);
     return { content: [{ type: "text", text: output || "(no output)" }] };
-  } catch (err: any) {
-    return { content: [{ type: "text", text: `Script failed: ${err.message}` }], isError: true };
+  } catch (err: unknown) {
+    return { content: [{ type: "text", text: formatError("Script failed", err) }], isError: true };
   }
 });
 
