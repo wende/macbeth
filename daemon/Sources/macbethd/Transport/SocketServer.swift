@@ -89,44 +89,58 @@ final class SocketServer: Sendable {
 
     private func handleClient(fd: Int32) async {
         let connection = ClientConnection(fd: fd)
-        defer {
-            connection.close()
-            log("Client disconnected (fd=\(fd))")
-        }
 
-        let decoder = JSONDecoder()
-        let encoder = JSONEncoder()
+        // Each request runs in its own task so a slow handler doesn't stall
+        // subsequent requests on the same connection. Writes are serialized
+        // by ClientConnection's internal lock.
+        await withTaskGroup(of: Void.self) { group in
+            while !Task.isCancelled {
+                guard let line = connection.readLine() else { break }
+                let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                if trimmed.isEmpty { continue }
 
-        while !Task.isCancelled {
-            guard let line = connection.readLine() else { break }
-            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-            if trimmed.isEmpty { continue }
+                log("← \(trimmed)")
+                guard let data = trimmed.data(using: .utf8) else { continue }
 
-            log("← \(trimmed)")
+                let dispatcher = self.dispatcher
+                let verbose = self.verbose
+                group.addTask { [connection] in
+                    let decoder = JSONDecoder()
+                    let encoder = JSONEncoder()
 
-            guard let data = trimmed.data(using: .utf8) else { continue }
+                    let response: JSONRPCResponse
+                    do {
+                        let request = try decoder.decode(JSONRPCRequest.self, from: data)
+                        response = await dispatcher.dispatch(request: request)
+                    } catch {
+                        response = JSONRPCResponse(
+                            id: nil,
+                            error: .parseError("Invalid JSON: \(error.localizedDescription)")
+                        )
+                    }
 
-            let response: JSONRPCResponse
-            do {
-                let request = try decoder.decode(JSONRPCRequest.self, from: data)
-                response = await dispatcher.dispatch(request: request)
-            } catch {
-                response = JSONRPCResponse(
-                    id: nil,
-                    error: .parseError("Invalid JSON: \(error.localizedDescription)")
-                )
-            }
-
-            do {
-                let responseData = try encoder.encode(response)
-                if let responseStr = String(data: responseData, encoding: .utf8) {
-                    log("→ \(responseStr)")
-                    connection.writeLine(responseStr)
+                    do {
+                        let responseData = try encoder.encode(response)
+                        if let responseStr = String(data: responseData, encoding: .utf8) {
+                            if verbose {
+                                fputs("[macbethd] → \(responseStr)\n", stderr)
+                            }
+                            connection.writeLine(responseStr)
+                        }
+                    } catch {
+                        if verbose {
+                            fputs("[macbethd] Failed to encode response: \(error)\n", stderr)
+                        }
+                    }
                 }
-            } catch {
-                log("Failed to encode response: \(error)")
             }
+
+            // Wait for in-flight requests to finish responding before closing.
+            await group.waitForAll()
         }
+
+        connection.close()
+        log("Client disconnected (fd=\(fd))")
     }
 
     private func log(_ message: String) {

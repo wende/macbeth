@@ -10,26 +10,36 @@ actor Dispatcher {
         handlers[method] = handler
     }
 
-    func dispatch(request: JSONRPCRequest) async -> JSONRPCResponse {
+    /// Look up a handler under actor isolation. Callers invoke it outside the actor
+    /// so one slow handler can't stall every other in-flight request.
+    func handler(for method: String) -> Handler? {
+        handlers[method]
+    }
+
+    nonisolated func dispatch(request: JSONRPCRequest) async -> JSONRPCResponse {
         guard request.jsonrpc == "2.0" else {
             return JSONRPCResponse(id: request.id, error: .invalidRequest("jsonrpc must be \"2.0\""))
         }
 
-        guard let handler = handlers[request.method] else {
+        guard let handler = await self.handler(for: request.method) else {
             return JSONRPCResponse(id: request.id, error: .methodNotFound(request.method))
         }
 
-        do {
-            let result = try await handler(request.params)
-            return JSONRPCResponse(id: request.id, result: result)
-        } catch let error as RPCError {
-            return JSONRPCResponse(id: request.id, error: error.toJSONRPC())
-        } catch {
-            return JSONRPCResponse(
-                id: request.id,
-                error: .internalError(error.localizedDescription)
-            )
-        }
+        let id = request.id
+        let params = request.params
+        return await Task.detached(priority: .userInitiated) { () -> JSONRPCResponse in
+            do {
+                let result = try await handler(params)
+                return JSONRPCResponse(id: id, result: result)
+            } catch let error as RPCError {
+                return JSONRPCResponse(id: id, error: error.toJSONRPC())
+            } catch {
+                return JSONRPCResponse(
+                    id: id,
+                    error: .internalError(error.localizedDescription)
+                )
+            }
+        }.value
     }
 }
 

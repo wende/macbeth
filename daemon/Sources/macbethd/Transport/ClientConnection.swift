@@ -1,10 +1,15 @@
 import Foundation
 
 /// Wraps a connected file descriptor with buffered line-delimited I/O.
+///
+/// Reads are single-threaded (one reader loop per connection). Writes are
+/// serialized via an internal lock so concurrent request handlers can emit
+/// responses without interleaving bytes on the wire.
 final class ClientConnection: @unchecked Sendable {
     private let fd: Int32
     private var buffer = Data()
     private let bufferSize = 4096
+    private let writeLock = NSLock()
 
     init(fd: Int32) {
         self.fd = fd
@@ -38,9 +43,11 @@ final class ClientConnection: @unchecked Sendable {
         }
     }
 
-    /// Write a line (appends newline).
+    /// Write a line (appends newline). Safe to call concurrently.
     func writeLine(_ line: String) {
         guard let data = (line + "\n").data(using: .utf8) else { return }
+        writeLock.lock()
+        defer { writeLock.unlock() }
         data.withUnsafeBytes { ptr in
             guard let base = ptr.baseAddress else { return }
             var written = 0

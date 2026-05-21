@@ -41,6 +41,10 @@ actor AppConnectionManager {
 
         let appElement = AXUIElementCreateApplication(resolvedPid)
 
+        // Cap per-message AX waits so a sluggish target app can't stall a tree walk
+        // or pin the dispatch thread for the default ~6s per call.
+        AXUIElementSetMessagingTimeout(appElement, 1.5)
+
         // Verify the app responds to AX queries
         var roleRef: CFTypeRef?
         let result = AXUIElementCopyAttributeValue(appElement, kAXRoleAttribute as CFString, &roleRef)
