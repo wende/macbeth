@@ -7,7 +7,9 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { MacbethClient } from "./client.js";
+import { runScreenshotTool } from "./mcp-screenshot.js";
 import { JsonRpcError } from "./rpc.js";
+import { saveScreenshotToTempFile } from "./screenshots.js";
 import type { KeyStroke } from "./types.js";
 
 const MODULE_DIR = dirname(fileURLToPath(import.meta.url));
@@ -217,7 +219,7 @@ server.registerTool("press_keys", {
 });
 
 server.registerTool("screenshot", {
-  description: "Capture a screenshot of an app window, optionally cropped to a region. Returns the image.",
+  description: "Capture a screenshot of an app window, optionally cropped to a region. Saves it to a temporary PNG file and returns the path.",
   inputSchema: {
     app: z.string().describe("App name or PID"),
     region: z.object({
@@ -227,17 +229,17 @@ server.registerTool("screenshot", {
       height: z.number().describe("Height in points"),
     }).optional().describe("Optional region to crop (in window-relative points)"),
   },
-  annotations: { readOnlyHint: true },
 }, async ({ app, region }) => {
-  const handle = await client.connect(app);
-  const result = await handle.screenshotRaw({ region: region ?? undefined });
-  return {
-    content: [{
-      type: "image",
-      data: result.data,
-      mimeType: "image/png",
-    }],
-  };
+  return runScreenshotTool(
+    {
+      connect: (target) => client.connect(target),
+      save: saveScreenshotToTempFile,
+    },
+    {
+      app,
+      region: region ?? undefined,
+    }
+  );
 });
 
 server.registerTool("extract_text", {
