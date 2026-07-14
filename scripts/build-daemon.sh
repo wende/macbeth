@@ -3,17 +3,25 @@ set -euo pipefail
 
 cd "$(dirname "$0")/../daemon"
 
-echo "Building macbethd (universal binary)..."
+echo "Building macbethd + macbeth-glow (universal binaries)..."
 swift build -c release --arch arm64 --arch x86_64
 
-BINARY=".build/apple/Products/Release/macbethd"
-if [ ! -f "$BINARY" ]; then
+PRODUCTS=".build/apple/Products/Release"
+if [ ! -d "$PRODUCTS" ]; then
     # Fallback for single-arch builds
-    BINARY=".build/release/macbethd"
+    PRODUCTS=".build/release"
 fi
 
-DEST="../client/bin/macbethd"
-cp "$BINARY" "$DEST"
-chmod +x "$DEST"
+mkdir -p ../client/bin
 
-echo "Built: $DEST ($(du -h "$DEST" | cut -f1))"
+for name in macbethd macbeth-glow; do
+    BINARY="$PRODUCTS/$name"
+    if [ ! -f "$BINARY" ]; then
+        echo "Error: expected binary not found: $BINARY" >&2
+        exit 1
+    fi
+    DEST="../client/bin/$name"
+    cp "$BINARY" "$DEST"
+    chmod +x "$DEST"
+    echo "Built: $DEST ($(du -h "$DEST" | cut -f1))"
+done

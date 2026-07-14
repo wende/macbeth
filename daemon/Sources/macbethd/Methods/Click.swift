@@ -6,7 +6,8 @@ import Foundation
 func registerClick(
     dispatcher: Dispatcher,
     appManager: AppConnectionManager,
-    handleTable: HandleTable
+    handleTable: HandleTable,
+    glow: GlowIndicator
 ) {
     Task {
         await dispatcher.register(method: "click") { params in
@@ -21,6 +22,10 @@ func registerClick(
                 appManager: appManager, handleTable: handleTable,
                 timeout: timeout
             )
+
+            // Interaction choke point: signal the glow before touching the system.
+            await glow.activityStarted()
+            defer { Task { await glow.activityEnded() } }
 
             // Try AXPress first; fall back to coordinate-based CGEvent click
             let pressResult = AXUIElementPerformAction(element.element, kAXPressAction as CFString)

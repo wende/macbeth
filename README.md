@@ -316,10 +316,13 @@ macbeth/
 │   │   │   ├── TreeSerializer.swift   # Text + JSON tree output
 │   │   │   ├── ElementQuery.swift     # Query path resolution
 │   │   │   └── KeyCodes.swift         # Key name → CGKeyCode mapping
-│   │   └── Methods/        # RPC method implementations
-│   │       ├── Click.swift, Fill.swift, PressKey.swift
-│   │       ├── Screenshot.swift, WaitFor.swift
-│   │       └── ListApps.swift, ConnectApp.swift, ...
+│   │   ├── Methods/        # RPC method implementations
+│   │   │   ├── Click.swift, Fill.swift, PressKey.swift
+│   │   │   ├── Screenshot.swift, WaitFor.swift
+│   │   │   └── ListApps.swift, ConnectApp.swift, ...
+│   │   └── Glow/           # GlowIndicator: drives the macbeth-glow helper
+│   ├── Sources/GlowProtocol/ # Shared IPC message + debounce logic (testable)
+│   ├── Sources/macbeth-glow/ # AppKit helper: renders the screen-edge glow
 │   └── Tests/
 ├── client/                 # TypeScript client + MCP server
 │   ├── src/
@@ -346,6 +349,42 @@ macbeth/
 - **Daemon lifecycle**: The TypeScript client auto-spawns the daemon as a subprocess and shuts it down on close. No background service to manage.
 - **Zero external Swift dependencies**: The daemon uses only Foundation, ApplicationServices, ScreenCaptureKit, and CoreGraphics.
 - **Swift 6 strict concurrency**: Full Sendable compliance. AXUIElement is wrapped in `@unchecked Sendable` (safe — it's a mach port).
+
+## Interaction indicator
+
+Whenever the daemon actively drives the system — AX actions, synthetic keyboard
+input, window manipulation, or AppleScript/JXA — it lights a subtle glow hugging
+the edges of every attached display, so it's always obvious the machine is being
+controlled and windows aren't moving "on their own."
+
+How it works:
+
+- The daemon has no AppKit run loop, so the glow is rendered by a tiny helper
+  process (`macbeth-glow`) that the daemon spawns lazily on the first
+  interaction and reuses afterwards. Commands travel over the helper's stdin as
+  newline-delimited JSON (`{"type":"activate"|"deactivate"|"shutdown"}`).
+- One borderless, click-through overlay window per screen floats above normal
+  and full-screen content, re-laying-out when displays change. The windows are
+  `sharingType = .none` and owned by a separate process, so the glow **never
+  appears in screenshots** macbeth captures.
+- The glow fades in fast (~150ms), breathes gently while active (disabled if
+  macOS "Reduce Motion" is on), and fades out slowly (~600ms) after a debounce
+  window so a burst of rapid actions reads as one continuous glow.
+- The indicator is entirely best-effort: if the helper can't start or crashes,
+  the daemon logs a warning and keeps working — automation is never blocked.
+
+Configuration (environment variables read by the daemon, plus the `--no-glow`
+flag):
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `MACBETH_GLOW` | `1` | Set to `0`/`false`/`off`/`no` to disable the indicator entirely (same as `--no-glow`). |
+| `MACBETH_GLOW_COLOR` | `#BD5CF3` | Accent color as hex (`#RGB`, `#RGBA`, `#RRGGBB`, or `#RRGGBBAA`). |
+| `MACBETH_GLOW_DEBOUNCE_MS` | `1500` | Milliseconds to keep the glow alive after the last action (debounce). |
+| `MACBETH_GLOW_HELPER` | — | Explicit path to the `macbeth-glow` binary (otherwise discovered next to `macbethd`). |
+
+The helper uses ~0% CPU while idle — all overlay windows are ordered out and no
+animation timers run until the next interaction.
 
 ## Permissions
 
