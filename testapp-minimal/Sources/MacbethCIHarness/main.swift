@@ -59,10 +59,10 @@ final class HarnessDelegate: NSObject, NSApplicationDelegate {
         win.makeKeyAndOrderFront(nil)
         win.center()
 
-        NSApp.activate(ignoringOtherApps: true)
+        NSApp.activate()
 
         // Stdout marker for the harness side of the smoke check.
-        FileHandle.standardOutput.write(Data("ci-harness-ready\n".utf8))
+        print("ci-harness-ready")
     }
 
     @MainActor @objc func submitClicked() {

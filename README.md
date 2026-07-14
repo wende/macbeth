@@ -438,7 +438,7 @@ The diagnostic artifact (`macbeth-ci-prototype-diag`) includes:
 | File                              | What it tells you |
 | --------------------------------- | ----------------- |
 | `env.txt`                         | macOS version, console user, GUI session — rules out "no user logged in". |
-| `tcc-inspect.txt`                 | Whether the user TCC DB is reachable, whether `/bin/bash` is cloned from. |
+| `tcc-inspect.txt`                 | Whether the user TCC DB is reachable, whether rows were cloned from `/bin/bash`. |
 | `preflight-before.txt`            | Baseline permissions — almost always DENIED on a fresh runner. |
 | `grant-script.log`                | Full TCC injection output — see the row dump before/after. |
 | `preflight-after.txt`             | Permissions after injection. If still DENIED → grant failed. |

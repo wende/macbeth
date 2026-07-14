@@ -157,59 +157,53 @@ if ! echo "$SCHEMA" | grep -q "CREATE TABLE"; then
   exit 4
 fi
 
-# macOS 13+ schemas drop the `client` column from `access` and store the
-# client identifier directly in `service`. We don't pin a specific column
-# layout — instead we look at what columns exist and choose adaptively.
-HAS_CLIENT_COLUMN="$(echo "$SCHEMA" | grep -c "client " || true)"
-HAS_SERVICE_COLUMN="$(echo "$SCHEMA" | grep -c "service " || true)"
-
-if [ "$HAS_SERVICE_COLUMN" -eq 0 ]; then
-  echo "user TCC schema has no `service` column — unexpected" >&2
+# Sanity check: every modern macOS TCC `access` table has both `service`
+# and `client` columns. Our hardcoded INSERT below assumes that layout.
+if ! echo "$SCHEMA" | grep -q "service "; then
+  echo "user TCC schema has no \`service\` column — unexpected" >&2
+  exit 4
+fi
+if ! echo "$SCHEMA" | grep -q "client "; then
+  echo "user TCC schema has no \`client\` column — unsupported layout" >&2
   exit 4
 fi
 
 # ---- Helper: inject one row by cloning a pre-authorized executable ------
 
-# Usage: inject_one <service> <perm_service_short>
+# Usage: inject_one <service> <perm_service_short> [nonfatal]
 #   <service>            TCC service name in the DB (e.g. kTCCServiceAccessibility)
 #   <perm_service_short> human-readable name for logging
+#   [nonfatal]           When set to "nonfatal", the function returns the
+#                        number of completed injection steps instead of
+#                        calling exit on failure. Callers can then decide
+#                        whether to ignore the failure.
 inject_one() {
   local svc="$1"
   local label="$2"
+  local mode="${3:-fatal}"   # "fatal" (default) or "nonfatal"
+  local fail=0
 
   echo
   echo ">>> injecting '$label' (service=$svc)"
 
   # Dump existing rows for this service BEFORE
   echo "--- existing rows for service=$svc ---"
-  if [ "$HAS_CLIENT_COLUMN" -eq 0 ]; then
-    sqlite3 "$USER_TCC_DB" "SELECT service, client, auth_value, auth_reason, auth_version FROM access WHERE service='$svc' ORDER BY client;"
-  else
-    sqlite3 "$USER_TCC_DB" "SELECT service, client, auth_value, auth_reason, auth_version FROM access WHERE service='$svc' ORDER BY client;"
-  fi
+  sqlite3 "$USER_TCC_DB" \
+    "SELECT service, client, auth_value, auth_reason, auth_version FROM access WHERE service='$svc' ORDER BY client;" \
+    || fail=1
   echo "--------------------------------------"
-
-  # Locate a clone source row. macbeth picks the first row whose `client`
-  # matches CLONE_FROM and whose `auth_value` is 2 (allowed). If we cannot
-  # find a suitable row we fall back to CLONE_FROM without an auth_value
-  # filter and patch auth_value manually below.
-  local row
-  row="$(sqlite3 -separator '|' "$USER_TCC_DB" \
-      "SELECT * FROM access WHERE service='$svc' AND client='$CLONE_FROM' AND auth_value=2 LIMIT 1;")"
-
-  if [ -z "$row" ]; then
-    echo "no pre-authorized '$CLONE_FROM' row found for service=$svc" >&2
-    echo "trying any row for $CLONE_FROM on any service..." >&2
-    row="$(sqlite3 -separator '|' "$USER_TCC_DB" \
-        "SELECT * FROM access WHERE client='$CLONE_FROM' LIMIT 1;")"
-    if [ -z "$row" ]; then
-      echo "no row at all for $CLONE_FROM — cannot clone" >&2
-      exit 5
-    fi
+  if [ "$fail" -ne 0 ]; then
+    if [ "$mode" = "nonfatal" ]; then return 1; fi
+    exit 4
   fi
 
-  # (We don't extract/use the column list — the INSERT below hardcodes
-# the columns we set, letting the rest fall back to schema defaults.)
+  # Best-effort: log whether $CLONE_FROM has any rows on this service, for
+  # human-readable evidence. The INSERT below hardcodes every value we set,
+  # so this lookup is purely informational — no exit on miss.
+  local bash_rows
+  bash_rows="$(sqlite3 "$USER_TCC_DB" \
+      "SELECT COUNT(*) FROM access WHERE service='$svc' AND client='$CLONE_FROM';")"
+  echo "--- $CLONE_FROM has $bash_rows row(s) for service=$svc (informational) ---"
 
   # Check whether a row already exists for our target client.
   local existing
@@ -219,7 +213,8 @@ inject_one() {
   if [ "${existing:-0}" -gt 0 ]; then
     echo "row for $DAEMON_ABS already exists — updating auth_value=2"
     sqlite3 "$USER_TCC_DB" \
-      "UPDATE access SET auth_value=2 WHERE service='$svc' AND client='$DAEMON_ABS' AND indirect_object_identifier='UNUSED';"
+      "UPDATE access SET auth_value=2 WHERE service='$svc' AND client='$DAEMON_ABS' AND indirect_object_identifier='UNUSED';" \
+      || fail=1
   else
     # Write a minimal row with only the columns we need to set.
     # All other columns fall back to their schema DEFAULTs (including
@@ -227,16 +222,22 @@ inject_one() {
     # 'UNUSED', csreq/policy_id = NULL, etc.). This avoids carrying
     # stale or incompatible values from the clone source row.
     echo "inserting fresh row for $DAEMON_ABS"
-    if ! sqlite3 "$USER_TCC_DB" \
-        "INSERT INTO access (service, client, client_type, auth_value, auth_reason, auth_version, indirect_object_identifier_type, indirect_object_identifier) VALUES ('$svc', '$DAEMON_ABS', 0, 2, 4, 1, 0, 'UNUSED');"; then
-      echo "INSERT failed — schema may have changed; refusing to fall back" >&2
-      exit 4
-    fi
+    sqlite3 "$USER_TCC_DB" \
+      "INSERT INTO access (service, client, client_type, auth_value, auth_reason, auth_version, indirect_object_identifier_type, indirect_object_identifier) VALUES ('$svc', '$DAEMON_ABS', 0, 2, 4, 1, 0, 'UNUSED');" \
+      || fail=1
   fi
 
   echo "--- rows for service=$svc AFTER injection ---"
-  sqlite3 "$USER_TCC_DB" "SELECT service, client, auth_value, auth_reason FROM access WHERE service='$svc' AND client='$DAEMON_ABS';"
+  sqlite3 "$USER_TCC_DB" \
+    "SELECT service, client, auth_value, auth_reason FROM access WHERE service='$svc' AND client='$DAEMON_ABS';" \
+    || fail=1
   echo "-------------------------------------------"
+
+  if [ "$fail" -ne 0 ]; then
+    echo "injection failed for service=$svc" >&2
+    if [ "$mode" = "nonfatal" ]; then return 1; fi
+    exit 4
+  fi
 }
 
 # ---- Inject Accessibility + Screen Recording -----------------------------
@@ -247,7 +248,9 @@ inject_one "kTCCServiceScreenCapture" "ScreenCapture"
 
 # Best-effort: also try the newer "PrivacyBundle" form used on some 14+ builds.
 # If it doesn't apply, the first two rows above are sufficient.
-inject_one "kTCCServicePrivacyBundles" "PrivacyBundles" || echo "(PrivacyBundles service missing — skipping, expected on most builds)"
+if ! inject_one "kTCCServicePrivacyBundles" "PrivacyBundles" nonfatal; then
+  echo "(PrivacyBundles service missing or injection failed — skipping, expected on most builds)"
+fi
 
 # ---- Restart tccd so it picks up the new rows ---------------------------
 
