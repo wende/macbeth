@@ -208,66 +208,27 @@ inject_one() {
     fi
   fi
 
-  local cols
-  # Extract column names from the CREATE TABLE line. The macOS TCC
-  # schema uses unquoted identifiers (e.g. `service TEXT`), but be
-  # defensive in case some future variant uses double-quoted names.
-  cols="$(echo "$SCHEMA" | sed -n 's/.*CREATE TABLE [a-z]* (//p' | tr -d ')' \
-            | grep -oE '("[a-z_]+"|[a-z_]+)[[:space:]]+(TEXT|INTEGER|BLOB|NUMERIC|REAL|ANY)' \
-            | sed -E 's/^"([a-z_]+)".*/\1/; s/^([a-z_]+)[[:space:]].*/\1/' \
-            | paste -sd ',' -)"
-
-  if [ -z "$cols" ]; then
-    echo "could not extract column list from schema:" >&2
-    echo "$SCHEMA" >&2
-    exit 4
-  fi
-
-  # Build the column list and the matching values for INSERT.
-  # We replace `client` with DAEMON_ABS and force auth_value=2 (allowed).
-  local col_list val_list
-  col_list=""
-  val_list=""
-  IFS='|' read -ra parts <<< "$row"
-  local i=0
-  for col in $(echo "$cols" | tr ',' ' '); do
-    if [ -z "$col_list" ]; then
-      col_list="$col"
-    else
-      col_list="$col_list, $col"
-    fi
-    local v="${parts[$i]:-}"
-    if [ "$col" = "client" ]; then
-      v="$DAEMON_ABS"
-    elif [ "$col" = "auth_value" ]; then
-      v="2"
-    elif [ "$col" = "auth_reason" ]; then
-      # 4 = "User Set" (vs 1=allowed-by-tccd-previous-grant, 2=allowed-Apple).
-      # 4 is the most likely to be honored across macOS releases when we
-      # write manually.
-      v="4"
-    fi
-    if [ -z "$val_list" ]; then
-      val_list="$(printf "'%s'" "$v")"
-    else
-      val_list="$val_list, $(printf "'%s'" "$v")"
-    fi
-    i=$((i+1))
-  done
+  # (We don't extract/use the column list — the INSERT below hardcodes
+# the columns we set, letting the rest fall back to schema defaults.)
 
   # Check whether a row already exists for our target client.
   local existing
   existing="$(sqlite3 "$USER_TCC_DB" \
-      "SELECT COUNT(*) FROM access WHERE service='$svc' AND client='$DAEMON_ABS';")"
+      "SELECT COUNT(*) FROM access WHERE service='$svc' AND client='$DAEMON_ABS' AND indirect_object_identifier='UNUSED';")"
 
   if [ "${existing:-0}" -gt 0 ]; then
     echo "row for $DAEMON_ABS already exists — updating auth_value=2"
     sqlite3 "$USER_TCC_DB" \
-      "UPDATE access SET auth_value=2 WHERE service='$svc' AND client='$DAEMON_ABS';"
+      "UPDATE access SET auth_value=2 WHERE service='$svc' AND client='$DAEMON_ABS' AND indirect_object_identifier='UNUSED';"
   else
-    echo "inserting cloned row for $DAEMON_ABS"
+    # Write a minimal row with only the columns we need to set.
+    # All other columns fall back to their schema DEFAULTs (including
+    # last_modified = CURRENT_TIMESTAMP, last_reminded, boot_uuid =
+    # 'UNUSED', csreq/policy_id = NULL, etc.). This avoids carrying
+    # stale or incompatible values from the clone source row.
+    echo "inserting fresh row for $DAEMON_ABS"
     if ! sqlite3 "$USER_TCC_DB" \
-        "INSERT INTO access ($col_list) VALUES ($val_list);"; then
+        "INSERT INTO access (service, client, client_type, auth_value, auth_reason, auth_version, indirect_object_identifier_type, indirect_object_identifier) VALUES ('$svc', '$DAEMON_ABS', 0, 2, 4, 1, 0, 'UNUSED');"; then
       echo "INSERT failed — schema may have changed; refusing to fall back" >&2
       exit 4
     fi
