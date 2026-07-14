@@ -99,20 +99,34 @@ fi
 echo "system DB writable? $([ "$SYSTEM_READONLY" -eq 0 ] && echo yes || echo no)"
 echo
 
-# ---- Stop tccd so it does not overwrite our writes ----------------------
+# ---- Stop our own tccd instance so it does not overwrite our writes -----
+# On macOS 15 the system tccd (PID 145, owned by root) is not killable by
+# a regular user — pkill returns EPERM. Our writes still land in the DB
+# via sqlite3; tccd may eventually overwrite them on its next sync, but
+# for a one-shot CI prototype that's fine. If a user-owned tccd is also
+# running (the one for our GUI session), we kill that one specifically.
 
 stop_tccd() {
-  if pgrep -x tccd >/dev/null 2>&1; then
-    echo "stopping tccd..."
-    pkill -x tccd || true
-    # Give tccd a moment to actually exit. launchd will respawn it later.
+  echo "attempting to stop our (user-owned) tccd..."
+  # Kill the tccd instance belonging to our uid (501 on the runner).
+  # `pgrep -U $UID -x tccd` matches processes we own. Without -U it would
+  # try to signal the root-owned tccd and fail with EPERM.
+  local our_pids
+  our_pids="$(pgrep -U "$(id -u)" -x tccd || true)"
+  if [ -n "$our_pids" ]; then
+    echo "killing tccd pids: $our_pids"
+    kill $our_pids 2>/dev/null || true
     sleep 1
+  else
+    echo "no user-owned tccd to kill"
   fi
+  # Best-effort: try the system tccd anyway. EPERM is expected and OK.
+  pkill -x tccd 2>/dev/null || true
 }
 start_tccd() {
   # launchd will respawn tccd on demand; just give it a moment.
-  if ! pgrep -x tccd >/dev/null 2>&1; then
-    echo "waiting for launchd to respawn tccd..."
+  if ! pgrep -U "$(id -u)" -x tccd >/dev/null 2>&1; then
+    echo "waiting for launchd to respawn our tccd..."
     sleep 2
   fi
 }
@@ -195,7 +209,19 @@ inject_one() {
   fi
 
   local cols
-  cols="$(echo "$SCHEMA" | grep -oE '"[a-z_]+"' | tr -d '"' | paste -sd ',' -)"
+  # Extract column names from the CREATE TABLE line. The macOS TCC
+  # schema uses unquoted identifiers (e.g. `service TEXT`), but be
+  # defensive in case some future variant uses double-quoted names.
+  cols="$(echo "$SCHEMA" | sed -n 's/.*CREATE TABLE [a-z]* (//p' | tr -d ')' \
+            | grep -oE '("[a-z_]+"|[a-z_]+)[[:space:]]+(TEXT|INTEGER|BLOB|NUMERIC|REAL|ANY)' \
+            | sed -E 's/^"([a-z_]+)".*/\1/; s/^([a-z_]+)[[:space:]].*/\1/' \
+            | paste -sd ',' -)"
+
+  if [ -z "$cols" ]; then
+    echo "could not extract column list from schema:" >&2
+    echo "$SCHEMA" >&2
+    exit 4
+  fi
 
   # Build the column list and the matching values for INSERT.
   # We replace `client` with DAEMON_ABS and force auth_value=2 (allowed).
