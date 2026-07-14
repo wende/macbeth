@@ -248,9 +248,9 @@ inject_one() {
       v="4"
     fi
     if [ -z "$val_list" ]; then
-      val_list="$(printf %s "'%s'" "$v")"
+      val_list="$(printf "'%s'" "$v")"
     else
-      val_list="$val_list, $(printf %s "'%s'" "$v")"
+      val_list="$val_list, $(printf "'%s'" "$v")"
     fi
     i=$((i+1))
   done
