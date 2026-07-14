@@ -16,12 +16,18 @@ func registerFill(
                 throw RPCError.invalidParams("Missing 'appHandle' or 'value'")
             }
 
+            let strategy = FillStrategy(obj["strategy"]?.stringValue)
             let timeout = obj["timeout"]?.numberValue ?? 5.0
             let element = try await resolveTarget(
                 obj: obj, appHandle: appHandle,
                 appManager: appManager, handleTable: handleTable,
                 timeout: timeout
             )
+            try ensureElementValid(element.element)
+
+            let connection = await appManager.get(appHandle)
+            let isElectron = connection?.runtime == .electron
+            let pid = connection?.pid
 
             // Check element role
             var roleRef: CFTypeRef?
@@ -30,38 +36,89 @@ func registerFill(
 
             // For sliders, use AXIncrement/AXDecrement to reach the target value.
             // AXSetValue on sliders often "succeeds" without actually setting the value.
-            if role == (kAXSliderRole as String), let targetValue = Double(value) {
+            // (Keyboard synthesis is meaningless for a slider, so this applies to every
+            // strategy except an explicit keyboard override.)
+            if role == (kAXSliderRole as String), let targetValue = Double(value), strategy != .keyboard {
                 return try fillSlider(element: element.element, target: targetValue)
             }
 
-            // For non-slider elements: try direct AX value setting
-            let setResult = AXUIElementSetAttributeValue(
-                element.element, kAXValueAttribute as CFString, value as CFTypeRef
-            )
+            // --- AX path ---
+            if strategy != .keyboard {
+                let setResult = AXUIElementSetAttributeValue(
+                    element.element, kAXValueAttribute as CFString, value as CFTypeRef
+                )
 
-            if setResult == .success {
-                return .object(["success": .bool(true)])
+                // In web content the AX write can "succeed" while the underlying
+                // framework (React etc.) never sees an input event, so the value
+                // reads back correct but app state stays stale. On Electron we always
+                // follow up with keyboard synthesis in auto mode; elsewhere we trust a
+                // verified read-back.
+                let verified = setResult == .success && readBackMatches(element.element, expected: value)
+                if strategy == .ax {
+                    if verified { return .object(["success": .bool(true)]) }
+                    throw RPCError.actionFailed(
+                        "AX fill failed (set result: \(setResult.rawValue), value did not verify). "
+                        + "Try strategy \"keyboard\".")
+                }
+                // strategy == .auto
+                if verified && !isElectron {
+                    return .object(["success": .bool(true)])
+                }
             }
 
-            // Fallback: focus, select all, type the value
-            await appManager.activate(appHandle)
-            AXUIElementSetAttributeValue(
-                element.element, kAXFocusedAttribute as CFString, true as CFTypeRef
-            )
-            try await Task.sleep(for: .milliseconds(50))
-
-            // Select all (Cmd+A)
-            postKeyEvent(keyCode: keyCodeMap["a"]!, flags: .maskCommand)
-            try await Task.sleep(for: .milliseconds(50))
-
-            // Type the value character by character
-            for char in value {
-                typeCharacter(char)
-                try await Task.sleep(for: .milliseconds(10))
-            }
-
+            // --- Keyboard synthesis path (strategy == .keyboard, or auto fallback) ---
+            try await fillViaKeyboard(element.element, value: value, pid: pid)
             return .object(["success": .bool(true)])
         }
+    }
+}
+
+/// How `fill` should apply text to an element.
+enum FillStrategy {
+    case auto      // AX write, verified; fall back to keyboard (always on Electron)
+    case ax        // AX write only
+    case keyboard  // keyboard synthesis only
+
+    init(_ raw: String?) {
+        switch raw {
+        case "ax": self = .ax
+        case "keyboard": self = .keyboard
+        default: self = .auto
+        }
+    }
+}
+
+/// Read an element's value back and compare against the text we tried to set.
+private func readBackMatches(_ element: AXUIElement, expected: String) -> Bool {
+    var ref: CFTypeRef?
+    let r = AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &ref)
+    guard r == .success else { return false }
+    if let s = ref as? String { return s == expected }
+    if let n = ref as? NSNumber { return n.stringValue == expected }
+    return false
+}
+
+/// Focus the element, select-all, and type the value as synthetic key events.
+/// Events are posted directly to the owning process (when known) so we don't have to
+/// steal frontmost focus. Falls back to an AXPress if focusing the element fails.
+private func fillViaKeyboard(_ element: AXUIElement, value: String, pid: pid_t?) async throws {
+    let focusResult = AXUIElementSetAttributeValue(
+        element, kAXFocusedAttribute as CFString, kCFBooleanTrue
+    )
+    if focusResult != .success {
+        // Some web controls only take focus via a press.
+        AXUIElementPerformAction(element, kAXPressAction as CFString)
+    }
+    try await Task.sleep(for: .milliseconds(50))
+
+    // Select all (Cmd+A) so the new value replaces any existing content.
+    postKeyEvent(keyCode: keyCodeMap["a"]!, flags: .maskCommand, toPid: pid)
+    try await Task.sleep(for: .milliseconds(50))
+
+    // Type the value character by character.
+    for char in value {
+        typeCharacter(char, toPid: pid)
+        try await Task.sleep(for: .milliseconds(10))
     }
 }
 
@@ -136,25 +193,39 @@ private func fillSlider(element: AXUIElement, target: Double) throws -> JSONValu
 }
 
 /// Type a single character via CGEvent.
-func typeCharacter(_ char: Character) {
+///
+/// When `pid` is supplied the event is posted directly to that process
+/// (`CGEvent.postToPid`) rather than the global HID tap, so input can reach a
+/// background target without depending on it being frontmost — important for
+/// Electron web content.
+func typeCharacter(_ char: Character, toPid pid: pid_t? = nil) {
     let str = String(char)
     guard let event = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: true) else { return }
     var utf16 = Array(str.utf16)
     event.keyboardSetUnicodeString(stringLength: utf16.count, unicodeString: &utf16)
-    event.post(tap: .cghidEventTap)
+    postEvent(event, toPid: pid)
 
     guard let upEvent = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: false) else { return }
     upEvent.keyboardSetUnicodeString(stringLength: utf16.count, unicodeString: &utf16)
-    upEvent.post(tap: .cghidEventTap)
+    postEvent(upEvent, toPid: pid)
 }
 
-/// Post a key event with modifiers.
-func postKeyEvent(keyCode: CGKeyCode, flags: CGEventFlags = CGEventFlags()) {
+/// Post a key event with modifiers. When `pid` is supplied the event is delivered
+/// directly to that process instead of the global HID tap.
+func postKeyEvent(keyCode: CGKeyCode, flags: CGEventFlags = CGEventFlags(), toPid pid: pid_t? = nil) {
     guard let downEvent = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: true) else { return }
     downEvent.flags = flags
-    downEvent.post(tap: .cghidEventTap)
+    postEvent(downEvent, toPid: pid)
 
     guard let upEvent = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: false) else { return }
     upEvent.flags = flags
-    upEvent.post(tap: .cghidEventTap)
+    postEvent(upEvent, toPid: pid)
+}
+
+private func postEvent(_ event: CGEvent, toPid pid: pid_t?) {
+    if let pid {
+        event.postToPid(pid)
+    } else {
+        event.post(tap: .cghidEventTap)
+    }
 }

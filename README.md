@@ -108,6 +108,8 @@ Built-in locator methods for common roles:
 | `.group(title)` | Group |
 | `.dialog(title)` | Dialog |
 | `.link(title)` | Link |
+| `.webArea(title)` | Web Area (Electron/Chromium web content) |
+| `.heading(title)` | Heading (web content) |
 | ... | [and more](client/src/elements.ts) |
 
 For roles without a shorthand, use `.locator()`:
@@ -138,6 +140,14 @@ All actions auto-wait for the element to appear (default 30s timeout):
 
 ```ts
 await locator.click({ timeout: 5000 }); // 5 second timeout
+```
+
+`click` and `fill` accept a `strategy` to control how the action is applied — useful for
+Electron/web content (see [Electron apps](#electron-apps)):
+
+```ts
+await locator.click({ strategy: "mouse" });    // "auto" (default) | "ax" | "mouse"
+await locator.fill("text", { strategy: "keyboard" }); // "auto" (default) | "ax" | "keyboard"
 ```
 
 ### Inspecting the UI tree
@@ -203,6 +213,64 @@ const apps = await client.listApps();
 ```
 
 macbeth auto-detects whether apps are native, Electron, or unknown.
+
+### Electron apps
+
+macbeth automates Electron apps (Slack, VS Code, Discord, …) in addition to native
+AppKit apps. Chromium keeps its accessibility tree disabled until it detects an
+assistive-technology client, so on connect macbeth sets the documented
+`AXManualAccessibility` attribute to switch the tree on, then waits for the web content
+to appear before returning.
+
+```ts
+const slack = await client.connect("Slack");
+// The web content (an AXWebArea) is ready by the time connect() resolves.
+await slack.window("Slack").webArea().textField().fill("hello team");
+await slack.window("Slack").webArea().button("Send").click();
+```
+
+**What works**
+
+- The full web-content accessibility tree (`web_area`, `link`, `button`, `heading`,
+  `text_field`, `text_area`, `checkbox`, lists, tables, …) via `query_tree` and locators.
+- `click` and `fill` with automatic fallbacks tuned for web content (below).
+- Screenshots, OCR (`extract_text`), and menu-bar automation, same as native apps.
+
+**Readiness delay** — after `AXManualAccessibility` is set, Chromium takes a short,
+non-deterministic moment (usually <1s) to build the tree. `connect()` polls for it up to
+a timeout you can tune:
+
+```ts
+const app = await client.connect("Slack", { readyTimeoutMs: 5000 }); // default 3000
+```
+
+If the front window legitimately has no web content, `connect()` proceeds anyway rather
+than failing — native fallback behavior is preserved.
+
+**Action strategies** — web content has two quirks the default `"auto"` strategy handles:
+
+- `fill`: a raw AX value write can succeed while the framework (React, etc.) never sees an
+  input event, leaving app state stale. On Electron, `"auto"` synthesizes real keystrokes
+  so the app registers the input. Force it with `strategy: "keyboard"`, or force a plain
+  AX write with `strategy: "ax"`.
+- `click`: the pressable action sometimes lives on an adjacent node, and canvas-heavy UIs
+  expose geometry but no actions. `"auto"` tries `AXPress` on the element and its
+  neighbours, then falls back to a synthetic mouse click at the element's center. Force
+  either end with `strategy: "ax"` or `strategy: "mouse"`.
+
+**Known limitations**
+
+- The AX tree is not the DOM. You get roles, titles, values, and geometry — not arbitrary
+  DOM attributes, CSS, or `data-*` fields.
+- Electron re-renders can invalidate element handles sooner than the 5-minute TTL. Locator
+  chains re-resolve automatically; raw `query_tree` handles (`h_N`) should be re-fetched if
+  they go stale.
+- For richer needs (evaluating JS, reading DOM attributes), launch the app with
+  `--remote-debugging-port` and drive it over the Chrome DevTools Protocol — that's outside
+  macbeth's scope.
+
+An end-to-end integration test against a real Electron app lives in
+[`client/test-electron/`](client/test-electron/) (`npm run test:electron`, macOS-only).
 
 ### Lifecycle
 

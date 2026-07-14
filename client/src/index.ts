@@ -27,7 +27,11 @@ export { Locator } from "./elements.js";
 export { JsonRpcClient, JsonRpcError } from "./rpc.js";
 export type {
   ConnectOptions,
+  AppConnectOptions,
   AppInfo,
+  AppRuntime,
+  ClickStrategy,
+  FillStrategy,
   TreeOptions,
   ElementInfo,
   ScreenshotResult,

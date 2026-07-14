@@ -34,6 +34,9 @@ while let arg = args.next() {
     }
 }
 
+// Publish the verbose flag for module-wide diagnostic logging.
+verboseLogging = verbose
+
 // Default socket path
 let resolvedSocketPath = socketPath
     ?? ProcessInfo.processInfo.environment["TMPDIR"].map { "\($0)macbeth-\(getuid()).sock" }

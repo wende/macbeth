@@ -11,22 +11,18 @@ func registerConnectApp(dispatcher: Dispatcher, appManager: AppConnectionManager
 
             let name = obj["name"]?.stringValue
             let pid = obj["pid"]?.intValue
+            let readyTimeoutMs = obj["readyTimeoutMs"]?.intValue
 
-            let connection = try await appManager.connect(name: name, pid: pid)
-
-            let runtime: AppRuntime = {
-                guard let app = NSRunningApplication(processIdentifier: connection.pid),
-                      let bundleURL = app.bundleURL else { return .unknown }
-                let frameworksURL = bundleURL.appendingPathComponent("Contents/Frameworks/Electron Framework.framework")
-                return FileManager.default.fileExists(atPath: frameworksURL.path) ? .electron : .native
-            }()
+            let connection = try await appManager.connect(
+                name: name, pid: pid, readyTimeoutMs: readyTimeoutMs
+            )
 
             return .object([
                 "appHandle": .string(connection.handleId),
                 "name": .string(connection.appName ?? "unknown"),
                 "pid": .number(Double(connection.pid)),
                 "bundleId": connection.bundleId.map { .string($0) } ?? .null,
-                "runtime": .string(runtime.rawValue),
+                "runtime": .string(connection.runtime.rawValue),
             ])
         }
     }

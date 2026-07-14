@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>MacbethFixture</title>
+  </head>
+  <body>
+    <!-- Counter: click the button, the heading reflects state. Readable via AXHeading. -->
+    <h1 id="count-display">Count: 0</h1>
+    <button id="increment">Increment</button>
+
+    <!-- Text input whose value is mirrored into a separate heading, but ONLY when an
+         `input` event fires. A raw AX value write (kAXValueAttribute) does not fire
+         input events, so the mirror stays stale — this is exactly failure mode 3b.
+         Keyboard synthesis DOES fire input events, so the mirror updates. -->
+    <label for="field">Message</label>
+    <input id="field" type="text" aria-label="message" />
+    <h2 id="mirror">Mirror: </h2>
+
+    <script>
+      // Tiny state container that re-renders on change, mimicking a framework
+      // that only updates when it receives real input events.
+      const state = { count: 0, message: "" };
+
+      function render() {
+        document.getElementById("count-display").textContent = "Count: " + state.count;
+        document.getElementById("mirror").textContent = "Mirror: " + state.message;
+      }
+
+      document.getElementById("increment").addEventListener("click", () => {
+        state.count += 1;
+        render();
+      });
+
+      document.getElementById("field").addEventListener("input", (e) => {
+        state.message = e.target.value;
+        render();
+      });
+
+      render();
+    </script>
+  </body>
+</html>

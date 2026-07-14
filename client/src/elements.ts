@@ -1,5 +1,5 @@
 import { type JsonRpcClient, JsonRpcError } from "./rpc.js";
-import type { QueryStep, ElementInfo } from "./types.js";
+import type { QueryStep, ElementInfo, ClickStrategy, FillStrategy } from "./types.js";
 
 /**
  * A Locator represents a way to find an element in the AX tree.
@@ -72,23 +72,29 @@ export class Locator {
   outline(title?: string): Locator { return this.child("outline", title); }
   link(title?: string): Locator { return this.child("link", title); }
   splitGroup(title?: string): Locator { return this.child("split_group", title); }
+  // Web content (Electron / Chromium). Web areas are the DOM root; headings are
+  // the most common structural landmark inside them.
+  webArea(title?: string): Locator { return this.child("web_area", title); }
+  heading(title?: string): Locator { return this.child("heading", title); }
 
   // --- Terminal action methods (send RPC) ---
 
-  async click(options?: { timeout?: number }): Promise<void> {
+  async click(options?: { timeout?: number; strategy?: ClickStrategy }): Promise<void> {
     await this.rpc.call("click", {
       appHandle: this.appHandle,
       query: this.queryPath,
       timeout: (options?.timeout ?? this.defaultTimeout) / 1000,
+      ...(options?.strategy ? { strategy: options.strategy } : {}),
     });
   }
 
-  async fill(value: string, options?: { timeout?: number }): Promise<void> {
+  async fill(value: string, options?: { timeout?: number; strategy?: FillStrategy }): Promise<void> {
     await this.rpc.call("fill", {
       appHandle: this.appHandle,
       query: this.queryPath,
       value,
       timeout: (options?.timeout ?? this.defaultTimeout) / 1000,
+      ...(options?.strategy ? { strategy: options.strategy } : {}),
     });
   }
 
@@ -145,15 +151,16 @@ class ScopedLocator extends Locator {
     this.handleId = handleId;
   }
 
-  override async click(options?: { timeout?: number }): Promise<void> {
+  override async click(options?: { timeout?: number; strategy?: ClickStrategy }): Promise<void> {
     try {
       await this.rpc.call("click", {
         appHandle: this.appHandle,
         handleId: this.handleId,
         timeout: (options?.timeout ?? this.defaultTimeout) / 1000,
+        ...(options?.strategy ? { strategy: options.strategy } : {}),
       });
     } catch (err) {
-      if (isHandleExpired(err)) {
+      if (isHandleStale(err)) {
         await this.rediscover();
         return this.click(options);
       }
@@ -161,16 +168,17 @@ class ScopedLocator extends Locator {
     }
   }
 
-  override async fill(value: string, options?: { timeout?: number }): Promise<void> {
+  override async fill(value: string, options?: { timeout?: number; strategy?: FillStrategy }): Promise<void> {
     try {
       await this.rpc.call("fill", {
         appHandle: this.appHandle,
         handleId: this.handleId,
         value,
         timeout: (options?.timeout ?? this.defaultTimeout) / 1000,
+        ...(options?.strategy ? { strategy: options.strategy } : {}),
       });
     } catch (err) {
-      if (isHandleExpired(err)) {
+      if (isHandleStale(err)) {
         await this.rediscover();
         return this.fill(value, options);
       }
@@ -185,7 +193,7 @@ class ScopedLocator extends Locator {
         handleId: this.handleId,
       });
     } catch (err) {
-      if (isHandleExpired(err)) {
+      if (isHandleStale(err)) {
         await this.rediscover();
         return this.getInfo();
       }
@@ -207,6 +215,13 @@ class ScopedLocator extends Locator {
   }
 }
 
-function isHandleExpired(err: unknown): boolean {
-  return err instanceof JsonRpcError && err.code === -32000 && err.message.includes("expired");
+/** True when a handle-based call failed because the handle expired (TTL) OR because
+ *  the underlying element was invalidated by a host re-render (Electron). Both are
+ *  recoverable by re-resolving from the original query path. */
+function isHandleStale(err: unknown): boolean {
+  return (
+    err instanceof JsonRpcError &&
+    err.code === -32000 &&
+    (err.message.includes("expired") || err.message.includes("stale-element"))
+  );
 }

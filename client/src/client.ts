@@ -3,7 +3,9 @@ import { JsonRpcClient } from "./rpc.js";
 import { Locator } from "./elements.js";
 import type {
   ConnectOptions,
+  AppConnectOptions,
   AppInfo,
+  AppRuntime,
   KeyStroke,
   TreeOptions,
   ScreenshotResult,
@@ -20,17 +22,19 @@ export class AppHandle extends Locator {
   readonly name: string;
   readonly pid: number;
   readonly bundleId: string | null;
+  readonly runtime: AppRuntime;
 
   constructor(
     rpc: JsonRpcClient,
     appHandle: string,
-    info: { name: string; pid: number; bundleId: string | null },
+    info: { name: string; pid: number; bundleId: string | null; runtime?: AppRuntime },
     options?: { timeout?: number }
   ) {
     super(rpc, appHandle, [], options);
     this.name = info.name;
     this.pid = info.pid;
     this.bundleId = info.bundleId;
+    this.runtime = info.runtime ?? "unknown";
   }
 
   /** Get the AX tree as indented text or JSON */
@@ -134,28 +138,37 @@ export class MacbethClient {
     return result.apps;
   }
 
-  /** Connect to a running app by name or PID */
+  /** Connect to a running app by name or PID.
+   *
+   *  For Electron apps the daemon enables Chromium's accessibility tree and waits for
+   *  it to build before returning. Pass `readyTimeoutMs` to tune that wait (default 3s). */
   async connect(
-    nameOrPid: string | number
+    nameOrPid: string | number,
+    options?: AppConnectOptions
   ): Promise<AppHandle> {
     await this.ensureConnected();
 
-    const params =
+    const params: { pid?: number; name?: string; readyTimeoutMs?: number } =
       typeof nameOrPid === "number"
         ? { pid: nameOrPid }
         : { name: nameOrPid };
+    if (options?.readyTimeoutMs !== undefined) {
+      params.readyTimeoutMs = options.readyTimeoutMs;
+    }
 
     const result = await this.rpc.call<{
       appHandle: string;
       name: string;
       pid: number;
       bundleId: string | null;
+      runtime?: AppRuntime;
     }>("connect_app", params);
 
     return new AppHandle(this.rpc, result.appHandle, {
       name: result.name,
       pid: result.pid,
       bundleId: result.bundleId,
+      runtime: result.runtime,
     }, { timeout: this.options.timeout });
   }
 

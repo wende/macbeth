@@ -10,6 +10,7 @@ actor AppConnectionManager {
         let bundleId: String?
         let appName: String?
         let handleId: String
+        let runtime: AppRuntime
     }
 
     private var connections: [String: Connection] = [:]
@@ -20,7 +21,10 @@ actor AppConnectionManager {
     }
 
     /// Connect to an app by name or PID. Returns the connection info.
-    func connect(name: String?, pid: Int?) async throws -> Connection {
+    ///
+    /// - Parameter readyTimeoutMs: For Electron apps, how long to wait for Chromium
+    ///   to build its accessibility tree after enabling it (default 3000ms).
+    func connect(name: String?, pid: Int?, readyTimeoutMs: Int? = nil) async throws -> Connection {
         let resolvedPid: pid_t
 
         if let pid {
@@ -53,6 +57,20 @@ actor AppConnectionManager {
                 "App with PID \(resolvedPid) does not respond to accessibility queries (error: \(result.rawValue))")
         }
 
+        let runtime = detectRuntime(pid: resolvedPid)
+
+        // Electron/Chromium keeps its accessibility tree disabled until an assistive
+        // technology client is detected. Setting AXManualAccessibility tells it to build
+        // the full tree for third-party AT tools. It's a no-op on apps that don't
+        // recognise the attribute, so we also send it for `.unknown` runtimes.
+        if runtime != .native {
+            enableManualAccessibility(appElement)
+            await waitForWebContent(
+                SendableElement(appElement),
+                timeout: TimeInterval(readyTimeoutMs ?? 3000) / 1000.0
+            )
+        }
+
         let runningApp = NSRunningApplication(processIdentifier: resolvedPid)
         let handleId = await handleTable.store(SendableElement(appElement), pid: resolvedPid)
 
@@ -61,7 +79,8 @@ actor AppConnectionManager {
             appElement: SendableElement(appElement),
             bundleId: runningApp?.bundleIdentifier,
             appName: runningApp?.localizedName,
-            handleId: handleId
+            handleId: handleId,
+            runtime: runtime
         )
         connections[handleId] = connection
         return connection

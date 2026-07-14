@@ -6,11 +6,13 @@ export interface QueryStep {
   index?: number;
 }
 
+export type AppRuntime = "native" | "electron" | "unknown";
+
 export interface AppInfo {
   name: string;
   pid: number;
   bundleId: string | null;
-  runtime: "native" | "electron" | "unknown";
+  runtime: AppRuntime;
 }
 
 export interface ConnectOptions {
@@ -19,6 +21,21 @@ export interface ConnectOptions {
   timeout?: number;
   verbose?: boolean;
 }
+
+/** Per-connection options. */
+export interface AppConnectOptions {
+  /** For Electron apps, how long (ms) to wait for Chromium to build its
+   *  accessibility tree after enabling it. Default 3000. */
+  readyTimeoutMs?: number;
+}
+
+/** Strategy for `click`: "auto" tries AXPress (element + neighbours) then a synthetic
+ *  mouse click; "ax" only presses; "mouse" only clicks by coordinates. */
+export type ClickStrategy = "auto" | "ax" | "mouse";
+
+/** Strategy for `fill`: "auto" does a verified AX write then keyboard synthesis
+ *  (always keyboard on Electron); "ax" only writes the AX value; "keyboard" only types. */
+export type FillStrategy = "auto" | "ax" | "keyboard";
 
 export interface TreeOptions {
   maxDepth?: number;
