@@ -1,0 +1,267 @@
+# Experimental workflow — DO NOT enable on push.
+#
+# This workflow tests whether a freshly-built macbethd can be granted the
+# required macOS Accessibility and Screen Recording permissions inside an
+# ephemeral `macos-15` GitHub Actions runner, then successfully drive a
+# native Swift test app via the Accessibility API.
+#
+# Both outcomes are valid:
+#   1. End-to-end test passes -> prototype is viable.
+#   2. Any step fails -> prototype is blocked at that step; diagnostics
+#      still uploaded.
+#
+# This workflow is intentionally separate from tests.yml and does not
+# modify its behaviour.
+
+name: macOS Accessibility Prototype
+
+on:
+  workflow_dispatch:
+    inputs:
+      skip_grant_script:
+        description: "Skip the TCC injection (useful for re-running after fixing only the test)."
+        type: boolean
+        default: false
+      grant_verbose:
+        description: "Print verbose TCC schema info before/after injection."
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  prototype:
+    name: Drive native Swift app via macbeth
+    runs-on: macos-15
+    timeout-minutes: 20
+
+    # NOTE: ${{ runner.temp }} cannot be referenced in the top-level
+    # `env:` block (the parser rejects it). We use literal absolute
+    # paths under /tmp instead. On GitHub-hosted runners /tmp is the
+    # runner temp directory.
+    env:
+      DIAG_DIR: /tmp/macbeth-ci-diag
+      DAEMON_PATH: /tmp/macbethd
+      SOCKET_PATH: /tmp/macbeth-ci.sock
+      HARNESS_PATH: /tmp/MacbethCIHarness
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Prepare diagnostics directory
+        run: |
+          set -euxo pipefail
+          mkdir -p "$DIAG_DIR"
+          date -u +%Y-%m-%dT%H:%M:%SZ > "$DIAG_DIR/job-start.utc"
+
+      - name: Collect environment info (always run, even on failure)
+        if: always()
+        run: |
+          set -euxo pipefail
+          {
+            echo "=== sw_vers ==="
+            sw_vers
+            echo
+            echo "=== uname ==="
+            uname -a
+            echo
+            echo "=== console user ==="
+            stat -f "user=%Su uid=%u gid=%g" /dev/console
+            echo
+            echo "=== active GUI session ==="
+            launchctl print "gui/$(id -u)" 2>&1 | head -20 || true
+            echo
+            echo "=== who / users ==="
+            who
+            w
+            echo
+            echo "=== AX/ScreenCapture-related processes ==="
+            ps -axo pid,user,comm | grep -Ei 'tccd|WindowServer|loginwindow|coreservicesd' || true
+          } > "$DIAG_DIR/env.txt" 2>&1 || true
+
+      - name: Inspect TCC databases (read-only)
+        if: always()
+        run: |
+          set -euxo pipefail
+          {
+            echo "=== user TCC schema ==="
+            sqlite3 "$HOME/Library/Application Support/com.apple.TCC/TCC.db" ".schema access" 2>&1 | head -40 || true
+            echo
+            echo "=== system TCC schema (best-effort) ==="
+            sqlite3 "/Library/Application Support/com.apple.TCC/TCC.db" ".schema access" 2>&1 | head -40 || true
+            echo
+            echo "=== system TCC writable? ==="
+            if [ -w "/Library/Application Support/com.apple.TCC/TCC.db" ]; then
+              echo "writable"
+            else
+              echo "READ-ONLY (expected on macos-15 — signed system volume)"
+            fi
+            echo
+            echo "=== existing bash row (clone source) ==="
+            sqlite3 "$HOME/Library/Application Support/com.apple.TCC/TCC.db" \
+              "SELECT service, client, auth_value, auth_reason FROM access WHERE client='/bin/bash' LIMIT 5;" 2>&1 || true
+          } > "$DIAG_DIR/tcc-inspect.txt" 2>&1 || true
+
+      - name: Install client dependencies
+        run: npm ci
+
+      - name: Build client
+        run: npm --workspace client run build
+
+      - name: Build macbethd
+        run: ./scripts/build-daemon.sh
+
+      - name: Stage macbethd into RUNNER_TEMP
+        run: |
+          set -euxo pipefail
+          cp client/bin/macbethd "$DAEMON_PATH"
+          chmod +x "$DAEMON_PATH"
+          echo "macbethd staged at: $DAEMON_PATH"
+          ls -la "$DAEMON_PATH"
+          file "$DAEMON_PATH" || true
+          codesign -dvvv "$DAEMON_PATH" 2>&1 || true
+
+      - name: macbethd preflight (before grant)
+        if: always()
+        run: |
+          set -euxo pipefail
+          "$DAEMON_PATH" --check-permissions > "$DIAG_DIR/preflight-before.txt" 2>&1 || true
+          cat "$DIAG_DIR/preflight-before.txt"
+
+      - name: Run TCC injection script
+        if: ${{ !inputs.skip_grant_script }}
+        run: |
+          set -euxo pipefail
+          CLONE_FROM="${CLONE_FROM:-/bin/bash}" \
+            bash ./scripts/ci-grant-macos-permissions.sh "$DAEMON_PATH" \
+              > "$DIAG_DIR/grant-script.log" 2>&1 || GRANT_RC=$?
+          GRANT_RC=${GRANT_RC:-0}
+          echo "grant script exit code: $GRANT_RC"
+          cat "$DIAG_DIR/grant-script.log"
+          if [ "$GRANT_RC" -ne 0 ]; then
+            echo "::warning::TCC injection failed with exit code $GRANT_RC (continuing — this is a prototype)"
+          fi
+          # Don't fail the job yet; let the end-to-end test confirm the result.
+
+      - name: Skip TCC injection (per input)
+        if: ${{ inputs.skip_grant_script }}
+        run: |
+          echo "::notice::skipping TCC injection per workflow_dispatch input"
+
+      - name: macbethd preflight (after grant)
+        if: always()
+        run: |
+          set -euxo pipefail
+          "$DAEMON_PATH" --check-permissions > "$DIAG_DIR/preflight-after.txt" 2>&1 || true
+          cat "$DIAG_DIR/preflight-after.txt"
+
+      - name: Build test harness app
+        run: |
+          set -euxo pipefail
+          pushd testapp-minimal > /dev/null
+          swift build -c release
+          popd > /dev/null
+          cp testapp-minimal/.build/release/MacbethCIHarness "$HARNESS_PATH"
+          chmod +x "$HARNESS_PATH"
+          file "$HARNESS_PATH" || true
+          ls -la "$HARNESS_PATH"
+
+      - name: Launch test harness app
+        run: |
+          set -euxo pipefail
+          # Launch the harness detached, redirect its stdout/stderr to diag.
+          nohup "$HARNESS_PATH" > "$DIAG_DIR/harness.stdout.log" 2> "$DIAG_DIR/harness.stderr.log" &
+          echo $! > "$DIAG_DIR/harness.pid"
+          # Wait for the harness to mark itself ready (max 20s).
+          for _ in $(seq 1 40); do
+            if grep -q "ci-harness-ready" "$DIAG_DIR/harness.stdout.log" 2>/dev/null; then
+              echo "harness reported ready"
+              break
+            fi
+            sleep 0.5
+          done
+          # Confirm via ps + ax-queryable window (we'll do the real check in the test step).
+          HARNESS_PID=$(cat "$DIAG_DIR/harness.pid")
+          if ! kill -0 "$HARNESS_PID" 2>/dev/null; then
+            echo "::error::harness process exited early"
+            cat "$DIAG_DIR/harness.stderr.log" || true
+            exit 1
+          fi
+          echo "harness pid: $HARNESS_PID"
+          ps -p "$HARNESS_PID" -o pid,comm,args || true
+
+      - name: Run end-to-end Macbeth test
+        if: always()
+        run: |
+          set -euxo pipefail
+          # The test must exercise the real Macbeth stack: daemon + RPC + AX.
+          MACBETH_DAEMON_PATH="$DAEMON_PATH" \
+            node ./scripts/ci-e2e-test.mjs \
+              --daemon "$DAEMON_PATH" \
+              --app    "MacbethCIHarness" \
+              --socket "$SOCKET_PATH" \
+            > "$DIAG_DIR/e2e-test.log" 2>&1 || E2E_RC=$?
+          E2E_RC=${E2E_RC:-0}
+          echo "e2e test exit code: $E2E_RC"
+          cat "$DIAG_DIR/e2e-test.log"
+          if [ "$E2E_RC" -ne 0 ]; then
+            exit "$E2E_RC"
+          fi
+
+      - name: Stop harness and daemon
+        if: always()
+        run: |
+          set -euxo pipefail
+          if [ -f "$DIAG_DIR/harness.pid" ]; then
+            HARNESS_PID=$(cat "$DIAG_DIR/harness.pid")
+            kill "$HARNESS_PID" 2>/dev/null || true
+          fi
+          # If a daemon socket lingers, clean it up; the e2e test owns the
+          # daemon lifecycle via DaemonManager, but be defensive.
+          rm -f "$SOCKET_PATH" || true
+
+      - name: Final diagnostics dump
+        if: always()
+        run: |
+          set -euxo pipefail
+          {
+            echo "=== user TCC rows for macbethd (after run) ==="
+            sqlite3 "$HOME/Library/Application Support/com.apple.TCC/TCC.db" \
+              "SELECT service, auth_value, auth_reason FROM access WHERE client='$DAEMON_PATH';" 2>&1 || true
+            echo
+            echo "=== harness still running? ==="
+            if [ -f "$DIAG_DIR/harness.pid" ]; then
+              HARNESS_PID=$(cat "$DIAG_DIR/harness.pid")
+              if kill -0 "$HARNESS_PID" 2>/dev/null; then
+                echo "yes (pid $HARNESS_PID)"
+              else
+                echo "no"
+              fi
+            fi
+            echo
+            echo "=== screenshot via macbeth daemon ==="
+            # Best-effort: try a screenshot through the daemon. Will likely
+            # be empty if Screen Recording failed; that's still useful
+            # evidence.
+            if [ -x "$DAEMON_PATH" ]; then
+              "$DAEMON_PATH" --check-permissions >> "$DIAG_DIR/preflight-after.txt" 2>&1 || true
+            fi
+          } > "$DIAG_DIR/post-run.txt" 2>&1 || true
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: macbeth-ci-prototype-diag
+          path: ${{ env.DIAG_DIR }}
+          if-no-files-found: warn
+          retention-days: 14
