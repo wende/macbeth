@@ -24,7 +24,7 @@ describe("DaemonManager socket recovery", () => {
   it("distinguishes a connectable daemon socket from stale socket state", async () => {
     const directory = await mkdtemp(join(tmpdir(), "macbeth-daemon-test-"));
     const socketPath = join(directory, "macbeth.sock");
-    const manager = new DaemonManager({ socketPath, daemonPath: "/missing/macbethd" });
+    const manager = new DaemonManager({ socketPath, binaryPath: "/missing/macbethd" });
 
     try {
       await writeFile(socketPath, "socket marker");
