@@ -361,6 +361,116 @@ macbeth needs two macOS permissions:
 - Node.js 20+
 - Swift 6.0+ (for building from source)
 
+## macOS CI prototype (experimental)
+
+The workflow at
+[`.github/workflows/macos-accessibility-prototype.yml`](.github/workflows/macos-accessibility-prototype.yml)
+is an experimental prototype that tries to prove Macbeth can be driven
+end-to-end from a GitHub-hosted `macos-15` runner with **no human
+interaction**. It is intentionally separate from `tests.yml` and is
+opt-in via `workflow_dispatch`.
+
+### How to trigger
+
+1. Push the branch containing this workflow.
+2. In GitHub, go to **Actions → macOS Accessibility Prototype → Run workflow**.
+3. Optionally toggle `skip_grant_script` (to re-run only the test phase)
+   or `grant_verbose` (to dump extra TCC schema info).
+4. Wait for the run to finish. Both a passing and a failing run are
+   useful — the diagnostic artifact is uploaded either way.
+
+### What it tests
+
+The workflow:
+
+1. Builds `macbethd` and stages it under `$RUNNER_TEMP`.
+2. Runs `macbethd --check-permissions` to record the baseline (almost
+   always denied on a fresh runner).
+3. Calls `scripts/ci-grant-macos-permissions.sh` to write
+   Accessibility + Screen Recording rows into the user TCC database by
+   cloning an existing `/bin/bash` row.
+4. Re-runs `macbethd --check-permissions` to verify the grant took.
+5. Builds and launches a minimal Swift test harness
+   (`testapp-minimal/`) with one window, one text field, one button,
+   and one status label.
+6. Runs `scripts/ci-e2e-test.mjs`, which uses the real Macbeth stack
+   (`MacbethClient` → daemon → AX) to:
+   - connect to the harness,
+   - find its window,
+   - read the text field's initial value,
+   - fill a new value,
+   - click the button,
+   - verify the status label changed.
+
+### Why it manipulates TCC
+
+macbeth needs Accessibility and Screen Recording entitlements. On a
+fresh `macos-15` runner neither is granted, and there is no
+authenticated user to click **Allow** in System Settings. The script
+`scripts/ci-grant-macos-permissions.sh` writes rows directly into the
+**user** TCC database (`~/Library/Application Support/com.apple.TCC/TCC.db`).
+Both `AXIsProcessTrusted()` and `CGPreflightScreenCaptureAccess()` are
+evaluated against the user DB, so this is sufficient for the prototype.
+The system TCC DB on `/Library/Application Support/com.apple.TCC/TCC.db`
+is on the signed system volume and cannot be modified; the script
+detects this and warns instead of failing.
+
+### ⚠️ Why it must not run on a developer workstation
+
+The TCC injection script:
+
+- Inspects and rewrites `~/Library/Application Support/com.apple.TCC/TCC.db`.
+- Stops and restarts `tccd`.
+- Clones TCC entries from `/bin/bash`.
+
+Running it on a personal machine leaves dangling TCC rows for the
+macbeth binary that can confuse other apps and Apple's tamper
+detection. **It is safe only inside ephemeral GitHub Actions
+`macos-15` runners**, where the entire VM is discarded after the job.
+The script's `README` and the workflow file both state this. If you
+want to run Macbeth on your own machine, grant permissions normally
+through System Settings — do not run this script.
+
+### Interpreting failure modes
+
+The diagnostic artifact (`macbeth-ci-prototype-diag`) includes:
+
+| File                              | What it tells you |
+| --------------------------------- | ----------------- |
+| `env.txt`                         | macOS version, console user, GUI session — rules out "no user logged in". |
+| `tcc-inspect.txt`                 | Whether the user TCC DB is reachable, whether rows were cloned from `/bin/bash`. |
+| `preflight-before.txt`            | Baseline permissions — almost always DENIED on a fresh runner. |
+| `grant-script.log`                | Full TCC injection output — see the row dump before/after. |
+| `preflight-after.txt`             | Permissions after injection. If still DENIED → grant failed. |
+| `harness.stdout.log` / `.stderr.log` | Test harness output — crashes here mean Swift/AppKit failed to launch. |
+| `e2e-test.log`                    | The end-to-end test trace. The last error tells you whether it was connect-app, get_element, fill, click, or assertion. |
+| `post-run.txt`                    | Final TCC rows + harness still alive? |
+| `result.json`                     | Parsed outcome (`pass` / `fail` + payload). |
+
+Likely failure points, in order of probability:
+
+1. **`--check-permissions` stays DENIED** — the TCC write was rejected
+   or the schema changed. Check `grant-script.log` for the row dump.
+2. **System Settings / loginwindow not running** — `env.txt` will show
+   a non-graphical session. `macbeth` requires a logged-in GUI user.
+3. **Harness crashes at launch** — usually because no WindowServer is
+   available. macos-15 runners usually do have a GUI session, but
+   some self-hosted configurations don't.
+4. **AX queries return empty** — `connect_app` succeeded but the
+   harness's window is invisible to AX. This usually means
+   Accessibility is granted only to the wrong executable identity
+   (path mismatch between the grant target and the running daemon).
+5. **`fill` or `click` errors** — Accessibility is granted but
+   `AXUIElementPerformAction` is blocked. This is rare on a fresh
+   runner; usually it means a relaunch of `tccd` is needed.
+6. **Status label assertion fails** — the harness ran but the click
+   didn't trigger the action. Verify `harness.stdout.log` for the
+   `ci-harness-ready` marker and inspect the AX tree manually with
+   `client/bin/macbethd --socket-path <sock>` + `query_tree`.
+
+The prototype is allowed to conclude either way. The point of the
+workflow is to produce *evidence*, not to pass.
+
 ## License
 
 MIT
