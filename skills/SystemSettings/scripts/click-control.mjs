@@ -16,7 +16,7 @@ if (!title && !pattern) {
 
 try {
   run("open", ["-a", "System Settings"]);
-  const app = await connect("System Settings");
+  const app = await connectWhenReady("System Settings");
   const query = { role };
   if (title) query.title = title;
   if (pattern) query.titlePattern = pattern;
@@ -32,4 +32,18 @@ function getArg(argv, name) {
   const idx = argv.indexOf(`--${name}`);
   if (idx === -1 || idx + 1 >= argv.length) return undefined;
   return argv[idx + 1];
+}
+
+async function connectWhenReady(name, timeoutMs = 15_000) {
+  const deadline = Date.now() + timeoutMs;
+  let lastError;
+  while (Date.now() < deadline) {
+    try {
+      return await connect(name);
+    } catch (err) {
+      lastError = err;
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+  }
+  throw lastError ?? new Error(`Timed out waiting for ${name} to launch`);
 }

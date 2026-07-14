@@ -104,4 +104,21 @@ guiDescribe("Macbeth packaged test harness", () => {
     ).rejects.toThrow("No element matching");
     await expect(app.window("Missing Modal").waitFor({ timeout: 500 })).rejects.toThrow("No element matching");
   });
+
+  // These are intentional regression tests for currently broken advertised
+  // features. Do not skip, invert, or mark them as expected failures: they
+  // should turn green only once capture and OCR genuinely work.
+  it("captures a non-empty PNG of the target window", async () => {
+    const png = await app.screenshot();
+    expect(png.subarray(0, 8)).toEqual(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+    expect(png.length).toBeGreaterThan(8);
+  }, 15_000);
+
+  it("OCRs supplied PNG data without disconnecting the daemon", async () => {
+    // A valid 1×1 transparent PNG. The expected result may contain no text,
+    // but the request must resolve with the documented OCR response shape.
+    const data = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScL8QAAAAABJRU5ErkJggg==";
+    const result = await client.extractText({ data });
+    expect(result).toEqual(expect.objectContaining({ items: expect.any(Array) }));
+  }, 10_000);
 });

@@ -221,10 +221,11 @@ await fs.writeFile("capture.png", png);
 
 Uses ScreenCaptureKit for high-fidelity window capture. macOS will prompt for Screen Recording permission on first use.
 
-> Known limitation: Screenshot and OCR calls are currently excluded from the
-> packaged test-harness suite. In some local runs, Screenshot can time out and
-> OCR can close the daemon connection; these findings are documented in
-> [BUGS.md](BUGS.md) and are intentionally out of scope for the test harness.
+> Known limitation: Screenshot and OCR have live regression coverage in the
+> packaged test-harness suite, but currently fail locally: Screenshot can time
+> out and OCR can close the daemon connection. These failures are documented in
+> [BUGS.md](BUGS.md); they are not expected failures and must be fixed before
+> the GUI suite can be considered fully passing.
 
 ### Listing apps
 
