@@ -25,9 +25,12 @@ try {
   out = runNativeBridge(bridgeArgs);
 } catch (err) {
   out = { ok: false, error: err.message };
-  if (/permission denied/i.test(err.message)) {
-    out.hint = "Grant access in System Settings > Privacy & Security > Contacts, then retry.";
-  }
+}
+
+// See search-contacts: bridge-level failures are returned as JSON rather than
+// thrown, so add the recovery hint after either failure path.
+if (out?.ok === false && /permission denied/i.test(String(out.error ?? ""))) {
+  out.hint = "Grant access in System Settings > Privacy & Security > Contacts, then retry.";
 }
 
 console.log(JSON.stringify(out, null, 2));

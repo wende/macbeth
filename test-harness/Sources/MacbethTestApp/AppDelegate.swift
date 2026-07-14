@@ -25,6 +25,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             defer: false
         )
         window.title = "Macbeth TestApp"
+        // Create a visible key window without explicitly activating the app.
+        // Keyboard-driven Macbeth actions activate it explicitly when needed.
         window.makeKeyAndOrderFront(nil)
 
         let scrollView = NSScrollView(frame: window.contentView!.bounds)
@@ -155,8 +157,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         radioLabel.frame = NSRect(x: 20, y: y, width: 60, height: 22)
         contentView.addSubview(radioLabel)
 
-        let radioCell = NSButtonRadio()
-        radioCell.setButtonType(.radio)
         radioControl = NSButton(frame: NSRect(x: 90, y: y, width: 80, height: 22))
         radioControl.title = "Light"
         radioControl.setButtonType(.radio)
@@ -330,7 +330,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         tableView = NSTableView(frame: tableScrollView.bounds)
         tableView.setAccessibilityIdentifier("users-table")
-        let column = NSTableColumn(identifier: "name")
+        let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("name"))
         column.title = "Users"
         column.width = 280
         tableView.addTableColumn(column)
@@ -365,7 +365,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         statusLabel.setAccessibilityIdentifier("status-label")
         contentView.addSubview(statusLabel)
 
-        NSApp.activate(ignoringOtherApps: true)
     }
 
     // MARK: - Radio button references
@@ -394,42 +393,42 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         statusLabel.stringValue = "Status: Cancelled"
     }
 
-    @objc func checkboxToggled(_ sender: NSButton) {
+    @MainActor @objc func checkboxToggled(_ sender: NSButton) {
         statusLabel.stringValue = "Status: Notifications \(sender.state == .on ? "enabled" : "disabled")"
     }
 
-    @objc func radioChanged(_ sender: NSButton) {
+    @MainActor @objc func radioChanged(_ sender: NSButton) {
         [radioControl, radioControl2, radioControl3].forEach { $0?.state = .off }
         sender.state = .on
         statusLabel.stringValue = "Status: Theme set to \(sender.title)"
     }
 
-    @objc func popupChanged(_ sender: NSPopUpButton) {
+    @MainActor @objc func popupChanged(_ sender: NSPopUpButton) {
         statusLabel.stringValue = "Status: Country selected – \(sender.titleOfSelectedItem ?? "")"
     }
 
-    @objc func sliderChanged(_ sender: NSSlider) {
+    @MainActor @objc func sliderChanged(_ sender: NSSlider) {
         sliderValueLabel.stringValue = "\(Int(sender.doubleValue))"
         statusLabel.stringValue = "Status: Volume set to \(Int(sender.doubleValue))"
     }
 
-    @objc func stepperChanged(_ sender: NSStepper) {
+    @MainActor @objc func stepperChanged(_ sender: NSStepper) {
         stepperValueLabel.stringValue = "\(sender.intValue)"
         statusLabel.stringValue = "Status: Count set to \(sender.intValue)"
     }
 
-    @objc func segmentChanged(_ sender: NSSegmentedControl) {
+    @MainActor @objc func segmentChanged(_ sender: NSSegmentedControl) {
         let sizes = ["Small", "Medium", "Large"]
         statusLabel.stringValue = "Status: Size selected – \(sizes[sender.selectedSegment])"
     }
 
-    @objc func advanceProgress() {
+    @MainActor @objc func advanceProgress() {
         let newValue = min(progressIndicator.doubleValue + 10, 100)
         progressIndicator.doubleValue = newValue
         statusLabel.stringValue = "Status: Progress at \(Int(newValue))%"
     }
 
-    @objc func addUser() {
+    @MainActor @objc func addUser() {
         let names = ["Frank", "Grace", "Henry", "Ivy", "Jack"]
         let newName = names.randomElement() ?? "User"
         tableData.append("\(newName) \(Int.random(in: 1...99))")
@@ -437,20 +436,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         statusLabel.stringValue = "Status: Added user \(newName)"
     }
 
-    @objc func removeUser() {
+    @MainActor @objc func removeUser() {
         if tableData.isEmpty { return }
         tableData.removeLast()
         tableView.reloadData()
         statusLabel.stringValue = "Status: Removed last user"
     }
 
-    @objc func clearUsers() {
+    @MainActor @objc func clearUsers() {
         tableData.removeAll()
         tableView.reloadData()
         statusLabel.stringValue = "Status: Cleared all users"
     }
 
-    @objc func showAlert() {
+    @MainActor @objc func showAlert() {
         let alert = NSAlert()
         alert.messageText = "Confirm Action"
         alert.informativeText = "Are you sure you want to proceed with this action?"
@@ -461,7 +460,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         alert.buttons[0].setAccessibilityIdentifier("alert-ok")
         alert.buttons[1].setAccessibilityIdentifier("alert-cancel")
         alert.buttons[2].setAccessibilityIdentifier("alert-delete")
-        alert.setAccessibilityIdentifier("confirm-alert")
+        // NOTE: NSAlert has no setAccessibilityIdentifier; left off intentionally — addressing this is tracked as a separate bug
 
         let response = alert.runModal()
         switch response {
@@ -476,7 +475,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    @objc func showModal() {
+    @MainActor @objc func showModal() {
         modalWindow = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 300, height: 200),
             styleMask: [.titled, .closable],
@@ -510,7 +509,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.runModal(for: modalWindow!)
     }
 
-    @objc func closeModal() {
+    @MainActor @objc func closeModal() {
         if let modal = modalWindow {
             NSApp.stopModal()
             modal.orderOut(nil)

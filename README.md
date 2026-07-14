@@ -57,6 +57,34 @@ npm install macbeth
 cd client && npm run build
 ```
 
+### Packaged GUI test harness
+
+The legacy unbundled Swift test package has been replaced by a regular AppKit
+application bundle. Building or launching the harness registers it with macOS,
+so it is visible in the Dock, Window menu, `NSWorkspace`, and `list_apps`.
+
+```bash
+npm run build:test-harness
+npm run launch:test-harness
+```
+
+The launcher opens the harness in the background so it does not steal focus.
+Macbeth intentionally brings it forward only for keyboard-driven actions or
+coordinate-click fallbacks.
+
+The default GUI suite avoids live keyboard input for the same reason; the
+keyboard API remains unit-tested. To exercise real keyboard delivery, opt in
+explicitly with `MACBETH_GUI_KEYBOARD_TESTS=1` alongside `MACBETH_GUI_TESTS=1`.
+
+The end-to-end UI suite is intentionally local and opt-in because it requires
+macOS Accessibility permission. Build the daemon and client first, then run:
+
+```bash
+./scripts/build-daemon.sh
+cd client && npm run build && cd ..
+MACBETH_GUI_TESTS=1 npm run test:gui
+```
+
 ## API
 
 ### Connecting
@@ -193,6 +221,12 @@ await fs.writeFile("capture.png", png);
 
 Uses ScreenCaptureKit for high-fidelity window capture. macOS will prompt for Screen Recording permission on first use.
 
+> Known limitation: Screenshot and OCR have live regression coverage in the
+> packaged test-harness suite, but currently fail locally: Screenshot can time
+> out and OCR can close the daemon connection. These failures are documented in
+> [BUGS.md](BUGS.md); they are not expected failures and must be fixed before
+> the GUI suite can be considered fully passing.
+
 ### Listing apps
 
 ```ts
@@ -202,7 +236,9 @@ const apps = await client.listApps();
 //  { name: "Slack", pid: 1234, runtime: "electron" }, ...]
 ```
 
-macbeth auto-detects whether apps are native, Electron, or unknown.
+macbeth auto-detects whether apps are native, Electron, or unknown. Native macOS
+apps are supported today. Electron automation is detected but not yet supported;
+it remains a planned future feature.
 
 ### Lifecycle
 
@@ -332,7 +368,7 @@ macbeth/
 │   │   └── types.ts        # TypeScript interfaces
 │   └── bin/macbeth.mjs     # npx entry point
 ├── protocol/               # Shared JSON-RPC schema definitions
-├── testapp/                # AppKit test harness
+├── test-harness/           # Packaged AppKit test harness source
 └── scripts/
     └── build-daemon.sh     # Build universal binary
 ```
