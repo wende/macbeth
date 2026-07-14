@@ -36,6 +36,19 @@ export interface ElementInfo {
   focused: boolean;
 }
 
+export type ClickStrategy = "auto" | "ax" | "flash";
+
+export interface ClickOptions {
+  timeout?: number;
+  /** Click strategy: "auto" (default), "ax" (AXPress only), or "flash". */
+  strategy?: ClickStrategy;
+  /**
+   * Flash click only. Wait until the user has been idle this many ms (capped at
+   * 5s) before stealing focus. Default 0 (off).
+   */
+  waitForIdleMs?: number;
+}
+
 export interface ScreenshotResult {
   data: string;
   width: number;

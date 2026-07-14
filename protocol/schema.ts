@@ -78,11 +78,34 @@ export interface GetElementResult {
 }
 
 // click
+export type ClickStrategy = "auto" | "ax" | "flash";
+
 export interface ClickParams {
   appHandle: string;
   handleId?: string;
   query?: QueryStep[];
   timeout?: number;
+  /**
+   * Click strategy ladder (default "auto"):
+   * - "auto": AXPress the element (then a pressable parent/child), escalating
+   *   to the flash click if AXPress is unavailable or errors.
+   * - "ax": AXPress only; error if unavailable.
+   * - "flash": force the flash click (briefly activates the target app, posts a
+   *   real global click at the element center, then restores focus).
+   */
+  strategy?: ClickStrategy;
+  /**
+   * Flash click only. If > 0, wait until the user has been idle (no keyboard or
+   * mouse input) for this many ms before stealing focus, capped at 5s. Avoids
+   * leaking a fast typist's keystrokes into the target app. Default 0 (off).
+   */
+  waitForIdleMs?: number;
+}
+
+export interface ClickResult {
+  success: boolean;
+  /** The strategy actually used to reach the target: "ax" or "flash". */
+  strategy?: ClickStrategy;
 }
 
 // fill

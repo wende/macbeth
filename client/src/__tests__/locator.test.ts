@@ -104,4 +104,18 @@ describe("Locator", () => {
       timeout: 30,
     });
   });
+
+  it("propagates click strategy and waitForIdleMs", async () => {
+    const rpc = mockRpc();
+    const loc = new Locator(rpc, "h_0", []);
+    await loc.button("Draw").click({ strategy: "flash", waitForIdleMs: 500 });
+
+    expect(rpc.call).toHaveBeenCalledWith("click", {
+      appHandle: "h_0",
+      query: [{ role: "button", title: "Draw", identifier: undefined }],
+      timeout: 30,
+      strategy: "flash",
+      waitForIdleMs: 500,
+    });
+  });
 });

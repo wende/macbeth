@@ -2,11 +2,28 @@
 import AppKit
 import Foundation
 
+/// Click strategy ladder.
+enum ClickStrategy: String {
+    /// AXPress the element (then a pressable parent/child), escalating to the
+    /// flash click if AXPress is unavailable or errors. Default.
+    case auto
+    /// AXPress only; error if the element advertises no press action or it fails.
+    case ax
+    /// Force the flash-click path (useful when AXPress "succeeds" but is a no-op).
+    case flash
+
+    static func parse(_ raw: String?) -> ClickStrategy {
+        guard let raw, let s = ClickStrategy(rawValue: raw) else { return .auto }
+        return s
+    }
+}
+
 /// Register the click RPC method.
 func registerClick(
     dispatcher: Dispatcher,
     appManager: AppConnectionManager,
-    handleTable: HandleTable
+    handleTable: HandleTable,
+    verbose: Bool
 ) {
     Task {
         await dispatcher.register(method: "click") { params in
@@ -16,55 +33,114 @@ func registerClick(
             }
 
             let timeout = obj["timeout"]?.numberValue ?? 5.0
+            let strategy = ClickStrategy.parse(obj["strategy"]?.stringValue)
+            let waitForIdleMs = obj["waitForIdleMs"]?.numberValue ?? 0
+
             let element = try await resolveTarget(
                 obj: obj, appHandle: appHandle,
                 appManager: appManager, handleTable: handleTable,
                 timeout: timeout
             )
 
-            // Try AXPress first; fall back to coordinate-based CGEvent click
-            let pressResult = AXUIElementPerformAction(element.element, kAXPressAction as CFString)
-            if pressResult != .success {
-                guard let point = getPositionAttribute(element.element),
-                      let size = getSizeAttribute(element.element) else {
-                    throw RPCError.actionFailed("Click failed: AXPress unsupported and no position available")
-                }
-
-                let center = CGPoint(x: point.x + size.width / 2, y: point.y + size.height / 2)
-
-                await appManager.activate(appHandle)
-                postClickEvent(at: center)
+            guard let conn = await appManager.get(appHandle) else {
+                throw RPCError.appNotFound("Invalid app handle: \(appHandle)")
             }
 
-            return .object(["success": .bool(true)])
+            let usedStrategy = try await performClick(
+                element: element.element,
+                targetPid: conn.pid,
+                strategy: strategy,
+                waitForIdleMs: waitForIdleMs,
+                verbose: verbose
+            )
+
+            return .object(["success": .bool(true), "strategy": .string(usedStrategy.rawValue)])
         }
     }
 }
 
-// MARK: - Coordinate-based click helpers
+/// Execute the click according to the requested strategy. Returns the strategy
+/// actually used to reach the target (`ax` or `flash`).
+private func performClick(
+    element: AXUIElement,
+    targetPid: pid_t,
+    strategy: ClickStrategy,
+    waitForIdleMs: Double,
+    verbose: Bool
+) async throws -> ClickStrategy {
+    switch strategy {
+    case .flash:
+        try await flashClick(element: element, targetPid: targetPid,
+                             waitForIdleMs: waitForIdleMs, verbose: verbose)
+        return .flash
 
-private func getPositionAttribute(_ element: AXUIElement) -> CGPoint? {
-    var ref: CFTypeRef?
-    let result = AXUIElementCopyAttributeValue(element, kAXPositionAttribute as CFString, &ref)
-    guard result == .success, let value = ref else { return nil }
-    var point = CGPoint.zero
-    guard AXValueGetValue(value as! AXValue, .cgPoint, &point) else { return nil }
-    return point
+    case .ax:
+        guard elementActions(element).contains(kAXPressAction as String) else {
+            throw RPCError.actionFailed("Click failed: element advertises no AXPress action (strategy: ax)")
+        }
+        let r = AXUIElementPerformAction(element, kAXPressAction as CFString)
+        guard r == .success else {
+            throw RPCError.actionFailed("Click failed: AXPress returned AXError \(r.rawValue) (strategy: ax)")
+        }
+        return .ax
+
+    case .auto:
+        // AXPress on the element itself.
+        if elementActions(element).contains(kAXPressAction as String) {
+            let r = AXUIElementPerformAction(element, kAXPressAction as CFString)
+            // Success is trusted (no element-level verification in v1).
+            if r == .success { return .ax }
+            // AXError → escalate to flash.
+        } else if let relative = pressableRelative(of: element) {
+            // Element lists no press action: try a pressable parent/first child.
+            let r = AXUIElementPerformAction(relative, kAXPressAction as CFString)
+            if r == .success { return .ax }
+        }
+        // Escalate: AXPress unavailable or errored.
+        try await flashClick(element: element, targetPid: targetPid,
+                            waitForIdleMs: waitForIdleMs, verbose: verbose)
+        return .flash
+    }
 }
 
-private func getSizeAttribute(_ element: AXUIElement) -> CGSize? {
-    var ref: CFTypeRef?
-    let result = AXUIElementCopyAttributeValue(element, kAXSizeAttribute as CFString, &ref)
-    guard result == .success, let value = ref else { return nil }
-    var size = CGSize.zero
-    guard AXValueGetValue(value as! AXValue, .cgSize, &size) else { return nil }
-    return size
+/// Wrap the flash click, mapping structured `FlashClickError`s to JSON-RPC
+/// errors that name the failing phase.
+private func flashClick(
+    element: AXUIElement,
+    targetPid: pid_t,
+    waitForIdleMs: Double,
+    verbose: Bool
+) async throws {
+    do {
+        try await performFlashClick(
+            element: element, targetPid: targetPid,
+            waitForIdleMs: waitForIdleMs, verbose: verbose
+        )
+    } catch let e as FlashClickError {
+        throw RPCError.actionFailed(e.message)
+    }
 }
 
-private func postClickEvent(at point: CGPoint) {
-    let mouseDown = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown, mouseCursorPosition: point, mouseButton: .left)
-    let mouseUp = CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: point, mouseButton: .left)
-    mouseDown?.post(tap: .cghidEventTap)
-    usleep(80_000)
-    mouseUp?.post(tap: .cghidEventTap)
+/// A parent or first child that advertises AXPress — some elements wrap the
+/// actionable one (e.g. a group around a button, or a cell holding it).
+private func pressableRelative(of element: AXUIElement) -> AXUIElement? {
+    let press = kAXPressAction as String
+
+    // Parent first.
+    var parentRef: CFTypeRef?
+    if AXUIElementCopyAttributeValue(element, kAXParentAttribute as CFString, &parentRef) == .success,
+       let parent = parentRef, CFGetTypeID(parent) == AXUIElementGetTypeID() {
+        let parentEl = parent as! AXUIElement
+        if elementActions(parentEl).contains(press) { return parentEl }
+    }
+
+    // Then the first child that lists AXPress.
+    var childrenRef: CFTypeRef?
+    if AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &childrenRef) == .success,
+       let children = childrenRef as? [AXUIElement] {
+        for child in children where elementActions(child).contains(press) {
+            return child
+        }
+    }
+    return nil
 }

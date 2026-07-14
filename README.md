@@ -140,6 +140,55 @@ All actions auto-wait for the element to appear (default 30s timeout):
 await locator.click({ timeout: 5000 }); // 5 second timeout
 ```
 
+### Click strategies
+
+`click()` follows a strategy ladder. By default it drives the element through
+the Accessibility API and only falls back to a coordinate click when it must:
+
+| Strategy | Behavior |
+| --- | --- |
+| `"auto"` (default) | `AXPress` the element. If the element advertises no press action, try a pressable parent/first child. If `AXPress` is unavailable or returns an error, escalate to the **flash click**. |
+| `"ax"` | `AXPress` only — errors if the element advertises no press action. Never steals focus. |
+| `"flash"` | Force the flash click. Useful when `AXPress` "succeeds" but does nothing (canvas-drawn UIs, some web content). |
+
+```ts
+await locator.click();                      // auto
+await locator.click({ strategy: "ax" });    // AX only, background-safe
+await locator.click({ strategy: "flash" }); // force the coordinate click
+```
+
+#### What the flash click does (and what you'll see)
+
+A true background coordinate click is **impossible with public macOS APIs** — the
+window server routes global HID events to whatever window is frontmost, and
+per-PID event posting is unreliable in multi-process apps (Safari, Chromium,
+Electron) and key-window-strict AppKit apps. The **flash click** is therefore the
+floor for elements `AXPress` can't drive:
+
+1. Snapshot the current frontmost app and its focused window.
+2. Un-minimize the target window if needed.
+3. Activate the target app and raise **only** the target window (not its whole
+   window stack), waiting on the activation notification rather than a fixed
+   sleep.
+4. Post a real global click at the element's center.
+5. Restore the previous app and window (and re-minimize if it was minimized).
+
+You will briefly see the target window surface and your previous app return —
+total visible disruption is roughly **200–300ms**. If the target is on another
+Space or your previous app is fullscreen, macOS animates a Space switch; that
+animation is unavoidable and we do not use private APIs to suppress it.
+
+Because the flash steals key focus, a fast typist can leak keystrokes into the
+target app. Pass `waitForIdleMs` to wait until the user has been idle (no
+keyboard/mouse input) that long before stealing focus, capped at 5s:
+
+```ts
+await locator.click({ strategy: "flash", waitForIdleMs: 500 });
+```
+
+> For Electron apps, the Chrome DevTools Protocol (CDP) is a separate, truly
+> background click path — out of scope for this AX-based framework.
+
 ### Inspecting the UI tree
 
 ```ts
@@ -289,7 +338,7 @@ Add to your Claude Code MCP config (`.mcp.json`):
 | `connect_app` | Connect to an app by name or PID |
 | `query_tree` | Get the accessibility tree as text |
 | `get_element` | Find an element and return its properties |
-| `click` | Click a UI element (auto-waits) |
+| `click` | Click a UI element (auto-waits; `strategy` = `auto`/`ax`/`flash`) |
 | `fill` | Set a text field's value (auto-waits) |
 | `wait_for` | Wait for an element to appear |
 | `press_key` | Activate the target app, then send keyboard input |
@@ -315,6 +364,8 @@ macbeth/
 │   │   │   ├── TreeWalker.swift       # Recursive AX tree traversal
 │   │   │   ├── TreeSerializer.swift   # Text + JSON tree output
 │   │   │   ├── ElementQuery.swift     # Query path resolution
+│   │   │   ├── ElementGeometry.swift  # Frame/window helpers + click-center math
+│   │   │   ├── FlashClick.swift       # Coordinate "flash click" fallback
 │   │   │   └── KeyCodes.swift         # Key name → CGKeyCode mapping
 │   │   └── Methods/        # RPC method implementations
 │   │       ├── Click.swift, Fill.swift, PressKey.swift

@@ -88,6 +88,31 @@ For these apps, the primary interaction model is:
 Xcode, TextEdit, etc.) where controls expose `AXValue`, `AXTitleUIElement`, and
 `AXSettable` attributes.
 
+### Click strategies (flash click)
+
+`click` takes an optional `strategy`: `"auto"` (default), `"ax"`, or `"flash"`.
+
+- `"auto"` presses the element via AX (`AXPress`), tries a pressable
+  parent/first child if the element lists no press action, and escalates to the
+  **flash click** only when AXPress is unavailable or returns an AXError. AXPress
+  success is trusted (no element-level verification in v1).
+- `"ax"` is AXPress-only and never steals focus — prefer it (and AX-based
+  interaction generally) when possible.
+- `"flash"` forces the coordinate fallback: it briefly activates the target app,
+  raises only the target window, posts a real global click at the element
+  center, then restores the previous app/window. **It briefly takes key focus**
+  (~200–300ms), so use it only for elements AXPress can't drive (canvas-drawn
+  UIs, some web content) or where AXPress "succeeds" but does nothing.
+
+A truly background coordinate click is impossible with public macOS APIs — flash
+is the floor. Implementation: `AX/FlashClick.swift` (sequencing, activation-
+notification wait, restore, timing logs) and `AX/ElementGeometry.swift` (frame/
+window helpers, testable center math). `waitForIdleMs` avoids leaking a fast
+typist's keystrokes into the target app before the focus steal.
+
+Integration tests are local-only (`test/flash-click/`) — they need a window
+server + Accessibility permission and cannot run in CI.
+
 ### Error codes
 
 RPC errors use codes -32000 to -32009. AppleScript/JXA errors are classified by OSA

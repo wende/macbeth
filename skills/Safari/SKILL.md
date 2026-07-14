@@ -16,6 +16,22 @@ Safari's AX tree has two main areas:
 1. **Chrome** (toolbar, tabs, menus) — native macOS UI elements
 2. **Web content** — a `web_area` element containing the page's DOM-like accessibility tree (headings, links, groups, text, lists, tables, etc.)
 
+## Clicking
+
+Prefer AX-based `click` (the default) — it's fast and doesn't steal focus. Some
+web content can't be driven by `AXPress` (canvas, custom widgets, or links where
+a click reports success but nothing happens). For those, pass
+`strategy: "flash"`: it briefly (~200–300ms) activates the Safari window, posts a
+real click at the element's center, then restores your previous app and window.
+
+```json
+{ "app": "Safari", "query": [ /* ...web element... */ ], "strategy": "flash" }
+```
+
+Use flash only as a fallback — it briefly takes key focus, and Safari is
+multi-process so per-PID event posting is unreliable (which is exactly why flash
+exists). Add `waitForIdleMs` to avoid stealing focus mid-keystroke.
+
 
 ## Navigation
 

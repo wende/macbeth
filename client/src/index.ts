@@ -34,6 +34,8 @@ export type {
   KeyStroke,
   QueryStep,
   AXNodeJSON,
+  ClickOptions,
+  ClickStrategy,
 } from "./types.js";
 export { run, runJson } from "./shell.js";
 export { runAppleScript } from "./applescript.js";

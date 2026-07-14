@@ -123,19 +123,32 @@ server.registerTool("query_tree", {
 });
 
 server.registerTool("click", {
-  description: "Click a UI element. Auto-waits for the element to appear.",
+  description:
+    "Click a UI element. Auto-waits for the element to appear. Prefer the default AX-based interaction. strategy \"flash\" briefly (~200-300ms) activates the target window and posts a real click, then restores focus — use it only for elements AXPress cannot drive (canvas/web content, or where a click reports success but does nothing).",
   inputSchema: {
     app: z.string().describe("App name or PID"),
     query: querySchema,
     timeout: z.number().optional().default(30).describe("Timeout in seconds"),
+    strategy: z
+      .enum(["auto", "ax", "flash"])
+      .optional()
+      .describe(
+        'Click strategy. "auto" (default): AXPress, escalating to flash if unavailable. "ax": AXPress only. "flash": force the focus-stealing coordinate click.'
+      ),
+    waitForIdleMs: z
+      .number()
+      .optional()
+      .describe(
+        "Flash only: wait until the user is idle this many ms (capped 5s) before stealing focus. Default 0."
+      ),
   },
-}, async ({ app, query, timeout }) => {
+}, async ({ app, query, timeout, strategy, waitForIdleMs }) => {
   const handle = await client.connect(app);
   let loc = handle as ReturnType<typeof handle.locator>;
   for (const step of query) {
     loc = loc.locator(step);
   }
-  await loc.click({ timeout: (timeout ?? 30) * 1000 });
+  await loc.click({ timeout: (timeout ?? 30) * 1000, strategy, waitForIdleMs });
   return { content: [{ type: "text", text: "Clicked successfully" }] };
 });
 

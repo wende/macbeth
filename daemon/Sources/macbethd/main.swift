@@ -68,7 +68,7 @@ await dispatcher.register(method: "list_apps") { _ in
 registerConnectApp(dispatcher: dispatcher, appManager: appManager)
 registerQueryTree(dispatcher: dispatcher, appManager: appManager, handleTable: handleTable)
 registerGetElement(dispatcher: dispatcher, appManager: appManager, handleTable: handleTable)
-registerClick(dispatcher: dispatcher, appManager: appManager, handleTable: handleTable)
+registerClick(dispatcher: dispatcher, appManager: appManager, handleTable: handleTable, verbose: verbose)
 registerFill(dispatcher: dispatcher, appManager: appManager, handleTable: handleTable)
 registerPressKey(dispatcher: dispatcher, appManager: appManager)
 registerPressKeys(dispatcher: dispatcher, appManager: appManager)
