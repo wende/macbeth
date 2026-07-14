@@ -1,5 +1,10 @@
 {
   "name": "macbeth-monorepo",
   "private": true,
-  "workspaces": ["client"]
+  "workspaces": ["client"],
+  "scripts": {
+    "build:test-harness": "./scripts/build-test-harness.sh",
+    "launch:test-harness": "./scripts/launch-test-harness.sh",
+    "test:gui": "npm --prefix client run test:gui"
+  }
 }

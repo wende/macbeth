@@ -13,13 +13,13 @@ interface ScreenshotHandle {
 }
 
 interface ScreenshotDeps {
-  connect: (app: string) => Promise<ScreenshotHandle>;
+  connect: (app: string | number) => Promise<ScreenshotHandle>;
   save: (result: ScreenshotResult) => Promise<SavedScreenshot>;
 }
 
 export async function runScreenshotTool(
   deps: ScreenshotDeps,
-  params: { app: string; region?: ScreenshotRegion }
+  params: { app: string | number; region?: ScreenshotRegion }
 ) {
   const handle = await deps.connect(params.app);
   const saved = await deps.save(

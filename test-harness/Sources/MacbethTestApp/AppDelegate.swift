@@ -25,6 +25,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             defer: false
         )
         window.title = "Macbeth TestApp"
+        // Create a visible key window without explicitly activating the app.
+        // Keyboard-driven Macbeth actions activate it explicitly when needed.
         window.makeKeyAndOrderFront(nil)
 
         let scrollView = NSScrollView(frame: window.contentView!.bounds)
@@ -363,7 +365,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         statusLabel.setAccessibilityIdentifier("status-label")
         contentView.addSubview(statusLabel)
 
-        NSApp.activate(ignoringOtherApps: true)
     }
 
     // MARK: - Radio button references

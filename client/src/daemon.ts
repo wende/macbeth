@@ -34,32 +34,22 @@ export class DaemonManager {
 
   async ensureRunning(): Promise<string> {
     // Check if socket exists and is connectable
-    if (fs.existsSync(this._socketPath)) {
-      try {
-        const { createConnection } = await import("node:net");
-        const connected = await new Promise<boolean>((resolve) => {
-          const sock = createConnection({ path: this._socketPath }, () => {
-            sock.destroy();
-            resolve(true);
-          });
-          sock.on("error", () => resolve(false));
-          sock.setTimeout(1000, () => {
-            sock.destroy();
-            resolve(false);
-          });
-        });
-
-        if (connected) {
-          if (this.verbose) {
-            process.stderr.write(
-              `[macbeth] Reusing existing daemon at ${this._socketPath}\n`
-            );
-          }
-          return this._socketPath;
-        }
-      } catch {
-        // Socket file exists but not connectable, start fresh
+    if (await this.isSocketConnectable()) {
+      if (this.verbose) {
+        process.stderr.write(
+          `[macbeth] Reusing existing daemon at ${this._socketPath}\n`
+        );
       }
+      return this._socketPath;
+    }
+
+    // A stale socket file makes a newly spawned daemon look ready before it has
+    // bound its own listener. Remove it before spawning and wait for a real
+    // connection below.
+    try {
+      fs.unlinkSync(this._socketPath);
+    } catch {
+      // Missing socket is expected on a first launch.
     }
 
     // Spawn daemon
@@ -92,10 +82,10 @@ export class DaemonManager {
       this.process = null;
     });
 
-    // Wait for socket to appear
+    // Wait until the socket accepts connections, not merely until its path exists.
     const deadline = Date.now() + 5000;
     while (Date.now() < deadline) {
-      if (fs.existsSync(this._socketPath)) {
+      if (await this.isSocketConnectable()) {
         return this._socketPath;
       }
       await new Promise((r) => setTimeout(r, 100));
@@ -104,6 +94,27 @@ export class DaemonManager {
     throw new Error(
       `Daemon failed to start: socket not created at ${this._socketPath} within 5s`
     );
+  }
+
+  private async isSocketConnectable(): Promise<boolean> {
+    if (!fs.existsSync(this._socketPath)) return false;
+
+    try {
+      const { createConnection } = await import("node:net");
+      return await new Promise<boolean>((resolve) => {
+        const sock = createConnection({ path: this._socketPath }, () => {
+          sock.destroy();
+          resolve(true);
+        });
+        sock.on("error", () => resolve(false));
+        sock.setTimeout(1000, () => {
+          sock.destroy();
+          resolve(false);
+        });
+      });
+    } catch {
+      return false;
+    }
   }
 
   async shutdown(): Promise<void> {
