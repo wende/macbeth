@@ -36,11 +36,15 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 20
 
+    # NOTE: ${{ runner.temp }} cannot be referenced in the top-level
+    # `env:` block (the parser rejects it). We use literal absolute
+    # paths under /tmp instead. On GitHub-hosted runners /tmp is the
+    # runner temp directory.
     env:
-      DIAG_DIR: ${{ runner.temp }}/macbeth-ci-diag
-      DAEMON_PATH: ${{ runner.temp }}/macbethd
-      SOCKET_PATH: ${{ runner.temp }}/macbeth-ci.sock
-      HARNESS_PATH: ${{ runner.temp }}/MacbethCIHarness
+      DIAG_DIR: /tmp/macbeth-ci-diag
+      DAEMON_PATH: /tmp/macbethd
+      SOCKET_PATH: /tmp/macbeth-ci.sock
+      HARNESS_PATH: /tmp/MacbethCIHarness
 
     steps:
       - name: Set up Node.js
