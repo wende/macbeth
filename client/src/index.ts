@@ -31,6 +31,7 @@ export type {
   AppInfo,
   AppRuntime,
   ClickStrategy,
+  ClickOptions,
   FillStrategy,
   TreeOptions,
   ElementInfo,

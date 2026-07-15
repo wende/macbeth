@@ -92,7 +92,9 @@ action methods.
   stale (the framework never sees an input event). See `Fill.swift`.
 - `click` — `"auto" | "ax" | "mouse"`. Auto tries `AXPress` on the element, then its parent and
   first child (Chromium often puts the action on an adjacent node), then a synthetic mouse click
-  at the element center. See `Click.swift`.
+  at the element center. The mouse path raises only the owning window, restores the previous
+  app/window and cursor, and accepts `waitForIdleMs` to avoid a mid-keystroke focus steal. See
+  `Click.swift` and `SafeMouseClick.swift`.
 
 **Stale handles** — Electron re-renders can invalidate an `AXUIElement` sooner than the handle
 TTL. `ensureElementValid` (`ElementValidity.swift`) detects `kAXErrorInvalidUIElement` and throws

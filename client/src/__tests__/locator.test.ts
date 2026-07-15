@@ -2,9 +2,11 @@ import { describe, it, expect, vi } from "vitest";
 import { Locator } from "../elements.js";
 import type { JsonRpcClient } from "../rpc.js";
 
-function mockRpc(): JsonRpcClient {
+function mockRpc(impl?: (method: string, params?: unknown) => unknown): JsonRpcClient {
   return {
-    call: vi.fn().mockResolvedValue({ success: true }),
+    call: vi.fn().mockImplementation((method: string, params?: unknown) =>
+      Promise.resolve(impl ? impl(method, params) : { success: true })
+    ),
     connect: vi.fn(),
     close: vi.fn(),
     connected: true,
@@ -103,5 +105,52 @@ describe("Locator", () => {
       query: [{ role: "button", title: undefined, identifier: "ok-btn" }],
       timeout: 30,
     });
+  });
+
+  it("forwards mouse strategy and idle protection", async () => {
+    const rpc = mockRpc();
+    const loc = new Locator(rpc, "h_0", []);
+    await loc.button("Canvas").click({ strategy: "mouse", waitForIdleMs: 500 });
+
+    expect(rpc.call).toHaveBeenCalledWith("click", {
+      appHandle: "h_0",
+      query: [{ role: "button", title: "Canvas", identifier: undefined }],
+      timeout: 30,
+      strategy: "mouse",
+      waitForIdleMs: 500,
+    });
+  });
+
+  it("omits idle protection when only the mouse strategy is requested", async () => {
+    const rpc = mockRpc();
+    const loc = new Locator(rpc, "h_0", []);
+    await loc.button("Canvas").click({ strategy: "mouse" });
+
+    const payload = (rpc.call as ReturnType<typeof vi.fn>).mock.calls[0][1];
+    expect(payload).toMatchObject({ strategy: "mouse" });
+    expect(payload).not.toHaveProperty("waitForIdleMs");
+  });
+
+  it("scoped locators forward and omit idle protection correctly", async () => {
+    const rpc = mockRpc((method) => {
+      if (method === "get_element") {
+        return { handleId: "h_1", role: "button", enabled: true, focused: false };
+      }
+      return { success: true };
+    });
+    const scoped = await new Locator(rpc, "h_0", []).button("Canvas").scope();
+    const calls = rpc.call as ReturnType<typeof vi.fn>;
+
+    await scoped.click({ strategy: "mouse", waitForIdleMs: 500 });
+    expect(calls.mock.calls.at(-1)?.[1]).toMatchObject({
+      handleId: "h_1",
+      strategy: "mouse",
+      waitForIdleMs: 500,
+    });
+
+    await scoped.click({ strategy: "mouse" });
+    const payload = calls.mock.calls.at(-1)?.[1];
+    expect(payload).toMatchObject({ handleId: "h_1", strategy: "mouse" });
+    expect(payload).not.toHaveProperty("waitForIdleMs");
   });
 });

@@ -1,5 +1,23 @@
 import { type JsonRpcClient, JsonRpcError } from "./rpc.js";
-import type { QueryStep, ElementInfo, ClickStrategy, FillStrategy } from "./types.js";
+import type { QueryStep, ElementInfo, ClickOptions, FillStrategy } from "./types.js";
+
+function buildClickParams(args: {
+  appHandle: string;
+  query: QueryStep[];
+  defaultTimeout: number;
+  options?: ClickOptions;
+  handleId?: string;
+}) {
+  const { appHandle, query, defaultTimeout, options, handleId } = args;
+  return {
+    appHandle,
+    query,
+    ...(handleId !== undefined ? { handleId } : {}),
+    timeout: (options?.timeout ?? defaultTimeout) / 1000,
+    ...(options?.strategy ? { strategy: options.strategy } : {}),
+    ...(options?.waitForIdleMs !== undefined ? { waitForIdleMs: options.waitForIdleMs } : {}),
+  };
+}
 
 /**
  * A Locator represents a way to find an element in the AX tree.
@@ -79,13 +97,13 @@ export class Locator {
 
   // --- Terminal action methods (send RPC) ---
 
-  async click(options?: { timeout?: number; strategy?: ClickStrategy }): Promise<void> {
-    await this.rpc.call("click", {
+  async click(options?: ClickOptions): Promise<void> {
+    await this.rpc.call("click", buildClickParams({
       appHandle: this.appHandle,
       query: this.queryPath,
-      timeout: (options?.timeout ?? this.defaultTimeout) / 1000,
-      ...(options?.strategy ? { strategy: options.strategy } : {}),
-    });
+      defaultTimeout: this.defaultTimeout,
+      options,
+    }));
   }
 
   async fill(value: string, options?: { timeout?: number; strategy?: FillStrategy }): Promise<void> {
@@ -151,14 +169,15 @@ class ScopedLocator extends Locator {
     this.handleId = handleId;
   }
 
-  override async click(options?: { timeout?: number; strategy?: ClickStrategy }): Promise<void> {
+  override async click(options?: ClickOptions): Promise<void> {
     try {
-      await this.rpc.call("click", {
+      await this.rpc.call("click", buildClickParams({
         appHandle: this.appHandle,
         handleId: this.handleId,
-        timeout: (options?.timeout ?? this.defaultTimeout) / 1000,
-        ...(options?.strategy ? { strategy: options.strategy } : {}),
-      });
+        query: this.queryPath,
+        defaultTimeout: this.defaultTimeout,
+        options,
+      }));
     } catch (err) {
       if (isHandleStale(err)) {
         await this.rediscover();

@@ -95,6 +95,11 @@ export interface ClickParams {
   query?: QueryStep[];
   timeout?: number;
   strategy?: ClickStrategy;
+  /**
+   * Mouse fallback only. Wait until the user is idle for this many milliseconds
+   * before briefly activating the target window. Capped at 5s.
+   */
+  waitForIdleMs?: number;
 }
 
 // fill

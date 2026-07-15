@@ -3,6 +3,7 @@
 .swiftpm/
 xcuserdata/
 DerivedData/
+.tmp/
 
 # Node
 node_modules/

@@ -13,7 +13,7 @@
 //   node client/test-electron/run.mjs
 //   (or:  cd client && npm run test:electron)
 
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { createRequire } from "node:module";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -25,6 +25,29 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
 
 const results = [];
+const APPLE_SCRIPT = "/usr/bin/osascript";
+
+function frontmostAppName() {
+  return execFileSync(APPLE_SCRIPT, [
+    "-e",
+    'tell application "System Events" to get name of first application process whose frontmost is true',
+  ], { encoding: "utf8" }).trim();
+}
+
+function setFixtureMinimized(pid, minimized) {
+  execFileSync(APPLE_SCRIPT, [
+    "-e",
+    `tell application "System Events" to tell (first application process whose unix id is ${pid}) to set value of attribute "AXMinimized" of window "MacbethFixture" to ${minimized}`,
+  ]);
+}
+
+function fixtureIsMinimized(pid) {
+  return execFileSync(APPLE_SCRIPT, [
+    "-e",
+    `tell application "System Events" to tell (first application process whose unix id is ${pid}) to get value of attribute "AXMinimized" of window "MacbethFixture"`,
+  ], { encoding: "utf8" }).trim() === "true";
+}
+
 function check(name, ok, detail = "") {
   results.push({ name, ok });
   const mark = ok ? "✓" : "✗";
@@ -101,10 +124,17 @@ async function main() {
 
     // 4b. forced mouse strategy on the button.
     const beforeMouse = (await web.heading().getInfo()).title;
-    await web.button("Increment").click({ strategy: "mouse" });
+    setFixtureMinimized(pid, true);
+    execFileSync(APPLE_SCRIPT, ["-e", 'tell application "Finder" to activate']);
+    await new Promise((r) => setTimeout(r, 300));
+    check("mouse test starts with another app frontmost", frontmostAppName() === "Finder");
+    check("mouse test starts with its target minimized", fixtureIsMinimized(pid));
+    await web.button("Increment").click({ strategy: "mouse", waitForIdleMs: 50 });
     await new Promise((r) => setTimeout(r, 300));
     const afterMouse = (await web.heading().getInfo()).title;
-    check("click strategy=mouse increments counter", beforeMouse !== afterMouse, `${beforeMouse} → ${afterMouse}`);
+    check("click strategy=mouse with idle protection increments counter", beforeMouse !== afterMouse, `${beforeMouse} → ${afterMouse}`);
+    check("mouse strategy restores the previous frontmost app", frontmostAppName() === "Finder");
+    check("mouse strategy restores the target's minimized state", fixtureIsMinimized(pid));
   } finally {
     await client.close();
     child.kill("SIGTERM");

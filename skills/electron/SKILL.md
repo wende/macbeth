@@ -77,7 +77,9 @@ fill({ "app": "Slack", "query": [{ "role": "web_area" }, { "role": "text_area" }
 - `auto` (default): tries `AXPress` on the element and its neighbours, then a synthetic
   mouse click at the element center.
 - `mouse`: force a coordinate click — best for canvas-heavy UIs (Figma, drawing surfaces)
-  that expose geometry but no press action.
+  that expose geometry but no press action. Macbeth briefly activates only the owning window,
+  then restores the previous app, focused window, and cursor. Add `waitForIdleMs` when avoiding
+  a mid-keystroke focus steal matters.
 - `ax`: force `AXPress` only.
 
 ```json
