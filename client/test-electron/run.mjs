@@ -79,10 +79,10 @@ async function main() {
     const web = app.window("MacbethFixture").webArea();
 
     // 2. click on the fixture button → counter increments (assert via AX heading).
-    const countBefore = await web.heading().getText(); // "Count: 0"
+    const countBefore = (await web.heading().getInfo()).title; // "Count: 0"
     await web.button("Increment").click();
     await new Promise((r) => setTimeout(r, 300));
-    const countAfter = await web.heading().getText();
+    const countAfter = (await web.heading().getInfo()).title;
     check("click increments counter", countBefore !== countAfter, `${countBefore} → ${countAfter}`);
 
     // 3. fill on the input → app STATE reflects the text (the mirror heading only
@@ -100,10 +100,10 @@ async function main() {
     check("fill strategy=keyboard updates state", kbMirror.includes("Mirror: typed via keyboard"), "checked mirror heading");
 
     // 4b. forced mouse strategy on the button.
-    const beforeMouse = await web.heading().getText();
+    const beforeMouse = (await web.heading().getInfo()).title;
     await web.button("Increment").click({ strategy: "mouse" });
     await new Promise((r) => setTimeout(r, 300));
-    const afterMouse = await web.heading().getText();
+    const afterMouse = (await web.heading().getInfo()).title;
     check("click strategy=mouse increments counter", beforeMouse !== afterMouse, `${beforeMouse} → ${afterMouse}`);
   } finally {
     await client.close();
