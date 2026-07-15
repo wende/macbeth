@@ -80,12 +80,13 @@ func performSafeMouseClick(
         }
 
         try await postMouseClick(at: center)
-        restoreCursor(originalCursor)
+        await restoreCursor(originalCursor)
     } catch {
-        restoreCursor(originalCursor)
+        await restoreCursor(originalCursor)
         await restoreApplicationState(
             targetWindow: targetWindow,
             reminimize: wasMinimized,
+            targetPid: targetPid,
             previousPid: previousPid,
             previousFocusedWindow: previousFocusedWindow
         )
@@ -95,6 +96,7 @@ func performSafeMouseClick(
     await restoreApplicationState(
         targetWindow: targetWindow,
         reminimize: wasMinimized,
+        targetPid: targetPid,
         previousPid: previousPid,
         previousFocusedWindow: previousFocusedWindow
     )
@@ -126,7 +128,9 @@ private func activateTargetWindow(_ window: AXUIElement, targetPid: pid_t) async
     }
     guard isActive else {
         throw SafeMouseClickError(
-            phase: "activate", detail: "target app did not become active within 500ms")
+            phase: "activate",
+            detail: "target app did not become active within \(SafeMouseClickTiming.activationWaitMs)ms"
+        )
     }
     try await Task.sleep(for: .milliseconds(SafeMouseClickTiming.activationSettleMs))
 }
@@ -134,6 +138,7 @@ private func activateTargetWindow(_ window: AXUIElement, targetPid: pid_t) async
 private func restoreApplicationState(
     targetWindow: AXUIElement,
     reminimize: Bool,
+    targetPid: pid_t,
     previousPid: pid_t?,
     previousFocusedWindow: AXUIElement?
 ) async {
@@ -145,11 +150,16 @@ private func restoreApplicationState(
         }
     }
 
-    guard let previousPid else { return }
-    await MainActor.run {
-        _ = NSRunningApplication(processIdentifier: previousPid)?.activate(options: [])
+    if let previousPid, previousPid != targetPid {
+        await MainActor.run {
+            _ = NSRunningApplication(processIdentifier: previousPid)?.activate(options: [])
+        }
     }
-    if let previousFocusedWindow {
+
+    // When the target app was already active, restoring its previous focused
+    // window is still useful, but never re-raise the target after re-minimizing it.
+    if let previousFocusedWindow,
+       !(reminimize && CFEqual(previousFocusedWindow, targetWindow)) {
         let result = AXUIElementPerformAction(
             previousFocusedWindow, kAXRaiseAction as CFString)
         if result != .success {
@@ -167,11 +177,16 @@ private func waitForUserIdle(requestedMs: Double) async {
         if Task.isCancelled { return }
         let sinceKey = CGEventSource.secondsSinceLastEventType(
             .hidSystemState, eventType: .keyDown)
-        let sinceMouseDown = CGEventSource.secondsSinceLastEventType(
-            .hidSystemState, eventType: .leftMouseDown)
-        let sinceMouseMove = CGEventSource.secondsSinceLastEventType(
-            .hidSystemState, eventType: .mouseMoved)
-        if min(sinceKey, min(sinceMouseDown, sinceMouseMove)) >= idleThreshold {
+        let activitySamples = [
+            sinceKey,
+            CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: .flagsChanged),
+            CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: .leftMouseDown),
+            CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: .rightMouseDown),
+            CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: .otherMouseDown),
+            CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: .mouseMoved),
+            CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: .scrollWheel),
+        ]
+        if activitySamples.min()! >= idleThreshold {
             return
         }
         do {
@@ -209,9 +224,9 @@ private func postMouseClick(at point: CGPoint) async throws {
     up.post(tap: .cghidEventTap)
 }
 
-private func restoreCursor(_ originalCursor: CGPoint?) {
+private func restoreCursor(_ originalCursor: CGPoint?) async {
     guard let originalCursor else { return }
-    usleep(useconds_t(SafeMouseClickTiming.cursorRestoreSettleMs * 1_000))
+    try? await Task.sleep(for: .milliseconds(SafeMouseClickTiming.cursorRestoreSettleMs))
     let result = CGWarpMouseCursorPosition(originalCursor)
     if result != .success {
         vlog("Cursor restoration failed (error: \(result.rawValue))")
