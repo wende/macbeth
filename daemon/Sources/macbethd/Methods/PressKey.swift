@@ -97,7 +97,6 @@ func registerPressKeys(dispatcher: Dispatcher, appManager: AppConnectionManager,
 
             await appManager.activate(appHandle)
             for parsed in parsedKeys {
-                await glow.activityStarted()
                 switch parsed.kind {
                 case .key(let keyCode, let flags):
                     postKeyEvent(keyCode: keyCode, flags: flags)
@@ -108,6 +107,10 @@ func registerPressKeys(dispatcher: Dispatcher, appManager: AppConnectionManager,
                 }
                 if parsed.delayMs > 0 {
                     try await Task.sleep(for: .milliseconds(parsed.delayMs))
+                    // Re-anchor the debounce only across an explicit delay, so a
+                    // long delayed sequence doesn't fade out mid-way. The common
+                    // no-delay burst relies on the single method-level poke.
+                    await glow.activityStarted()
                 }
             }
 

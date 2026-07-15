@@ -140,7 +140,10 @@ final class GlowView: NSView {
     /// Fade out slowly (~600ms); `completion` fires when fully hidden so the
     /// window can be ordered out and all animation stopped.
     func fadeOut(completion: @escaping () -> Void) {
-        stopBreathing()
+        // Let the breathing animation ride out the fade with the parent layer —
+        // stopping it here would snap glowLayer.opacity back to its model value
+        // (0.9) and flicker. It's removed cleanly by stopAllAnimation() once the
+        // completion block fires.
         let current = layer?.presentation()?.opacity ?? layer?.opacity ?? 1
         layer?.opacity = 0
 

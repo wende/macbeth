@@ -4,7 +4,7 @@ import GlowProtocol
 /// Owns the overlay windows and drives show / hide in response to daemon
 /// messages. All methods run on the main thread.
 @MainActor
-final class OverlayController {
+final class OverlayController: NSObject {
     private var windows: [OverlayWindow] = []
     private var rgba: GlowRGBA
     private var tracker: GlowActivityTracker
@@ -14,6 +14,7 @@ final class OverlayController {
     init(rgba: GlowRGBA, debounceMs: Int) {
         self.rgba = rgba
         self.tracker = GlowActivityTracker(debounceMs: debounceMs)
+        super.init()
     }
 
     var reduceMotion: Bool {

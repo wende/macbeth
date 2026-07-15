@@ -51,18 +51,19 @@ public struct GlowMessage: Codable, Equatable, Sendable {
 
     // MARK: - Wire encoding
 
-    private static let encoder = JSONEncoder()
-    private static let decoder = JSONDecoder()
-
     /// Encode to a single newline-terminated line ready to write to the pipe.
+    ///
+    /// `JSONEncoder` is not `Sendable`, so under Swift 6 strict concurrency it
+    /// can't be shared via a `static let`; instantiate it locally instead. The
+    /// object is lightweight and these calls are infrequent.
     public func encodedLine() throws -> Data {
-        var data = try GlowMessage.encoder.encode(self)
+        var data = try JSONEncoder().encode(self)
         data.append(0x0A) // '\n'
         return data
     }
 
     /// Decode a single line (with or without a trailing newline).
     public static func decode(line: Data) throws -> GlowMessage {
-        try decoder.decode(GlowMessage.self, from: line)
+        try JSONDecoder().decode(GlowMessage.self, from: line)
     }
 }

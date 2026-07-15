@@ -102,7 +102,11 @@ actor GlowIndicator {
         do {
             try proc.run()
         } catch {
-            warn("failed to spawn glow helper: \(error.localizedDescription)")
+            // The binary exists but couldn't launch (permissions, sandboxing,
+            // etc.) — unlikely to recover this session. Give up like a missing
+            // binary so we don't re-attempt and warn on every interaction.
+            warn("failed to spawn glow helper; disabling indicator for this session: \(error.localizedDescription)")
+            disabled = true
             return
         }
 

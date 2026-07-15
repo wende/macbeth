@@ -19,6 +19,12 @@ final class StdinLineReader: @unchecked Sendable {
         self.onEOF = onEOF
     }
 
+    deinit {
+        // `FileHandle.standardInput` is a process-wide singleton; clear our
+        // handler so it isn't left monitoring stdin after we're gone.
+        handle.readabilityHandler = nil
+    }
+
     func start() {
         handle.readabilityHandler = { [weak self] fh in
             guard let self else { return }
