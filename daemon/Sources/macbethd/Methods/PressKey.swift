@@ -47,7 +47,7 @@ private func parseKeyPress(_ value: JSONValue) throws -> ParsedKeyPress {
 }
 
 /// Register the press_key RPC method.
-func registerPressKey(dispatcher: Dispatcher, appManager: AppConnectionManager) {
+func registerPressKey(dispatcher: Dispatcher, appManager: AppConnectionManager, glow: GlowIndicator) {
     Task {
         await dispatcher.register(method: "press_key") { params in
             guard let obj = params?.objectValue,
@@ -56,6 +56,10 @@ func registerPressKey(dispatcher: Dispatcher, appManager: AppConnectionManager) 
                 throw RPCError.invalidParams("Missing 'appHandle' or 'key'")
             }
             let parsed = try parseKeyPress(.object(obj))
+
+            // Interaction choke point: signal the glow before synthetic input.
+            await glow.activityStarted()
+            defer { Task { await glow.activityEnded() } }
 
             await appManager.activate(appHandle)
             switch parsed.kind {
@@ -73,7 +77,7 @@ func registerPressKey(dispatcher: Dispatcher, appManager: AppConnectionManager) 
 }
 
 /// Register the press_keys RPC method.
-func registerPressKeys(dispatcher: Dispatcher, appManager: AppConnectionManager) {
+func registerPressKeys(dispatcher: Dispatcher, appManager: AppConnectionManager, glow: GlowIndicator) {
     Task {
         await dispatcher.register(method: "press_keys") { params in
             guard let obj = params?.objectValue,
@@ -87,6 +91,10 @@ func registerPressKeys(dispatcher: Dispatcher, appManager: AppConnectionManager)
 
             let parsedKeys = try keyValues.map(parseKeyPress)
 
+            // Interaction choke point: signal the glow before synthetic input.
+            await glow.activityStarted()
+            defer { Task { await glow.activityEnded() } }
+
             await appManager.activate(appHandle)
             for parsed in parsedKeys {
                 switch parsed.kind {
@@ -99,6 +107,10 @@ func registerPressKeys(dispatcher: Dispatcher, appManager: AppConnectionManager)
                 }
                 if parsed.delayMs > 0 {
                     try await Task.sleep(for: .milliseconds(parsed.delayMs))
+                    // Re-anchor the debounce only across an explicit delay, so a
+                    // long delayed sequence doesn't fade out mid-way. The common
+                    // no-delay burst relies on the single method-level poke.
+                    await glow.activityStarted()
                 }
             }
 

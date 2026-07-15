@@ -11,6 +11,7 @@ dist/
 # macbeth
 *.sock
 client/bin/macbethd
+client/bin/macbeth-glow
 client/*.tgz
 
 # OS
