@@ -1,0 +1,13 @@
+{
+  "name": "macbeth-electron-testapp",
+  "version": "1.0.0",
+  "description": "Electron test app for Macbeth automation — buttons, modals, sliders, inputs",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "echo \"Open the app and run macbeth against it\""
+  },
+  "devDependencies": {
+    "electron": "^32.0.0"
+  }
+}

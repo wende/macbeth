@@ -48,4 +48,19 @@ describe("runScreenshotTool", () => {
       }],
     });
   });
+
+  it("accepts a numeric PID app target", async () => {
+    const screenshotRaw = vi.fn().mockResolvedValue({
+      data: "base64-png",
+      width: 1,
+      height: 1,
+      format: "png",
+    });
+    const connect = vi.fn().mockResolvedValue({ screenshotRaw });
+    const save = vi.fn().mockResolvedValue({ path: "/tmp/screenshot.png", width: 1, height: 1, format: "png" });
+
+    await runScreenshotTool({ connect, save }, { app: 4242 });
+
+    expect(connect).toHaveBeenCalledWith(4242);
+  });
 });

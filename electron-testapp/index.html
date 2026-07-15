@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Macbeth Electron TestApp</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background: #f5f5f7;
+      color: #1d1d1f;
+    }
+    h1 { font-size: 18px; margin: 0 0 20px 0; }
+    .section {
+      background: white;
+      border-radius: 12px;
+      padding: 16px 20px;
+      margin-bottom: 16px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    }
+    .section-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: #86868b;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 14px;
+    }
+    .row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+    .row:last-child { margin-bottom: 0; }
+    label {
+      font-size: 13px;
+      color: #1d1d1f;
+      min-width: 80px;
+      font-weight: 500;
+    }
+    input[type="text"],
+    input[type="email"],
+    input[type="password"],
+    select,
+    textarea {
+      flex: 1;
+      padding: 6px 10px;
+      border: 1px solid #d2d2d7;
+      border-radius: 6px;
+      font-size: 13px;
+      font-family: inherit;
+    }
+    textarea { resize: vertical; min-height: 60px; }
+    select { min-width: 160px; }
+    button {
+      padding: 7px 16px;
+      border: none;
+      border-radius: 6px;
+      background: #0071e3;
+      color: white;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    button:hover { background: #0077ed; }
+    button.secondary { background: #e3e3e8; color: #1d1d1f; }
+    button.secondary:hover { background: #d2d2d7; }
+    button.danger { background: #ff3b30; }
+    button.danger:hover { background: #ff453a; }
+    .btn-group { display: flex; gap: 8px; flex-wrap: wrap; }
+    input[type="range"] { flex: 1; }
+    .slider-value {
+      min-width: 36px;
+      text-align: center;
+      font-size: 13px;
+      font-weight: 500;
+      color: #0071e3;
+    }
+    .radio-group, .checkbox-group {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    .radio-group label, .checkbox-group label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-weight: 400;
+      min-width: unset;
+      cursor: pointer;
+    }
+    progress {
+      flex: 1;
+      height: 10px;
+    }
+    .tabs {
+      display: flex;
+      border-bottom: 1px solid #d2d2d7;
+      margin-bottom: 14px;
+    }
+    .tab-btn {
+      background: none;
+      color: #86868b;
+      border-radius: 0;
+      padding: 8px 16px;
+      font-weight: 400;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -1px;
+    }
+    .tab-btn.active {
+      color: #0071e3;
+      border-bottom-color: #0071e3;
+    }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+    .table-container {
+      display: flex;
+      gap: 12px;
+      align-items: flex-start;
+    }
+    ul#user-list {
+      flex: 1;
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      border: 1px solid #d2d2d7;
+      border-radius: 6px;
+      max-height: 130px;
+      overflow-y: auto;
+    }
+    ul#user-list li {
+      padding: 6px 12px;
+      border-bottom: 1px solid #f0f0f2;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    ul#user-list li:hover { background: #f5f5f7; }
+    ul#user-list li.selected { background: #0071e3; color: white; }
+    .table-actions {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    #status-bar {
+      position: sticky;
+      bottom: 0;
+      background: #1d1d1f;
+      color: #f5f5f7;
+      padding: 10px 20px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-family: 'SF Mono', Menlo, monospace;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>Macbeth Electron TestApp</h1>
+
+  <!-- Text Inputs -->
+  <div class="section">
+    <div class="section-title">Text Inputs</div>
+    <div class="row">
+      <label for="name-input">Name:</label>
+      <input type="text" id="name-input" placeholder="Enter your name" data-testid="name-input" />
+    </div>
+    <div class="row">
+      <label for="email-input">Email:</label>
+      <input type="email" id="email-input" placeholder="Enter your email" data-testid="email-input" />
+    </div>
+    <div class="row">
+      <label for="password-input">Password:</label>
+      <input type="password" id="password-input" placeholder="Enter password" data-testid="password-input" />
+    </div>
+    <div class="row">
+      <label for="bio-textarea">Bio:</label>
+      <textarea id="bio-textarea" placeholder="Tell us about yourself..." data-testid="bio-textarea"></textarea>
+    </div>
+  </div>
+
+  <!-- Buttons -->
+  <div class="section">
+    <div class="section-title">Buttons</div>
+    <div class="btn-group">
+      <button id="submit-btn" data-testid="submit-btn">Submit</button>
+      <button id="cancel-btn" class="secondary" data-testid="cancel-btn">Cancel</button>
+      <button id="modal-btn" data-testid="modal-btn">Show Modal</button>
+      <button id="alert-btn" class="secondary" data-testid="alert-btn">Show Alert</button>
+    </div>
+  </div>
+
+  <!-- Selection Controls -->
+  <div class="section">
+    <div class="section-title">Selection Controls</div>
+    <div class="row">
+      <label>Notifications:</label>
+      <div class="checkbox-group">
+        <label>
+          <input type="checkbox" id="notifications-checkbox" data-testid="notifications-checkbox" />
+          Enable notifications
+        </label>
+      </div>
+    </div>
+    <div class="row">
+      <label>Theme:</label>
+      <div class="radio-group">
+        <label><input type="radio" name="theme" value="light" id="theme-light" data-testid="theme-light" /> Light</label>
+        <label><input type="radio" name="theme" value="dark" id="theme-dark" data-testid="theme-dark" /> Dark</label>
+        <label><input type="radio" name="theme" value="auto" id="theme-auto" data-testid="theme-auto" checked /> Auto</label>
+      </div>
+    </div>
+    <div class="row">
+      <label for="country-dropdown">Country:</label>
+      <select id="country-dropdown" data-testid="country-dropdown">
+        <option>United States</option>
+        <option>Canada</option>
+        <option>United Kingdom</option>
+        <option>Germany</option>
+        <option>France</option>
+        <option>Poland</option>
+        <option>Japan</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- Sliders & Progress -->
+  <div class="section">
+    <div class="section-title">Sliders &amp; Progress</div>
+    <div class="row">
+      <label for="volume-slider">Volume:</label>
+      <input type="range" id="volume-slider" min="0" max="100" value="50" data-testid="volume-slider" />
+      <span class="slider-value" id="volume-value" data-testid="volume-value">50</span>
+    </div>
+    <div class="row">
+      <label for="progress-bar">Progress:</label>
+      <progress id="progress-bar" value="35" max="100" data-testid="progress-bar"></progress>
+      <button id="advance-progress-btn" class="secondary" data-testid="advance-progress-btn">Advance</button>
+    </div>
+    <div class="row">
+      <label for="count-stepper">Count:</label>
+      <input type="number" id="count-stepper" min="0" max="100" value="5" data-testid="count-stepper" style="width:70px" />
+      <span class="slider-value" id="count-value" data-testid="count-value">5</span>
+    </div>
+    <div class="row">
+      <label>Size:</label>
+      <div class="btn-group">
+        <button class="segment-btn secondary active" data-size="small" data-testid="size-small">Small</button>
+        <button class="segment-btn secondary" data-size="medium" data-testid="size-medium">Medium</button>
+        <button class="segment-btn secondary" data-size="large" data-testid="size-large">Large</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tabs -->
+  <div class="section">
+    <div class="section-title">Tabs</div>
+    <div class="tabs" role="tablist">
+      <button class="tab-btn active" data-tab="general" role="tab" data-testid="tab-general">General</button>
+      <button class="tab-btn" data-tab="appearance" role="tab" data-testid="tab-appearance">Appearance</button>
+      <button class="tab-btn" data-tab="network" role="tab" data-testid="tab-network">Network</button>
+    </div>
+    <div class="tab-panel active" id="tab-general" data-testid="panel-general">
+      <div class="row">
+        <label><input type="checkbox" id="launch-login-checkbox" data-testid="launch-login-checkbox" /> Launch at login</label>
+      </div>
+      <div class="row">
+        <label><input type="checkbox" id="keep-dock-checkbox" data-testid="keep-dock-checkbox" /> Keep in dock</label>
+      </div>
+    </div>
+    <div class="tab-panel" id="tab-appearance" data-testid="panel-appearance">
+      <div class="row">
+        <label for="font-size-slider">Font size:</label>
+        <input type="range" id="font-size-slider" min="10" max="24" value="14" data-testid="font-size-slider" />
+        <span class="slider-value" id="font-size-value">14</span>
+      </div>
+    </div>
+    <div class="tab-panel" id="tab-network" data-testid="panel-network">
+      <div class="row">
+        <label for="proxy-input">Proxy URL:</label>
+        <input type="text" id="proxy-input" placeholder="http://proxy.example.com:8080" data-testid="proxy-input" />
+      </div>
+    </div>
+  </div>
+
+  <!-- List / Table -->
+  <div class="section">
+    <div class="section-title">List / Table</div>
+    <div class="table-container">
+      <ul id="user-list" role="listbox" data-testid="users-list">
+        <li>Alice</li>
+        <li>Bob</li>
+        <li>Charlie</li>
+        <li>Diana</li>
+        <li>Eve</li>
+      </ul>
+      <div class="table-actions">
+        <button id="add-user-btn" data-testid="add-user-btn">Add User</button>
+        <button id="remove-user-btn" class="secondary" data-testid="remove-user-btn">Remove</button>
+        <button id="clear-users-btn" class="danger" data-testid="clear-users-btn">Clear All</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Status -->
+  <div class="section" style="background:#1d1d1f;">
+    <div id="status-bar" data-testid="status-label">Status: Ready</div>
+  </div>
+
+  <script>
+    const statusBar = document.getElementById('status-bar');
+    function setStatus(msg) { statusBar.textContent = 'Status: ' + msg; }
+
+    // Buttons
+    document.getElementById('submit-btn').addEventListener('click', () => {
+      const name = document.getElementById('name-input').value;
+      const email = document.getElementById('email-input').value;
+      setStatus('Submitted – ' + name + ', ' + email);
+    });
+
+    document.getElementById('cancel-btn').addEventListener('click', () => {
+      document.getElementById('name-input').value = '';
+      document.getElementById('email-input').value = '';
+      setStatus('Cancelled');
+    });
+
+    document.getElementById('modal-btn').addEventListener('click', async () => {
+      setStatus('Modal opened');
+      // Simple in-page modal
+      const name = prompt('Enter a value:');
+      setStatus(name ? 'Modal closed with: ' + name : 'Modal cancelled');
+    });
+
+    document.getElementById('alert-btn').addEventListener('click', async () => {
+      if (window.electronAPI) {
+        const response = await window.electronAPI.showAlert({
+          message: 'Confirm Action',
+          detail: 'Are you sure you want to proceed?'
+        });
+        const labels = ['OK', 'Cancel', 'Delete'];
+        setStatus('Alert – ' + (labels[response] || 'dismissed'));
+      } else {
+        const ok = confirm('Are you sure you want to proceed?');
+        setStatus('Alert – ' + (ok ? 'OK' : 'Cancel'));
+      }
+    });
+
+    // Checkbox
+    document.getElementById('notifications-checkbox').addEventListener('change', (e) => {
+      setStatus('Notifications ' + (e.target.checked ? 'enabled' : 'disabled'));
+    });
+
+    // Radio
+    document.querySelectorAll('input[name="theme"]').forEach(radio => {
+      radio.addEventListener('change', (e) => {
+        setStatus('Theme set to ' + e.target.value);
+      });
+    });
+
+    // Dropdown
+    document.getElementById('country-dropdown').addEventListener('change', (e) => {
+      setStatus('Country selected – ' + e.target.value);
+    });
+
+    // Volume slider
+    document.getElementById('volume-slider').addEventListener('input', (e) => {
+      document.getElementById('volume-value').textContent = e.target.value;
+      setStatus('Volume set to ' + e.target.value);
+    });
+
+    // Progress bar
+    document.getElementById('advance-progress-btn').addEventListener('click', () => {
+      const bar = document.getElementById('progress-bar');
+      bar.value = Math.min(bar.value + 10, 100);
+      setStatus('Progress at ' + bar.value + '%');
+    });
+
+    // Stepper
+    document.getElementById('count-stepper').addEventListener('input', (e) => {
+      document.getElementById('count-value').textContent = e.target.value;
+      setStatus('Count set to ' + e.target.value);
+    });
+
+    // Segmented control
+    document.querySelectorAll('.segment-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.segment-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        setStatus('Size selected – ' + btn.dataset.size);
+      });
+    });
+
+    // Tabs
+    document.querySelectorAll('.tab-btn').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.tab-btn').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+        document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
+        setStatus('Tab switched to ' + tab.dataset.tab);
+      });
+    });
+
+    // Font size slider (in appearance tab)
+    document.getElementById('font-size-slider').addEventListener('input', (e) => {
+      document.getElementById('font-size-value').textContent = e.target.value;
+      setStatus('Font size set to ' + e.target.value);
+    });
+
+    // User list
+    const userList = document.getElementById('user-list');
+    const names = ['Frank', 'Grace', 'Henry', 'Ivy', 'Jack'];
+    let nameIndex = 0;
+
+    document.getElementById('add-user-btn').addEventListener('click', () => {
+      const li = document.createElement('li');
+      const newName = names[nameIndex % names.length] + ' ' + Math.floor(Math.random() * 99 + 1);
+      li.textContent = newName;
+      userList.appendChild(li);
+      nameIndex++;
+      setStatus('Added user ' + newName);
+    });
+
+    document.getElementById('remove-user-btn').addEventListener('click', () => {
+      if (userList.lastElementChild) {
+        userList.lastElementChild.remove();
+        setStatus('Removed last user');
+      }
+    });
+
+    document.getElementById('clear-users-btn').addEventListener('click', () => {
+      userList.innerHTML = '';
+      setStatus('Cleared all users');
+    });
+  </script>
+</body>
+</html>

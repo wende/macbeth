@@ -17,9 +17,13 @@ try {
   ]);
 } catch (err) {
   out = { ok: false, error: err.message };
-  if (/permission denied/i.test(err.message)) {
-    out.hint = "Grant access in System Settings > Privacy & Security > Contacts, then retry.";
-  }
+}
+
+// The native bridge returns its own JSON error document on failure, so a
+// permission denial normally reaches this point without throwing.  Normalize
+// both bridge and process errors into the same actionable result.
+if (out?.ok === false && /permission denied/i.test(String(out.error ?? ""))) {
+  out.hint = "Grant access in System Settings > Privacy & Security > Contacts, then retry.";
 }
 
 console.log(JSON.stringify(out, null, 2));

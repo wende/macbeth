@@ -16,3 +16,4 @@ client/*.tgz
 
 # OS
 .DS_Store
+.claude/worktrees/
