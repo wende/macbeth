@@ -80,6 +80,10 @@ const keyStrokeSchema = z.object({
   { message: '"modifiers" is only supported with "key"' }
 );
 
+// Keep PID targeting consistent with connect_app. This matters for unbundled
+// native processes, which can be addressable by PID but not discoverable by name.
+const appTargetSchema = z.union([z.string(), z.number()]).describe("App name or PID");
+
 server.registerTool("list_apps", {
   description: "List running macOS apps with accessibility support",
 }, async () => {
@@ -113,7 +117,7 @@ server.registerTool("connect_app", {
 server.registerTool("query_tree", {
   description: "Get the accessibility tree of a connected app as indented text. Use this first to discover element roles, titles, and identifiers before building queries.",
   inputSchema: {
-    app: z.string().describe("App name or PID"),
+    app: appTargetSchema,
     maxDepth: z.number().optional().default(5).describe("Maximum depth to traverse (default: 5)"),
   },
 }, async ({ app, maxDepth }) => {
@@ -125,7 +129,7 @@ server.registerTool("query_tree", {
 server.registerTool("click", {
   description: "Click a UI element. Auto-waits for the element to appear. On Electron/web content, the default 'auto' strategy tries AXPress (and adjacent nodes) then falls back to a synthetic mouse click; override with 'mouse' for canvas-heavy UIs or 'ax' to force a press.",
   inputSchema: {
-    app: z.string().describe("App name or PID"),
+    app: appTargetSchema,
     query: querySchema,
     timeout: z.number().optional().default(30).describe("Timeout in seconds"),
     strategy: z.enum(["auto", "ax", "mouse"]).optional().describe("Click strategy (default: auto)"),
@@ -143,7 +147,7 @@ server.registerTool("click", {
 server.registerTool("fill", {
   description: "Set the text value of a field. Auto-waits for the element to appear. On Electron/web content, the default 'auto' strategy writes the AX value then synthesizes keystrokes (so frameworks like React see the input); override with 'keyboard' to force typing or 'ax' to force a direct value write.",
   inputSchema: {
-    app: z.string().describe("App name or PID"),
+    app: appTargetSchema,
     query: querySchema,
     value: z.string().describe("Text value to set"),
     timeout: z.number().optional().default(30).describe("Timeout in seconds"),
@@ -162,7 +166,7 @@ server.registerTool("fill", {
 server.registerTool("wait_for", {
   description: "Wait for a UI condition. Conditions: 'exists' (default, wait for element to appear), 'value_equals' (wait for specific value), 'value_changes' (wait for any value change), 'enabled' (wait for element to become enabled).",
   inputSchema: {
-    app: z.string().describe("App name or PID"),
+    app: appTargetSchema,
     query: querySchema.optional().describe("Locator chain to find the element"),
     handleId: z.string().optional().describe("Direct element handle (alternative to query)"),
     timeout: z.number().optional().default(30).describe("Timeout in seconds"),
@@ -198,7 +202,7 @@ server.registerTool("wait_for", {
 server.registerTool("press_key", {
   description: 'WARNING: This tool steals focus — it activates the target app window before sending input. Use as a last resort when click/fill cannot achieve the goal (e.g. keyboard shortcuts, arrow-key navigation). Prefer "fill" for text entry and "click" for buttons. Key names: "return", "tab", "escape", "a"-"z", "1"-"9", "f1"-"f12", "up", "down", "left", "right", "space", "delete". Modifiers: "cmd", "shift", "alt", "ctrl".',
   inputSchema: {
-    app: z.string().describe("App name or PID"),
+    app: appTargetSchema,
     key: z.string().describe("Key name"),
     modifiers: z.array(z.string()).optional().describe('Modifier keys (e.g. ["cmd", "shift"])'),
   },
@@ -211,7 +215,7 @@ server.registerTool("press_key", {
 server.registerTool("press_keys", {
   description: 'WARNING: This tool steals focus — it activates the target app window before sending input. Use as a last resort when click/fill cannot achieve the goal. Prefer "fill" for text entry and "click" for buttons. Sends a sequence of keyboard inputs in one call. Each step accepts either `key` plus optional `modifiers`, or `text` to type literally, plus optional `delayMs`.',
   inputSchema: {
-    app: z.string().describe("App name or PID"),
+    app: appTargetSchema,
     keys: z.array(keyStrokeSchema).min(1).describe("Ordered list of key or text items to send"),
   },
 }, async ({ app, keys }) => {
@@ -223,7 +227,7 @@ server.registerTool("press_keys", {
 server.registerTool("screenshot", {
   description: "Capture a screenshot of an app window, optionally cropped to a region. Saves it to a temporary PNG file and returns the path.",
   inputSchema: {
-    app: z.string().describe("App name or PID"),
+    app: appTargetSchema,
     region: z.object({
       x: z.number().describe("X offset in points from the top-left of the window"),
       y: z.number().describe("Y offset in points from the top-left of the window"),
@@ -247,7 +251,7 @@ server.registerTool("screenshot", {
 server.registerTool("extract_text", {
   description: "Extract text from an app window using OCR (Vision framework). Bridges accessibility gaps in apps with poor AX support. Pass either an app name to capture + OCR, or base64 PNG data to OCR directly.",
   inputSchema: {
-    app: z.string().optional().describe("App name or PID (captures a screenshot and runs OCR)"),
+    app: appTargetSchema.optional().describe("App name or PID (captures a screenshot and runs OCR)"),
     data: z.string().optional().describe("Base64-encoded PNG image to OCR directly (alternative to app)"),
     region: z.object({
       x: z.number().describe("X offset in points"),
@@ -287,7 +291,7 @@ server.registerTool("extract_text", {
 server.registerTool("get_element", {
   description: "Find a specific UI element and return its properties (role, title, value, enabled, focused).",
   inputSchema: {
-    app: z.string().describe("App name or PID"),
+    app: appTargetSchema,
     query: querySchema,
   },
 }, async ({ app, query }) => {
@@ -330,7 +334,7 @@ server.registerTool("unpin_handle", {
 server.registerTool("read_form", {
   description: "Read all form-like controls (text fields, sliders, checkboxes, popups, etc.) from a subtree. Returns each control's label, current value, type, editability, and handle. Use this to inspect panel contents without parsing the full tree.",
   inputSchema: {
-    app: z.string().describe("App name or PID"),
+    app: appTargetSchema,
     query: querySchema.optional().describe("Optional locator chain to scope the search (e.g. to an Inspector panel)"),
     maxDepth: z.number().optional().default(10).describe("Maximum depth to traverse (default: 10)"),
   },

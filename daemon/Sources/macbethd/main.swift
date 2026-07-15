@@ -1,6 +1,18 @@
 import AppKit
 import Foundation
 
+// MARK: - Early argument parsing for --check-permissions
+//
+// This flag is handled before any side effects (NSApplication.shared, socket
+// creation) so CI scripts can probe permissions without triggering a window
+// server connection.
+
+for arg in CommandLine.arguments.dropFirst() {
+    if arg == "--check-permissions" {
+        runPermissionsCheck()
+    }
+}
+
 // Initialize NSApplication so CoreGraphics/ScreenCaptureKit can connect to the window server.
 // Without this, CGS_REQUIRE_INIT asserts on screenshot capture.
 let _ = NSApplication.shared
@@ -17,6 +29,9 @@ while let arg = args.next() {
         socketPath = args.next()
     case "--verbose", "-v":
         verbose = true
+    case "--check-permissions":
+        // Already handled above; skip silently.
+        continue
     case "--help", "-h":
         fputs("""
         Usage: macbethd [options]
@@ -24,6 +39,7 @@ while let arg = args.next() {
         Options:
           --socket-path <path>  Unix socket path (default: $TMPDIR/macbeth-<uid>.sock)
           --verbose, -v         Enable verbose logging
+          --check-permissions   Print Accessibility + Screen Recording status, then exit
           --help, -h            Show this help
 
         """, stderr)

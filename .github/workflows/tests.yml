@@ -34,6 +34,17 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      # The macos-14 image's default Xcode is 15.4 which ships Swift 5.10,
+      # but daemon/Package.swift declares swift-tools-version: 6.0.
+      # Xcode 16.2 is also pre-installed on macos-14 and ships Swift 6.0.
+      # Select it before running swift test so the matching toolchain
+      # is on PATH.
+      - name: Select Xcode 16.2
+        run: sudo xcode-select -s /Applications/Xcode_16.2.app
+
+      - name: Verify Swift toolchain
+        run: swift --version
+
       - name: Run Swift tests
         working-directory: daemon
         run: swift test

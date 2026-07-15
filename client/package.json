@@ -26,8 +26,9 @@
     "prepack": "node ./scripts/sync-skills.mjs",
     "postpack": "node ./scripts/clean-skills.mjs",
     "test": "vitest run",
-    "test:watch": "vitest",
-    "test:electron": "npm run build && node ./test-electron/run.mjs"
+    "test:electron": "npm run build && node ./test-electron/run.mjs",
+    "test:gui": "vitest run src/__tests__/test-harness.e2e.test.ts",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.28.0",

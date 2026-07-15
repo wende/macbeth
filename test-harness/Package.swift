@@ -3,10 +3,8 @@
 import PackageDescription
 
 let package = Package(
-    name: "MacbethTestApp",
-    platforms: [
-        .macOS(.v14)
-    ],
+    name: "MacbethTestHarness",
+    platforms: [.macOS(.v14)],
     targets: [
         .executableTarget(
             name: "MacbethTestApp",
