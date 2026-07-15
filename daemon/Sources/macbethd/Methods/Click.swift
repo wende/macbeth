@@ -45,8 +45,9 @@ func registerClick(
             }
 
             let center = CGPoint(x: point.x + size.width / 2, y: point.y + size.height / 2)
+            let originalCursor = CGEvent(source: nil)?.location
             await appManager.activate(appHandle)
-            postClickEvent(at: center)
+            postClickEvent(at: center, originalCursor: originalCursor)
 
             return .object(["success": .bool(true)])
         }
@@ -143,10 +144,21 @@ private func getSizeAttribute(_ element: AXUIElement) -> CGSize? {
     return size
 }
 
-private func postClickEvent(at point: CGPoint) {
+private func postClickEvent(at point: CGPoint, originalCursor: CGPoint?) {
     let mouseDown = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown, mouseCursorPosition: point, mouseButton: .left)
     let mouseUp = CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: point, mouseButton: .left)
+
+    // A coordinate fallback necessarily moves the cursor while the event is posted.
+    // Restore the original location immediately after mouse-up so the user's pointer
+    // does not remain displaced. AXPress remains the preferred pointer-free path.
     mouseDown?.post(tap: .cghidEventTap)
     usleep(80_000)
     mouseUp?.post(tap: .cghidEventTap)
+    usleep(20_000)
+    if let originalCursor {
+        let result = CGWarpMouseCursorPosition(originalCursor)
+        if result != .success {
+            vlog("Cursor restoration failed (error: \(result.rawValue))")
+        }
+    }
 }
