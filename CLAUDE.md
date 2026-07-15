@@ -71,6 +71,35 @@ Swift script executed directly for EventKit access (Calendar, Reminders, Contact
 
 ## Dev Notes
 
+### Electron / Chromium apps
+
+Electron apps (Slack, VS Code, Discord) keep their accessibility tree disabled until an
+assistive-technology client is detected. On connect, the daemon sets the
+`AXManualAccessibility` attribute (`AppConnection.connect` → `ElectronSupport.swift`) on the
+app's AXUIElement to switch the web-content tree on, then polls for an `AXWebArea` to appear
+(default 3s, tunable via `connect_app`'s `readyTimeoutMs`) before returning. We deliberately
+do NOT set `AXEnhancedUserInterface` — it causes window resize/reposition bugs in Electron.
+
+`Connection.runtime` (native/electron/unknown) is computed once at connect and read by the
+action methods.
+
+**Action strategies** (both default to `"auto"`, plumbed through `protocol/schema.ts`, the TS
+`Locator`, and the MCP tools):
+
+- `fill` — `"auto" | "ax" | "keyboard"`. Auto writes `kAXValueAttribute`, verifies by reading
+  back, and falls back to keyboard synthesis; on Electron it always synthesizes keystrokes
+  (posted via `CGEvent.postToPid`) because a "successful" AX write can leave React-style state
+  stale (the framework never sees an input event). See `Fill.swift`.
+- `click` — `"auto" | "ax" | "mouse"`. Auto tries `AXPress` on the element, then its parent and
+  first child (Chromium often puts the action on an adjacent node), then a synthetic mouse click
+  at the element center. See `Click.swift`.
+
+**Stale handles** — Electron re-renders can invalidate an `AXUIElement` sooner than the handle
+TTL. `ensureElementValid` (`ElementValidity.swift`) detects `kAXErrorInvalidUIElement` and throws
+an error containing `stale-element`; the TS `ScopedLocator` keys off that marker to re-resolve
+from the original query path and retry once. Raw `h_N` handles from `query_tree` carry no path,
+so the error tells the caller to re-run `query_tree`.
+
 ### AX limitations in complex apps (Unity, Electron IDEs)
 
 Apps like Unity expose only window + menu bar through the Accessibility API. Panel

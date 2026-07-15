@@ -29,14 +29,30 @@ func listApps() -> [AppInfo] {
 }
 
 /// Detect whether an app is native, Electron, etc.
-private func detectRuntime(_ app: NSRunningApplication) -> AppRuntime {
-    guard let bundleURL = app.bundleURL else { return .unknown }
-    let frameworksURL = bundleURL.appendingPathComponent("Contents/Frameworks/Electron Framework.framework")
-    if FileManager.default.fileExists(atPath: frameworksURL.path) {
+func detectRuntime(_ app: NSRunningApplication) -> AppRuntime {
+    if let bundleURL = app.bundleURL {
+        let frameworksURL = bundleURL.appendingPathComponent("Contents/Frameworks/Electron Framework.framework")
+        if FileManager.default.fileExists(atPath: frameworksURL.path) {
+            return .electron
+        }
+    }
+
+    // A development Electron process launched from node_modules may have no
+    // bundleURL even though LaunchServices still reports Electron's generic bundle
+    // identifier. Keep it on the Electron path so accessibility setup and the
+    // keyboard-aware fill strategy are applied.
+    if app.bundleIdentifier == "com.github.Electron" {
         return .electron
     }
+
     // Could detect other runtimes (Qt, Java, etc.) here in the future
     return .native
+}
+
+/// Detect the runtime of the app owning a given PID.
+func detectRuntime(pid: pid_t) -> AppRuntime {
+    guard let app = NSRunningApplication(processIdentifier: pid) else { return .unknown }
+    return detectRuntime(app)
 }
 
 /// Convert app list to JSON-RPC result.

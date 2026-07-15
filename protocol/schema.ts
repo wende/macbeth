@@ -18,16 +18,22 @@ export interface ListAppsResult {
   apps: AppInfo[];
 }
 
+export type AppRuntime = "native" | "electron" | "unknown";
+
 export interface AppInfo {
   name: string;
   pid: number;
   bundleId: string | null;
+  runtime: AppRuntime;
 }
 
 // connect_app
 export interface ConnectAppParams {
   name?: string;
   pid?: number;
+  /** For Electron apps, how long (ms) to wait for Chromium to build its
+   *  accessibility tree after enabling it. Default 3000. */
+  readyTimeoutMs?: number;
 }
 
 export interface ConnectAppResult {
@@ -35,6 +41,7 @@ export interface ConnectAppResult {
   name: string;
   pid: number;
   bundleId: string | null;
+  runtime: AppRuntime;
 }
 
 // query_tree
@@ -78,20 +85,30 @@ export interface GetElementResult {
 }
 
 // click
+/** Click strategy: "auto" (AXPress, then neighbours, then synthetic mouse),
+ *  "ax" (AXPress only), "mouse" (synthetic mouse click only). */
+export type ClickStrategy = "auto" | "ax" | "mouse";
+
 export interface ClickParams {
   appHandle: string;
   handleId?: string;
   query?: QueryStep[];
   timeout?: number;
+  strategy?: ClickStrategy;
 }
 
 // fill
+/** Fill strategy: "auto" (verified AX write, keyboard fallback — always keyboard on
+ *  Electron), "ax" (AX write only), "keyboard" (keyboard synthesis only). */
+export type FillStrategy = "auto" | "ax" | "keyboard";
+
 export interface FillParams {
   appHandle: string;
   handleId?: string;
   query?: QueryStep[];
   value: string;
   timeout?: number;
+  strategy?: FillStrategy;
 }
 
 // wait_for

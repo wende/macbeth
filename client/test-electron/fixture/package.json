@@ -1,0 +1,13 @@
+{
+  "name": "macbeth-electron-fixture",
+  "version": "1.0.0",
+  "description": "Minimal Electron app used to exercise macbeth's Electron support locally",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^33.0.0"
+  }
+}

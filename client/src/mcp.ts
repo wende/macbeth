@@ -127,37 +127,39 @@ server.registerTool("query_tree", {
 });
 
 server.registerTool("click", {
-  description: "Click a UI element. Auto-waits for the element to appear.",
+  description: "Click a UI element. Auto-waits for the element to appear. On Electron/web content, the default 'auto' strategy tries AXPress (and adjacent nodes) then falls back to a synthetic mouse click; override with 'mouse' for canvas-heavy UIs or 'ax' to force a press.",
   inputSchema: {
     app: appTargetSchema,
     query: querySchema,
     timeout: z.number().optional().default(30).describe("Timeout in seconds"),
+    strategy: z.enum(["auto", "ax", "mouse"]).optional().describe("Click strategy (default: auto)"),
   },
-}, async ({ app, query, timeout }) => {
+}, async ({ app, query, timeout, strategy }) => {
   const handle = await client.connect(app);
   let loc = handle as ReturnType<typeof handle.locator>;
   for (const step of query) {
     loc = loc.locator(step);
   }
-  await loc.click({ timeout: (timeout ?? 30) * 1000 });
+  await loc.click({ timeout: (timeout ?? 30) * 1000, ...(strategy ? { strategy } : {}) });
   return { content: [{ type: "text", text: "Clicked successfully" }] };
 });
 
 server.registerTool("fill", {
-  description: "Set the text value of a field. Auto-waits for the element to appear.",
+  description: "Set the text value of a field. Auto-waits for the element to appear. On Electron/web content, the default 'auto' strategy writes the AX value then synthesizes keystrokes (so frameworks like React see the input); override with 'keyboard' to force typing or 'ax' to force a direct value write.",
   inputSchema: {
     app: appTargetSchema,
     query: querySchema,
     value: z.string().describe("Text value to set"),
     timeout: z.number().optional().default(30).describe("Timeout in seconds"),
+    strategy: z.enum(["auto", "ax", "keyboard"]).optional().describe("Fill strategy (default: auto)"),
   },
-}, async ({ app, query, value, timeout }) => {
+}, async ({ app, query, value, timeout, strategy }) => {
   const handle = await client.connect(app);
   let loc = handle as ReturnType<typeof handle.locator>;
   for (const step of query) {
     loc = loc.locator(step);
   }
-  await loc.fill(value, { timeout: (timeout ?? 30) * 1000 });
+  await loc.fill(value, { timeout: (timeout ?? 30) * 1000, ...(strategy ? { strategy } : {}) });
   return { content: [{ type: "text", text: `Set value to "${value}"` }] };
 });
 
