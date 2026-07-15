@@ -178,6 +178,15 @@ await locator.click({ strategy: "mouse" });    // "auto" (default) | "ax" | "mou
 await locator.fill("text", { strategy: "keyboard" }); // "auto" (default) | "ax" | "keyboard"
 ```
 
+The mouse fallback briefly activates and raises only the target window, posts the
+click, then restores the previous app, focused window, and cursor. If the target
+was minimized, it is re-minimized afterward. To reduce the chance of stealing
+focus mid-keystroke, wait for a quiet moment first (the wait is capped at 5s):
+
+```ts
+await locator.click({ strategy: "mouse", waitForIdleMs: 500 });
+```
+
 ### Inspecting the UI tree
 
 ```ts
@@ -291,8 +300,9 @@ than failing — native fallback behavior is preserved.
   AX write with `strategy: "ax"`.
 - `click`: the pressable action sometimes lives on an adjacent node, and canvas-heavy UIs
   expose geometry but no actions. `"auto"` tries `AXPress` on the element and its
-  neighbours, then falls back to a synthetic mouse click at the element's center. Force
-  either end with `strategy: "ax"` or `strategy: "mouse"`.
+  neighbours, then falls back to a synthetic mouse click at the element's center. The
+  fallback briefly surfaces only the target window and restores the previous app/window
+  and cursor afterward. Force either end with `strategy: "ax"` or `strategy: "mouse"`.
 
 **Known limitations**
 

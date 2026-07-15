@@ -127,20 +127,25 @@ server.registerTool("query_tree", {
 });
 
 server.registerTool("click", {
-  description: "Click a UI element. Auto-waits for the element to appear. On Electron/web content, the default 'auto' strategy tries AXPress (and adjacent nodes) then falls back to a synthetic mouse click; override with 'mouse' for canvas-heavy UIs or 'ax' to force a press.",
+  description: "Click a UI element. Auto-waits for the element to appear. On Electron/web content, the default 'auto' strategy tries AXPress (and adjacent nodes) then falls back to a synthetic mouse click; override with 'mouse' for canvas-heavy UIs or 'ax' to force a press. Mouse clicks briefly activate the target window, then restore the previous app, window, and cursor.",
   inputSchema: {
     app: appTargetSchema,
     query: querySchema,
     timeout: z.number().optional().default(30).describe("Timeout in seconds"),
     strategy: z.enum(["auto", "ax", "mouse"]).optional().describe("Click strategy (default: auto)"),
+    waitForIdleMs: z.number().nonnegative().optional().describe("Mouse fallback only: wait for this much user idle time before briefly activating the target window (capped at 5000ms)"),
   },
-}, async ({ app, query, timeout, strategy }) => {
+}, async ({ app, query, timeout, strategy, waitForIdleMs }) => {
   const handle = await client.connect(app);
   let loc = handle as ReturnType<typeof handle.locator>;
   for (const step of query) {
     loc = loc.locator(step);
   }
-  await loc.click({ timeout: (timeout ?? 30) * 1000, ...(strategy ? { strategy } : {}) });
+  await loc.click({
+    timeout: (timeout ?? 30) * 1000,
+    ...(strategy ? { strategy } : {}),
+    ...(waitForIdleMs !== undefined ? { waitForIdleMs } : {}),
+  });
   return { content: [{ type: "text", text: "Clicked successfully" }] };
 });
 

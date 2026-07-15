@@ -33,6 +33,16 @@ export interface AppConnectOptions {
  *  mouse click; "ax" only presses; "mouse" only clicks by coordinates. */
 export type ClickStrategy = "auto" | "ax" | "mouse";
 
+export interface ClickOptions {
+  timeout?: number;
+  strategy?: ClickStrategy;
+  /**
+   * Mouse fallback only. Wait until the user has been idle for this many
+   * milliseconds before briefly activating the target window. Capped at 5s.
+   */
+  waitForIdleMs?: number;
+}
+
 /** Strategy for `fill`: "auto" does a verified AX write then keyboard synthesis
  *  (always keyboard on Electron); "ax" only writes the AX value; "keyboard" only types. */
 export type FillStrategy = "auto" | "ax" | "keyboard";

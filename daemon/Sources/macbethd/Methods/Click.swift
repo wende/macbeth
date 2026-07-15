@@ -17,6 +17,7 @@ func registerClick(
             }
 
             let strategy = ClickStrategy(obj["strategy"]?.stringValue)
+            let waitForIdleMs = obj["waitForIdleMs"]?.numberValue ?? 0
             let timeout = obj["timeout"]?.numberValue ?? 5.0
             let element = try await resolveTarget(
                 obj: obj, appHandle: appHandle,
@@ -41,18 +42,19 @@ func registerClick(
                 }
             }
 
-            // --- Coordinate-based mouse fallback (strategy == .mouse, or auto fallback) ---
-            guard let point = getPositionAttribute(element.element),
-                  let size = getSizeAttribute(element.element),
-                  size.width > 0, size.height > 0 else {
-                throw RPCError.actionFailed(
-                    "Click failed: AXPress unsupported and no usable position/size for a mouse fallback")
+            // --- Safe coordinate fallback (strategy == .mouse, or auto fallback) ---
+            guard let connection = await appManager.get(appHandle) else {
+                throw RPCError.appNotFound("Invalid app handle: \(appHandle)")
             }
-
-            let center = CGPoint(x: point.x + size.width / 2, y: point.y + size.height / 2)
-            let originalCursor = CGEvent(source: nil)?.location
-            await appManager.activate(appHandle)
-            postClickEvent(at: center, originalCursor: originalCursor)
+            do {
+                try await performSafeMouseClick(
+                    element: element.element,
+                    targetPid: connection.pid,
+                    waitForIdleMs: waitForIdleMs
+                )
+            } catch let error as SafeMouseClickError {
+                throw RPCError.actionFailed(error.message)
+            }
 
             return .object(["success": .bool(true)])
         }
@@ -131,43 +133,4 @@ private func getChildElements(_ element: AXUIElement) -> [AXUIElement] {
     guard AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &ref) == .success,
           let children = ref as? [AXUIElement] else { return [] }
     return children
-}
-
-// MARK: - Coordinate-based click helpers
-
-private func getPositionAttribute(_ element: AXUIElement) -> CGPoint? {
-    var ref: CFTypeRef?
-    let result = AXUIElementCopyAttributeValue(element, kAXPositionAttribute as CFString, &ref)
-    guard result == .success, let value = ref else { return nil }
-    var point = CGPoint.zero
-    guard AXValueGetValue(value as! AXValue, .cgPoint, &point) else { return nil }
-    return point
-}
-
-private func getSizeAttribute(_ element: AXUIElement) -> CGSize? {
-    var ref: CFTypeRef?
-    let result = AXUIElementCopyAttributeValue(element, kAXSizeAttribute as CFString, &ref)
-    guard result == .success, let value = ref else { return nil }
-    var size = CGSize.zero
-    guard AXValueGetValue(value as! AXValue, .cgSize, &size) else { return nil }
-    return size
-}
-
-private func postClickEvent(at point: CGPoint, originalCursor: CGPoint?) {
-    let mouseDown = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown, mouseCursorPosition: point, mouseButton: .left)
-    let mouseUp = CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: point, mouseButton: .left)
-
-    // A coordinate fallback necessarily moves the cursor while the event is posted.
-    // Restore the original location immediately after mouse-up so the user's pointer
-    // does not remain displaced. AXPress remains the preferred pointer-free path.
-    mouseDown?.post(tap: .cghidEventTap)
-    usleep(80_000)
-    mouseUp?.post(tap: .cghidEventTap)
-    usleep(20_000)
-    if let originalCursor {
-        let result = CGWarpMouseCursorPosition(originalCursor)
-        if result != .success {
-            vlog("Cursor restoration failed (error: \(result.rawValue))")
-        }
-    }
 }

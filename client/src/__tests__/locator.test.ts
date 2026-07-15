@@ -104,4 +104,18 @@ describe("Locator", () => {
       timeout: 30,
     });
   });
+
+  it("forwards mouse strategy and idle protection", async () => {
+    const rpc = mockRpc();
+    const loc = new Locator(rpc, "h_0", []);
+    await loc.button("Canvas").click({ strategy: "mouse", waitForIdleMs: 500 });
+
+    expect(rpc.call).toHaveBeenCalledWith("click", {
+      appHandle: "h_0",
+      query: [{ role: "button", title: "Canvas", identifier: undefined }],
+      timeout: 30,
+      strategy: "mouse",
+      waitForIdleMs: 500,
+    });
+  });
 });

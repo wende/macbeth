@@ -1,5 +1,5 @@
 import { type JsonRpcClient, JsonRpcError } from "./rpc.js";
-import type { QueryStep, ElementInfo, ClickStrategy, FillStrategy } from "./types.js";
+import type { QueryStep, ElementInfo, ClickOptions, FillStrategy } from "./types.js";
 
 /**
  * A Locator represents a way to find an element in the AX tree.
@@ -79,12 +79,13 @@ export class Locator {
 
   // --- Terminal action methods (send RPC) ---
 
-  async click(options?: { timeout?: number; strategy?: ClickStrategy }): Promise<void> {
+  async click(options?: ClickOptions): Promise<void> {
     await this.rpc.call("click", {
       appHandle: this.appHandle,
       query: this.queryPath,
       timeout: (options?.timeout ?? this.defaultTimeout) / 1000,
       ...(options?.strategy ? { strategy: options.strategy } : {}),
+      ...(options?.waitForIdleMs !== undefined ? { waitForIdleMs: options.waitForIdleMs } : {}),
     });
   }
 
@@ -151,13 +152,14 @@ class ScopedLocator extends Locator {
     this.handleId = handleId;
   }
 
-  override async click(options?: { timeout?: number; strategy?: ClickStrategy }): Promise<void> {
+  override async click(options?: ClickOptions): Promise<void> {
     try {
       await this.rpc.call("click", {
         appHandle: this.appHandle,
         handleId: this.handleId,
         timeout: (options?.timeout ?? this.defaultTimeout) / 1000,
         ...(options?.strategy ? { strategy: options.strategy } : {}),
+        ...(options?.waitForIdleMs !== undefined ? { waitForIdleMs: options.waitForIdleMs } : {}),
       });
     } catch (err) {
       if (isHandleStale(err)) {
