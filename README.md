@@ -367,9 +367,10 @@ How it works:
   and full-screen content, re-laying-out when displays change. The windows are
   `sharingType = .none` and owned by a separate process, so the glow **never
   appears in screenshots** macbeth captures.
-- The glow fades in fast (~150ms), breathes gently while active (disabled if
-  macOS "Reduce Motion" is on), and fades out slowly (~600ms) after a debounce
-  window so a burst of rapid actions reads as one continuous glow.
+- The violet glow fades smoothly inward from each screen edge, fades in fast
+  (~150ms), breathes gently while active (disabled if macOS "Reduce Motion" is
+  on), and fades out slowly (~600ms) after a debounce window so a burst of rapid
+  actions reads as one continuous glow.
 - The indicator is entirely best-effort: if the helper can't start or crashes,
   the daemon logs a warning and keeps working — automation is never blocked.
 
@@ -379,7 +380,7 @@ flag):
 | Variable | Default | Description |
 | --- | --- | --- |
 | `MACBETH_GLOW` | `1` | Set to `0`/`false`/`off`/`no` to disable the indicator entirely (same as `--no-glow`). |
-| `MACBETH_GLOW_COLOR` | `#BD5CF3` | Accent color as hex (`#RGB`, `#RGBA`, `#RRGGBB`, or `#RRGGBBAA`). |
+| `MACBETH_GLOW_COLOR` | `#A855F7` | Accent color as hex (`#RGB`, `#RGBA`, `#RRGGBB`, or `#RRGGBBAA`). |
 | `MACBETH_GLOW_DEBOUNCE_MS` | `1500` | Milliseconds to keep the glow alive after the last action (debounce). |
 | `MACBETH_GLOW_HELPER` | — | Explicit path to the `macbeth-glow` binary (otherwise discovered next to `macbethd`). |
 

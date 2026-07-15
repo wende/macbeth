@@ -103,6 +103,10 @@ import Foundation
 
 // MARK: - Color parsing
 
+@Test func defaultGlowUsesVioletAccent() {
+    #expect(glowDefaultColor == "#A855F7")
+}
+
 @Test func parsesSixDigitHex() {
     let rgba = parseGlowColor("#BD5CF3")
     #expect(rgba != nil)

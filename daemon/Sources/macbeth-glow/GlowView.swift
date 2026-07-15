@@ -4,15 +4,17 @@ import QuartzCore
 
 /// Renders an inner glow hugging all four edges of its host window.
 ///
-/// The glow is a single stroked, blurred rounded rect (`CAShapeLayer` + shadow).
-/// The view's own backing layer opacity drives fade-in / fade-out; the shape
-/// layer's opacity drives the subtle breathing animation. No Core Animation work
-/// runs while the view is hidden — animations are added on show and removed on
-/// hide.
+/// Four edge-aligned gradients keep the brightest color flush with the screen
+/// boundary and fade smoothly toward the center. The view's own backing layer
+/// opacity drives fade-in / fade-out; the gradient container's opacity drives
+/// the subtle breathing animation. No Core Animation work runs while the view
+/// is hidden — animations are added on show and removed on hide.
 final class GlowView: NSView {
-    private let glowLayer = CAShapeLayer()
+    private let glowLayer = CALayer()
+    private let edgeLayers = (0..<4).map { _ in CAGradientLayer() }
     private var rgba: GlowRGBA
 
+    private static let glowDepth: CGFloat = 44
     private static let breathingKey = "glow.breathing"
     private static let fadeKey = "glow.fade"
 
@@ -20,7 +22,7 @@ final class GlowView: NSView {
         self.rgba = rgba
         super.init(frame: .zero)
         wantsLayer = true
-        layer?.masksToBounds = false
+        layer?.masksToBounds = true
         layer?.opacity = 0
         configureLayer()
     }
@@ -30,21 +32,35 @@ final class GlowView: NSView {
     override var isFlipped: Bool { false }
 
     private func configureLayer() {
-        glowLayer.fillColor = nil
-        glowLayer.lineWidth = 6
-        glowLayer.masksToBounds = false
-        glowLayer.shadowRadius = 24
-        glowLayer.shadowOpacity = 1
-        glowLayer.shadowOffset = .zero
+        glowLayer.masksToBounds = true
         glowLayer.opacity = 0.9
+        edgeLayers.forEach {
+            $0.locations = [0, 0.08, 0.24, 0.5, 0.75, 1]
+            glowLayer.addSublayer($0)
+        }
         applyColor()
         layer?.addSublayer(glowLayer)
     }
 
     private func applyColor() {
-        let color = CGColor(red: rgba.red, green: rgba.green, blue: rgba.blue, alpha: 1)
-        glowLayer.strokeColor = color
-        glowLayer.shadowColor = color
+        let colors = [
+            color(lightenedBy: 0.18, alpha: 0.92),
+            color(lightenedBy: 0.1, alpha: 0.76),
+            color(alpha: 0.5),
+            color(alpha: 0.22),
+            color(alpha: 0.07),
+            color(alpha: 0),
+        ]
+        edgeLayers.forEach { $0.colors = colors }
+    }
+
+    private func color(lightenedBy amount: Double = 0, alpha: Double) -> CGColor {
+        CGColor(
+            red: rgba.red + (1 - rgba.red) * amount,
+            green: rgba.green + (1 - rgba.green) * amount,
+            blue: rgba.blue + (1 - rgba.blue) * amount,
+            alpha: rgba.alpha * alpha
+        )
     }
 
     func setColor(_ rgba: GlowRGBA) {
@@ -55,23 +71,47 @@ final class GlowView: NSView {
 
     override func layout() {
         super.layout()
-        updatePath()
+        updateGradients()
     }
 
-    private func updatePath() {
-        // A rounded rect inset from the edge; the ~24pt shadow blur spreads the
-        // falloff so the glow reads as a soft band hugging the screen edges.
-        let inset: CGFloat = 12
-        let rect = bounds.insetBy(dx: inset, dy: inset)
-        guard rect.width > 0, rect.height > 0 else { return }
+    private func updateGradients() {
+        guard bounds.width > 0, bounds.height > 0 else { return }
+        let depth = min(Self.glowDepth, bounds.width / 2, bounds.height / 2)
 
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         glowLayer.frame = bounds
-        glowLayer.path = CGPath(
-            roundedRect: rect, cornerWidth: 22, cornerHeight: 22, transform: nil
+
+        // AppKit's layer coordinate system starts at the bottom-left. Every
+        // gradient begins at its screen edge and ends `depth` points inward.
+        configure(
+            edgeLayers[0], frame: CGRect(x: 0, y: bounds.height - depth, width: bounds.width, height: depth),
+            start: CGPoint(x: 0.5, y: 1), end: CGPoint(x: 0.5, y: 0)
+        )
+        configure(
+            edgeLayers[1], frame: CGRect(x: 0, y: 0, width: bounds.width, height: depth),
+            start: CGPoint(x: 0.5, y: 0), end: CGPoint(x: 0.5, y: 1)
+        )
+        configure(
+            edgeLayers[2], frame: CGRect(x: 0, y: 0, width: depth, height: bounds.height),
+            start: CGPoint(x: 0, y: 0.5), end: CGPoint(x: 1, y: 0.5)
+        )
+        configure(
+            edgeLayers[3], frame: CGRect(x: bounds.width - depth, y: 0, width: depth, height: bounds.height),
+            start: CGPoint(x: 1, y: 0.5), end: CGPoint(x: 0, y: 0.5)
         )
         CATransaction.commit()
+    }
+
+    private func configure(
+        _ gradient: CAGradientLayer,
+        frame: CGRect,
+        start: CGPoint,
+        end: CGPoint
+    ) {
+        gradient.frame = frame
+        gradient.startPoint = start
+        gradient.endPoint = end
     }
 
     // MARK: - Show / hide

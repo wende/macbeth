@@ -27,7 +27,7 @@ let package = Package(
         ),
         .testTarget(
             name: "macbethdTests",
-            dependencies: ["macbethd", "GlowProtocol"],
+            dependencies: ["macbethd", "macbeth-glow", "GlowProtocol"],
             path: "Tests/macbethdTests"
         ),
     ]

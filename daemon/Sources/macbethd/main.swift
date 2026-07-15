@@ -59,7 +59,7 @@ if !checkAccessibilityPermissions(prompt: true) {
 
 // Environment overrides (CLI --no-glow takes precedence):
 //   MACBETH_GLOW=0|false|off       disable the indicator
-//   MACBETH_GLOW_COLOR=#RRGGBB     accent color (default #BD5CF3)
+//   MACBETH_GLOW_COLOR=#RRGGBB     accent color (default #A855F7)
 //   MACBETH_GLOW_DEBOUNCE_MS=<int> keep-alive window after last action (default 1500)
 //   MACBETH_GLOW_HELPER=<path>     explicit path to the macbeth-glow binary
 let env = ProcessInfo.processInfo.environment

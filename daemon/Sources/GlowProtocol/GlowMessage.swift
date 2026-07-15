@@ -1,7 +1,7 @@
 import Foundation
 
-/// Default accent color for the glow (a distinctive screen-sharing-like purple).
-public let glowDefaultColor = "#BD5CF3"
+/// Default accent color for the glow (a vivid but balanced violet).
+public let glowDefaultColor = "#A855F7"
 
 /// Default debounce window: keep the glow alive this many milliseconds after the
 /// last interaction so a rapid burst of actions reads as one continuous glow.
@@ -15,7 +15,7 @@ public let glowDefaultDebounceMs = 1500
 ///
 /// Examples:
 /// ```
-/// {"type":"activate","color":"#BD5CF3","debounceMs":1500}
+/// {"type":"activate","color":"#A855F7","debounceMs":1500}
 /// {"type":"deactivate"}
 /// {"type":"shutdown"}
 /// ```
@@ -31,7 +31,7 @@ public struct GlowMessage: Codable, Equatable, Sendable {
     }
 
     public var type: Kind
-    /// Optional hex color (e.g. "#BD5CF3"). Only meaningful on `.activate`.
+    /// Optional hex color (e.g. "#A855F7"). Only meaningful on `.activate`.
     public var color: String?
     /// Optional debounce window in milliseconds. Only meaningful on `.activate`.
     public var debounceMs: Int?
