@@ -2,7 +2,7 @@ import Foundation
 import OSAKit
 
 /// Register the run_applescript RPC method.
-func registerRunAppleScript(dispatcher: Dispatcher) {
+func registerRunAppleScript(dispatcher: Dispatcher, glow: GlowIndicator) {
     Task {
         await dispatcher.register(method: "run_applescript") { params in
             guard let obj = params?.objectValue,
@@ -11,6 +11,10 @@ func registerRunAppleScript(dispatcher: Dispatcher) {
             }
 
             let languageParam = obj["language"]?.stringValue ?? "AppleScript"
+
+            // Interaction choke point: AppleScript/JXA can drive apps and input.
+            await glow.activityStarted()
+            defer { Task { await glow.activityEnded() } }
 
             let result: (String?, String?, Int?) = await MainActor.run {
                 let lang: OSALanguage?

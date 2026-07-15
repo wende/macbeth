@@ -6,7 +6,8 @@ import Foundation
 func registerClick(
     dispatcher: Dispatcher,
     appManager: AppConnectionManager,
-    handleTable: HandleTable
+    handleTable: HandleTable,
+    glow: GlowIndicator
 ) {
     Task {
         await dispatcher.register(method: "click") { params in
@@ -23,6 +24,10 @@ func registerClick(
                 timeout: timeout
             )
             try ensureElementValid(element.element)
+
+            // Interaction choke point: signal the glow before touching the system.
+            await glow.activityStarted()
+            defer { Task { await glow.activityEnded() } }
 
             // --- AX press path ---
             if strategy != .mouse {
@@ -76,7 +81,8 @@ enum ClickStrategy {
 /// AXPress we look one level up (parent) and one level down (first child).
 /// Returns true if a press succeeded.
 private func performPress(_ element: AXUIElement) -> Bool {
-    if supportsPress(element) {
+    let elementSupportsPress = supportsPress(element)
+    if elementSupportsPress {
         if AXUIElementPerformAction(element, kAXPressAction as CFString) == .success {
             return true
         }
@@ -99,7 +105,10 @@ private func performPress(_ element: AXUIElement) -> Bool {
 
     // Last resort within the AX path: press the element directly even if it didn't
     // advertise the action (some elements under-report their action names).
-    return AXUIElementPerformAction(element, kAXPressAction as CFString) == .success
+    if !elementSupportsPress {
+        return AXUIElementPerformAction(element, kAXPressAction as CFString) == .success
+    }
+    return false
 }
 
 /// Whether an element lists AXPress among its supported actions.

@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import GlowProtocol
 
 // MARK: - Early argument parsing for --check-permissions
 //
@@ -17,10 +18,15 @@ for arg in CommandLine.arguments.dropFirst() {
 // Without this, CGS_REQUIRE_INIT asserts on screenshot capture.
 let _ = NSApplication.shared
 
+// The glow helper communicates over a pipe; a dead reader must surface as a
+// thrown EPIPE (handled in GlowIndicator), never a process-killing signal.
+signal(SIGPIPE, SIG_IGN)
+
 // MARK: - Argument parsing
 
 var socketPath: String?
 var verbose = false
+var glowDisabled = false
 
 var args = CommandLine.arguments.dropFirst().makeIterator()
 while let arg = args.next() {
@@ -29,6 +35,8 @@ while let arg = args.next() {
         socketPath = args.next()
     case "--verbose", "-v":
         verbose = true
+    case "--no-glow":
+        glowDisabled = true
     case "--check-permissions":
         // Already handled above; skip silently.
         continue
@@ -39,6 +47,7 @@ while let arg = args.next() {
         Options:
           --socket-path <path>  Unix socket path (default: $TMPDIR/macbeth-<uid>.sock)
           --verbose, -v         Enable verbose logging
+          --no-glow             Disable the screen-edge interaction glow indicator
           --check-permissions   Print Accessibility + Screen Recording status, then exit
           --help, -h            Show this help
 
@@ -65,6 +74,26 @@ if !checkAccessibilityPermissions(prompt: true) {
     fputs("\nStarting anyway — some operations may fail without permissions.\n\n", stderr)
 }
 
+// MARK: - Glow indicator configuration
+
+// Environment overrides (CLI --no-glow takes precedence):
+//   MACBETH_GLOW=0|false|off       disable the indicator
+//   MACBETH_GLOW_COLOR=#RRGGBB     accent color (default #A855F7)
+//   MACBETH_GLOW_DEBOUNCE_MS=<int> keep-alive window after last action (default 1500)
+//   MACBETH_GLOW_HELPER=<path>     explicit path to the macbeth-glow binary
+let env = ProcessInfo.processInfo.environment
+func envDisablesGlow() -> Bool {
+    guard let raw = env["MACBETH_GLOW"]?.lowercased() else { return false }
+    return ["0", "false", "off", "no"].contains(raw)
+}
+let glowConfig = GlowIndicator.Config(
+    enabled: !glowDisabled && !envDisablesGlow(),
+    color: env["MACBETH_GLOW_COLOR"] ?? glowDefaultColor,
+    debounceMs: env["MACBETH_GLOW_DEBOUNCE_MS"].flatMap { Int($0) } ?? glowDefaultDebounceMs,
+    helperPath: env["MACBETH_GLOW_HELPER"]
+)
+let glow = GlowIndicator(config: glowConfig, verbose: verbose)
+
 // MARK: - Setup core components
 
 let handleTable = HandleTable()
@@ -87,13 +116,13 @@ await dispatcher.register(method: "list_apps") { _ in
 registerConnectApp(dispatcher: dispatcher, appManager: appManager)
 registerQueryTree(dispatcher: dispatcher, appManager: appManager, handleTable: handleTable)
 registerGetElement(dispatcher: dispatcher, appManager: appManager, handleTable: handleTable)
-registerClick(dispatcher: dispatcher, appManager: appManager, handleTable: handleTable)
-registerFill(dispatcher: dispatcher, appManager: appManager, handleTable: handleTable)
-registerPressKey(dispatcher: dispatcher, appManager: appManager)
-registerPressKeys(dispatcher: dispatcher, appManager: appManager)
+registerClick(dispatcher: dispatcher, appManager: appManager, handleTable: handleTable, glow: glow)
+registerFill(dispatcher: dispatcher, appManager: appManager, handleTable: handleTable, glow: glow)
+registerPressKey(dispatcher: dispatcher, appManager: appManager, glow: glow)
+registerPressKeys(dispatcher: dispatcher, appManager: appManager, glow: glow)
 registerWaitFor(dispatcher: dispatcher, appManager: appManager, handleTable: handleTable)
 registerScreenshot(dispatcher: dispatcher, appManager: appManager)
-registerRunAppleScript(dispatcher: dispatcher)
+registerRunAppleScript(dispatcher: dispatcher, glow: glow)
 registerReadForm(dispatcher: dispatcher, appManager: appManager, handleTable: handleTable)
 registerExtractText(dispatcher: dispatcher, appManager: appManager, handleTable: handleTable)
 
@@ -148,6 +177,7 @@ let shutdownTask = Task {
         sigtermSource.resume()
     }
     fputs("\n[macbethd] Shutting down...\n", stderr)
+    await glow.shutdown()
     unlink(resolvedSocketPath)
     exit(0)
 }

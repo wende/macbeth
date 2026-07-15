@@ -54,6 +54,10 @@ func registerScreenshot(
                 throw RPCError.elementNotFound("No visible windows for app (PID: \(conn.pid))")
             }
 
+            // Capture is scoped to a single window owned by the *target* app.
+            // The glow overlay lives in a separate process (macbeth-glow) and its
+            // windows also set sharingType = .none, so the indicator can never
+            // appear in a macbeth screenshot.
             let filter = SCContentFilter(desktopIndependentWindow: targetWindow)
             let config = SCStreamConfiguration()
             config.width = Int(targetWindow.frame.width) * 2

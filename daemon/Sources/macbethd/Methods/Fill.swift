@@ -6,7 +6,8 @@ import Foundation
 func registerFill(
     dispatcher: Dispatcher,
     appManager: AppConnectionManager,
-    handleTable: HandleTable
+    handleTable: HandleTable,
+    glow: GlowIndicator
 ) {
     Task {
         await dispatcher.register(method: "fill") { params in
@@ -28,6 +29,10 @@ func registerFill(
             let connection = await appManager.get(appHandle)
             let isElectron = connection?.runtime == .electron
             let pid = connection?.pid
+
+            // Interaction choke point: signal the glow before touching the system.
+            await glow.activityStarted()
+            defer { Task { await glow.activityEnded() } }
 
             // Check element role
             var roleRef: CFTypeRef?
