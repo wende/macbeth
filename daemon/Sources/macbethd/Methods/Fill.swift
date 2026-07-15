@@ -72,6 +72,7 @@ func registerFill(
             }
 
             // --- Keyboard synthesis path (strategy == .keyboard, or auto fallback) ---
+            await appManager.activate(appHandle)
             try await fillViaKeyboard(element.element, value: value, pid: pid)
             return .object(["success": .bool(true)])
         }
@@ -98,9 +99,21 @@ private func readBackMatches(_ element: AXUIElement, expected: String) -> Bool {
     var ref: CFTypeRef?
     let r = AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &ref)
     guard r == .success else { return false }
-    if let s = ref as? String { return s == expected }
-    if let n = ref as? NSNumber { return n.stringValue == expected }
+    if let s = ref as? String {
+        return s == expected || numericValuesMatch(s, expected)
+    }
+    if let n = ref as? NSNumber {
+        return n.stringValue == expected || numericValuesMatch(n.stringValue, expected)
+    }
     return false
+}
+
+/// Compare numeric accessibility values without treating formatting differences as failures.
+private func numericValuesMatch(_ lhs: String, _ rhs: String) -> Bool {
+    let left = lhs.trimmingCharacters(in: .whitespacesAndNewlines)
+    let right = rhs.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard let leftValue = Double(left), let rightValue = Double(right) else { return false }
+    return leftValue == rightValue
 }
 
 /// Focus the element, select-all, and type the value as synthetic key events.

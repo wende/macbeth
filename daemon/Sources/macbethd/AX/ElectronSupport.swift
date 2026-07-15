@@ -38,7 +38,11 @@ func waitForWebContent(_ app: SendableElement, timeout: TimeInterval) async {
             vlog("Electron web content ready (AXWebArea found)")
             return
         }
-        try? await Task.sleep(for: .milliseconds(100))
+        do {
+            try await Task.sleep(for: .milliseconds(100))
+        } catch {
+            return
+        }
     }
 
     vlog("Electron web content not ready after \(timeout)s — proceeding without AXWebArea (front window may have none)")
