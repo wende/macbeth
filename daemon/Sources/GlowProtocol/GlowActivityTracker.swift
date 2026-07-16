@@ -2,11 +2,9 @@ import Foundation
 
 /// Pure, timer-free state machine for the glow's debounce behavior.
 ///
-/// The helper "pokes" this tracker on every `activate` message. The glow is
-/// considered visible from the first poke until `debounce` has elapsed with no
-/// further poke. Rapid bursts of pokes therefore produce one continuous active
-/// window (no flicker), and the glow lingers for `debounce` after the last
-/// action before fading out.
+/// The helper "pokes" this tracker when the daemon reports that all activity
+/// ended. The resulting deadline delays fade-out; a new activation resets the
+/// tracker and cancels that pending fade.
 ///
 /// Keeping this logic separate from AppKit makes it directly unit-testable.
 public struct GlowActivityTracker: Sendable {
@@ -21,8 +19,7 @@ public struct GlowActivityTracker: Sendable {
         self.lastPoke = nil
     }
 
-    /// Register an interaction. Returns true if this poke transitioned the
-    /// tracker from idle → active (i.e. the glow should fade in now).
+    /// Register or refresh a pending fade-out request.
     @discardableResult
     public mutating func poke(at now: Date = Date()) -> Bool {
         let wasActive = isActive(at: now)

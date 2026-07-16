@@ -10,6 +10,8 @@ import { MacbethClient } from "./client.js";
 import { runScreenshotTool } from "./mcp-screenshot.js";
 import { JsonRpcError } from "./rpc.js";
 import { saveScreenshotToTempFile } from "./screenshots.js";
+import { resolveElementTarget } from "./mcp-target.js";
+import { runWithActivity } from "./mcp-activity.js";
 import type { KeyStroke } from "./types.js";
 
 const MODULE_DIR = dirname(fileURLToPath(import.meta.url));
@@ -21,6 +23,24 @@ const SKILLS_DIR_CANDIDATES = [
 const SKILLS_DIR = SKILLS_DIR_CANDIDATES.find(existsSync) ?? SKILLS_DIR_CANDIDATES[0];
 
 const client = new MacbethClient({ verbose: false });
+
+const activityControl = {
+  async begin(): Promise<string> {
+    await (client as any).ensureConnected();
+    const result = await (client as any).rpc.call("begin_activity", {});
+    return result.token;
+  },
+  async end(token: string): Promise<void> {
+    await (client as any).rpc.call("end_activity", { token });
+  },
+};
+
+function withActivity<T>(operation: () => Promise<T>): Promise<T> {
+  return runWithActivity(activityControl, operation, (error) => {
+    const detail = error instanceof Error ? error.message : String(error);
+    process.stderr.write(`[macbeth-mcp] Glow activity signal failed: ${detail}\n`);
+  });
+}
 
 const ERROR_NAMES: Record<number, string> = {
   [-32000]: "element_not_found",
@@ -94,22 +114,49 @@ server.registerTool("list_apps", {
   return { content: [{ type: "text", text }] };
 });
 
+server.registerTool("list_daemon_methods", {
+  description: "List every JSON-RPC method registered by the daemon. Used to verify that daemon capabilities are exposed through MCP.",
+  annotations: { readOnlyHint: true },
+}, async () => {
+  await (client as any).ensureConnected();
+  const result = await (client as any).rpc.call("list_methods", {});
+  return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+});
+
+server.registerTool("begin_activity", {
+  description: "Begin an explicit glow activity scope. Intended for integrations that control the computer outside Macbeth's click/fill/key/script tools. Always pair with end_activity.",
+}, async () => {
+  const token = await activityControl.begin();
+  return { content: [{ type: "text", text: JSON.stringify({ token }) }] };
+});
+
+server.registerTool("end_activity", {
+  description: "End a glow activity scope previously created by begin_activity.",
+  inputSchema: {
+    token: z.string().min(1).describe("Activity token returned by begin_activity"),
+  },
+}, async ({ token }) => {
+  await activityControl.end(token);
+  return { content: [{ type: "text", text: JSON.stringify({ ended: true }) }] };
+});
+
 server.registerTool("connect_app", {
   description: "Connect to a macOS app by name or PID. Returns an app handle for subsequent calls.",
   inputSchema: {
     name: z.string().optional().describe("App name (fuzzy match)"),
     pid: z.number().optional().describe("Process ID"),
+    readyTimeoutMs: z.number().int().nonnegative().optional().describe("Electron accessibility-tree readiness timeout in milliseconds"),
   },
-}, async ({ name, pid }) => {
+}, async ({ name, pid, readyTimeoutMs }) => {
   const target = pid ?? name;
   if (!target) {
     return { content: [{ type: "text", text: "Error: provide 'name' or 'pid'" }], isError: true };
   }
-  const app = await client.connect(target);
+  const app = await client.connect(target, readyTimeoutMs === undefined ? undefined : { readyTimeoutMs });
   return {
     content: [{
       type: "text",
-      text: `Connected to ${app.name} (pid: ${app.pid}, handle: ${app["appHandle"]})`,
+      text: `Connected to ${app.name} (pid: ${app.pid}, runtime: ${app.runtime}, handle: ${app["appHandle"]})`,
     }],
   };
 });
@@ -119,10 +166,12 @@ server.registerTool("query_tree", {
   inputSchema: {
     app: appTargetSchema,
     maxDepth: z.number().optional().default(5).describe("Maximum depth to traverse (default: 5)"),
+    format: z.enum(["text", "json"]).optional().default("text").describe("Tree output format (default: text)"),
+    includeInvisible: z.boolean().optional().default(false).describe("Include structural elements normally filtered from the tree"),
   },
-}, async ({ app, maxDepth }) => {
+}, async ({ app, maxDepth, format, includeInvisible }) => {
   const handle = await client.connect(app);
-  const tree = await handle.queryTree({ maxDepth });
+  const tree = await handle.queryTree({ maxDepth, format, includeInvisible });
   return { content: [{ type: "text", text: tree }] };
 });
 
@@ -130,42 +179,50 @@ server.registerTool("click", {
   description: "Click a UI element. Auto-waits for the element to appear. On Electron/web content, the default 'auto' strategy tries AXPress (and adjacent nodes) then falls back to a synthetic mouse click; override with 'mouse' for canvas-heavy UIs or 'ax' to force a press. Mouse clicks briefly activate the target window, then restore the previous app, window, and cursor.",
   inputSchema: {
     app: appTargetSchema,
-    query: querySchema,
+    query: querySchema.optional(),
+    handleId: z.string().optional().describe("Direct element handle (alternative to query)"),
     timeout: z.number().optional().default(30).describe("Timeout in seconds"),
     strategy: z.enum(["auto", "ax", "mouse"]).optional().describe("Click strategy (default: auto)"),
     waitForIdleMs: z.number().nonnegative().optional().describe("Mouse fallback only: wait for this much user idle time before briefly activating the target window (capped at 5000ms)"),
   },
-}, async ({ app, query, timeout, strategy, waitForIdleMs }) => {
-  const handle = await client.connect(app);
-  let loc = handle as ReturnType<typeof handle.locator>;
-  for (const step of query) {
-    loc = loc.locator(step);
-  }
-  await loc.click({
-    timeout: (timeout ?? 30) * 1000,
-    ...(strategy ? { strategy } : {}),
-    ...(waitForIdleMs !== undefined ? { waitForIdleMs } : {}),
+}, async ({ app, query, handleId, timeout, strategy, waitForIdleMs }) => {
+  return withActivity(async () => {
+    const handle = await client.connect(app);
+    const target = resolveElementTarget(query, handleId);
+    await (handle as any).rpc.call("click", {
+      appHandle: (handle as any).appHandle,
+      ...target,
+      timeout: timeout ?? 30,
+      ...(strategy ? { strategy } : {}),
+      ...(waitForIdleMs !== undefined ? { waitForIdleMs } : {}),
+    });
+    return { content: [{ type: "text" as const, text: "Clicked successfully" }] };
   });
-  return { content: [{ type: "text", text: "Clicked successfully" }] };
 });
 
 server.registerTool("fill", {
   description: "Set the text value of a field. Auto-waits for the element to appear. On Electron/web content, the default 'auto' strategy writes the AX value then synthesizes keystrokes (so frameworks like React see the input); override with 'keyboard' to force typing or 'ax' to force a direct value write.",
   inputSchema: {
     app: appTargetSchema,
-    query: querySchema,
+    query: querySchema.optional(),
+    handleId: z.string().optional().describe("Direct element handle (alternative to query)"),
     value: z.string().describe("Text value to set"),
     timeout: z.number().optional().default(30).describe("Timeout in seconds"),
     strategy: z.enum(["auto", "ax", "keyboard"]).optional().describe("Fill strategy (default: auto)"),
   },
-}, async ({ app, query, value, timeout, strategy }) => {
-  const handle = await client.connect(app);
-  let loc = handle as ReturnType<typeof handle.locator>;
-  for (const step of query) {
-    loc = loc.locator(step);
-  }
-  await loc.fill(value, { timeout: (timeout ?? 30) * 1000, ...(strategy ? { strategy } : {}) });
-  return { content: [{ type: "text", text: `Set value to "${value}"` }] };
+}, async ({ app, query, handleId, value, timeout, strategy }) => {
+  return withActivity(async () => {
+    const handle = await client.connect(app);
+    const target = resolveElementTarget(query, handleId);
+    await (handle as any).rpc.call("fill", {
+      appHandle: (handle as any).appHandle,
+      ...target,
+      value,
+      timeout: timeout ?? 30,
+      ...(strategy ? { strategy } : {}),
+    });
+    return { content: [{ type: "text" as const, text: `Set value to "${value}"` }] };
+  });
 });
 
 server.registerTool("wait_for", {
@@ -212,9 +269,11 @@ server.registerTool("press_key", {
     modifiers: z.array(z.string()).optional().describe('Modifier keys (e.g. ["cmd", "shift"])'),
   },
 }, async ({ app, key, modifiers }) => {
-  const handle = await client.connect(app);
-  await handle.pressKey(key, modifiers);
-  return { content: [{ type: "text", text: `Pressed ${modifiers?.length ? modifiers.join("+") + "+" : ""}${key}` }] };
+  return withActivity(async () => {
+    const handle = await client.connect(app);
+    await handle.pressKey(key, modifiers);
+    return { content: [{ type: "text" as const, text: `Pressed ${modifiers?.length ? modifiers.join("+") + "+" : ""}${key}` }] };
+  });
 });
 
 server.registerTool("press_keys", {
@@ -224,9 +283,11 @@ server.registerTool("press_keys", {
     keys: z.array(keyStrokeSchema).min(1).describe("Ordered list of key or text items to send"),
   },
 }, async ({ app, keys }) => {
-  const handle = await client.connect(app);
-  await handle.pressKeys(keys as KeyStroke[]);
-  return { content: [{ type: "text", text: `Sent ${keys.length} input item${keys.length === 1 ? "" : "s"}` }] };
+  return withActivity(async () => {
+    const handle = await client.connect(app);
+    await handle.pressKeys(keys as KeyStroke[]);
+    return { content: [{ type: "text" as const, text: `Sent ${keys.length} input item${keys.length === 1 ? "" : "s"}` }] };
+  });
 });
 
 server.registerTool("screenshot", {
@@ -297,21 +358,34 @@ server.registerTool("get_element", {
   description: "Find a specific UI element and return its properties (role, title, value, enabled, focused).",
   inputSchema: {
     app: appTargetSchema,
-    query: querySchema,
+    query: querySchema.optional(),
+    handleId: z.string().optional().describe("Direct element handle (alternative to query)"),
   },
-}, async ({ app, query }) => {
+}, async ({ app, query, handleId }) => {
   const handle = await client.connect(app);
-  let loc = handle as ReturnType<typeof handle.locator>;
-  for (const step of query) {
-    loc = loc.locator(step);
-  }
-  const info = await loc.getInfo();
+  const target = resolveElementTarget(query, handleId);
+  const info = await (handle as any).rpc.call("get_element", {
+    appHandle: (handle as any).appHandle,
+    ...target,
+  });
   return {
     content: [{
       type: "text",
       text: JSON.stringify(info, null, 2),
     }],
   };
+});
+
+server.registerTool("dump_attributes", {
+  description: "Dump all accessibility attributes for a previously resolved element handle.",
+  inputSchema: {
+    handleId: z.string().describe("Element handle returned by query_tree or get_element"),
+  },
+  annotations: { readOnlyHint: true },
+}, async ({ handleId }) => {
+  await (client as any).ensureConnected();
+  const attributes = await (client as any).rpc.call("dump_attributes", { handleId });
+  return { content: [{ type: "text", text: JSON.stringify(attributes, null, 2) }] };
 });
 
 server.registerTool("pin_handle", {
@@ -341,13 +415,15 @@ server.registerTool("read_form", {
   inputSchema: {
     app: appTargetSchema,
     query: querySchema.optional().describe("Optional locator chain to scope the search (e.g. to an Inspector panel)"),
+    handleId: z.string().optional().describe("Direct subtree handle (alternative to query)"),
     maxDepth: z.number().optional().default(10).describe("Maximum depth to traverse (default: 10)"),
   },
   annotations: { readOnlyHint: true },
-}, async ({ app, query, maxDepth }) => {
+}, async ({ app, query, handleId, maxDepth }) => {
   const handle = await client.connect(app);
   const fields = await handle.readForm({
     query: query ?? undefined,
+    handleId: handleId ?? undefined,
     maxDepth,
   });
   if (fields.length === 0) {
@@ -373,25 +449,27 @@ server.registerTool("select_menu_item", {
     menuPath: z.array(z.string()).min(1).describe('Menu path from menu bar, e.g. ["File", "Save"] or ["Track", "New Audio Track"]'),
   },
 }, async ({ app, menuPath }) => {
-  const [topMenu, ...items] = menuPath;
-  if (items.length === 0) {
-    return { content: [{ type: "text", text: "menuPath must have at least 2 elements (menu bar item + menu item)" }], isError: true };
-  }
+  return withActivity(async () => {
+    const [topMenu, ...items] = menuPath;
+    if (items.length === 0) {
+      return { content: [{ type: "text" as const, text: "menuPath must have at least 2 elements (menu bar item + menu item)" }], isError: true };
+    }
 
-  // Build the AppleScript chain: menu item "X" of menu 1 of menu bar item "Y" of menu bar 1
-  let chain = `menu bar item "${topMenu}" of menu bar 1`;
-  for (const item of items) {
-    chain = `menu item "${item}" of menu 1 of ${chain}`;
-  }
+    // Build the AppleScript chain: menu item "X" of menu 1 of menu bar item "Y" of menu bar 1
+    let chain = `menu bar item "${topMenu}" of menu bar 1`;
+    for (const item of items) {
+      chain = `menu item "${item}" of menu 1 of ${chain}`;
+    }
 
-  const source = `tell application "System Events"\ntell process "${app}"\nclick ${chain}\nend tell\nend tell`;
+    const source = `tell application "System Events"\ntell process "${app}"\nclick ${chain}\nend tell\nend tell`;
 
-  try {
-    await client.runAppleScript(source);
-    return { content: [{ type: "text", text: `Selected: ${menuPath.join(" > ")}` }] };
-  } catch (err: unknown) {
-    return { content: [{ type: "text", text: formatError("Menu action failed", err) }], isError: true };
-  }
+    try {
+      await client.runAppleScript(source);
+      return { content: [{ type: "text" as const, text: `Selected: ${menuPath.join(" > ")}` }] };
+    } catch (err: unknown) {
+      return { content: [{ type: "text" as const, text: formatError("Menu action failed", err) }], isError: true };
+    }
+  });
 });
 
 server.registerTool("list_menu_bar", {
@@ -433,7 +511,7 @@ for (let i = 0; i < barNames.length; i++) {
 output;`;
 
   try {
-    const output = await client.runAppleScript(script, "JavaScript");
+    const output = await client.runAppleScript(script, "JavaScript", { interactive: false });
     return { content: [{ type: "text", text: output || "No menu items found." }] };
   } catch (err: unknown) {
     return { content: [{ type: "text", text: formatError("Failed to list menu bar", err) }], isError: true };
@@ -445,21 +523,25 @@ server.registerTool("run_applescript", {
   inputSchema: {
     source: z.string().describe("Script source code"),
     language: z.enum(["AppleScript", "JavaScript"]).optional().default("AppleScript").describe("Script language (default: AppleScript)"),
+    interaction: z.enum(["interactive", "read_only"]).optional().default("interactive").describe("Whether the script can control apps/input or only inspect state"),
     timeout: z.number().optional().default(30).describe("Timeout in seconds (default: 30)"),
   },
-}, async ({ source, language, timeout }) => {
-  const timeoutMs = (timeout ?? 30) * 1000;
-  try {
-    const output = await Promise.race([
-      client.runAppleScript(source, language),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error(`Script timed out after ${timeout ?? 30}s`)), timeoutMs)
-      ),
-    ]);
-    return { content: [{ type: "text", text: output || "(no output)" }] };
-  } catch (err: unknown) {
-    return { content: [{ type: "text", text: formatError("Script failed", err) }], isError: true };
-  }
+}, async ({ source, language, interaction, timeout }) => {
+  const execute = async () => {
+    const timeoutMs = (timeout ?? 30) * 1000;
+    try {
+      const output = await Promise.race([
+        client.runAppleScript(source, language, { interactive: interaction !== "read_only" }),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error(`Script timed out after ${timeout ?? 30}s`)), timeoutMs)
+        ),
+      ]);
+      return { content: [{ type: "text" as const, text: output || "(no output)" }] };
+    } catch (err: unknown) {
+      return { content: [{ type: "text" as const, text: formatError("Script failed", err) }], isError: true };
+    }
+  };
+  return interaction === "read_only" ? execute() : withActivity(execute);
 });
 
 // --- Shortcuts ---
@@ -505,46 +587,48 @@ server.registerTool("run_shortcut", {
     input: z.string().optional().describe("Input text to pass to the shortcut"),
   },
 }, async ({ name, input }) => {
-  const available = getShortcutsList();
-  const resolved = resolveShortcutName(name, available);
+  return withActivity(async () => {
+    const available = getShortcutsList();
+    const resolved = resolveShortcutName(name, available);
 
-  if (!resolved) {
-    const hint = available.length > 0
-      ? `\nAvailable shortcuts:\n${available.slice(0, 30).map((s) => `  - ${s}`).join("\n")}`
-      : "";
-    return { content: [{ type: "text", text: `Shortcut not found: "${name}"${hint}` }], isError: true };
-  }
-
-  const args = ["run", resolved];
-  if (input !== undefined) args.push("--input", input);
-
-  const result = spawnSync("shortcuts", args, { encoding: "utf8", timeout: 30_000 });
-
-  if (result.error) {
-    return { content: [{ type: "text", text: `Shortcut error: ${result.error.message}` }], isError: true };
-  }
-
-  const stdout = (result.stdout ?? "").trim();
-  const stderr = (result.stderr ?? "").trim();
-
-  if (result.status !== 0) {
-    const msg = stderr || stdout || `Shortcut exited with code ${result.status}`;
-    if (/empty shortcut/i.test(msg)) {
-      return { content: [{ type: "text", text: `Shortcut "${resolved}" exists but has no actions.` }] };
+    if (!resolved) {
+      const hint = available.length > 0
+        ? `\nAvailable shortcuts:\n${available.slice(0, 30).map((s) => `  - ${s}`).join("\n")}`
+        : "";
+      return { content: [{ type: "text" as const, text: `Shortcut not found: "${name}"${hint}` }], isError: true };
     }
-    return { content: [{ type: "text", text: `Shortcut failed: ${msg}` }], isError: true };
-  }
 
-  return {
-    content: [{
-      type: "text",
-      text: JSON.stringify({
-        ok: true,
-        shortcut: resolved,
-        output: stdout || "Shortcut completed.",
-      }, null, 2),
-    }],
-  };
+    const args = ["run", resolved];
+    if (input !== undefined) args.push("--input", input);
+
+    const result = spawnSync("shortcuts", args, { encoding: "utf8", timeout: 30_000 });
+
+    if (result.error) {
+      return { content: [{ type: "text" as const, text: `Shortcut error: ${result.error.message}` }], isError: true };
+    }
+
+    const stdout = (result.stdout ?? "").trim();
+    const stderr = (result.stderr ?? "").trim();
+
+    if (result.status !== 0) {
+      const msg = stderr || stdout || `Shortcut exited with code ${result.status}`;
+      if (/empty shortcut/i.test(msg)) {
+        return { content: [{ type: "text" as const, text: `Shortcut "${resolved}" exists but has no actions.` }] };
+      }
+      return { content: [{ type: "text" as const, text: `Shortcut failed: ${msg}` }], isError: true };
+    }
+
+    return {
+      content: [{
+        type: "text" as const,
+        text: JSON.stringify({
+          ok: true,
+          shortcut: resolved,
+          output: stdout || "Shortcut completed.",
+        }, null, 2),
+      }],
+    };
+  });
 });
 
 // --- Skills ---
@@ -671,31 +755,33 @@ server.registerTool("run_skill_script", {
     args: z.array(z.string()).optional().describe("Arguments to pass to the script"),
   },
 }, async ({ skill, script, args }) => {
-  const scriptPath = join(SKILLS_DIR, skill, "scripts", script);
+  return withActivity(async () => {
+    const scriptPath = join(SKILLS_DIR, skill, "scripts", script);
 
-  // Prevent path traversal
-  const resolved = resolve(scriptPath);
-  if (!resolved.startsWith(resolve(SKILLS_DIR))) {
-    return { content: [{ type: "text", text: "Invalid script path." }], isError: true };
-  }
+    // Prevent path traversal
+    const resolved = resolve(scriptPath);
+    if (!resolved.startsWith(resolve(SKILLS_DIR))) {
+      return { content: [{ type: "text" as const, text: "Invalid script path." }], isError: true };
+    }
 
-  try {
-    await readFile(scriptPath);
-  } catch {
-    return { content: [{ type: "text", text: `Script "${script}" not found in skill "${skill}". Run load_skill to see available scripts.` }], isError: true };
-  }
+    try {
+      await readFile(scriptPath);
+    } catch {
+      return { content: [{ type: "text" as const, text: `Script "${script}" not found in skill "${skill}". Run load_skill to see available scripts.` }], isError: true };
+    }
 
-  return new Promise((res) => {
-    execFile("node", [scriptPath, ...(args ?? [])], {
-      timeout: 120_000,
-      cwd: resolve(SKILLS_DIR, ".."),
-    }, (error, stdout, stderr) => {
-      const output = [stdout, stderr].filter(Boolean).join("\n").trim();
-      if (error) {
-        res({ content: [{ type: "text", text: `Script failed:\n${output || error.message}` }], isError: true });
-      } else {
-        res({ content: [{ type: "text", text: output || "Script completed successfully." }] });
-      }
+    return new Promise<{ content: Array<{ type: "text"; text: string }>; isError?: boolean }>((res) => {
+      execFile("node", [scriptPath, ...(args ?? [])], {
+        timeout: 120_000,
+        cwd: resolve(SKILLS_DIR, ".."),
+      }, (error, stdout, stderr) => {
+        const output = [stdout, stderr].filter(Boolean).join("\n").trim();
+        if (error) {
+          res({ content: [{ type: "text", text: `Script failed:\n${output || error.message}` }], isError: true });
+        } else {
+          res({ content: [{ type: "text", text: output || "Script completed successfully." }] });
+        }
+      });
     });
   });
 });

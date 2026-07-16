@@ -2,7 +2,11 @@ import AppKit
 import Foundation
 
 /// Register the connect_app RPC method.
-func registerConnectApp(dispatcher: Dispatcher, appManager: AppConnectionManager) {
+func registerConnectApp(
+    dispatcher: Dispatcher,
+    appManager: AppConnectionManager,
+    glow: GlowIndicator
+) {
     Task {
         await dispatcher.register(method: "connect_app") { params in
             guard let obj = params?.objectValue else {
@@ -16,6 +20,9 @@ func registerConnectApp(dispatcher: Dispatcher, appManager: AppConnectionManager
             let connection = try await appManager.connect(
                 name: name, pid: pid, readyTimeoutMs: readyTimeoutMs
             )
+            if let frame = ElementGeometry.preferredWindowFrame(of: connection.appElement.element) {
+                await glow.windowFocused(frame: frame)
+            }
 
             return .object([
                 "appHandle": .string(connection.handleId),

@@ -5,8 +5,8 @@
 | Area | Finding | Status |
 |---|---|---|
 | Legacy Swift harness | The former `swift run` test package was not an application bundle, so macOS did not register it in `NSWorkspace`, the Dock, or Macbeth's `list_apps`. | **Fixed** — replaced by the packaged AppKit test harness. |
-| Screenshot | A ScreenCaptureKit screenshot request can time out rather than returning a bounded permission or capture error. | **Known failing regression** — covered by the local GUI suite and must return a valid PNG. |
-| OCR | `extract_text` with supplied image data can close the daemon connection. | **Known failing regression** — covered by the local GUI suite and must return its documented result without disconnecting. |
+| Screenshot | A ScreenCaptureKit screenshot request could time out rather than returning a bounded permission or capture error. | **Fixed** — capture is bounded and covered by the MCP-only demo. |
+| OCR | `extract_text` with supplied image data could double-resume a continuation and close the daemon connection; app-window OCR could exceed the client timeout. | **Fixed** — OCR now performs synchronously without unsafe continuation bridging and uses a bounded 1x fast-recognition path. |
 | Menu inspection | System Events menu inspection can fail for the former unbundled Swift executable. | **Resolved by replacement** — the packaged harness is a regular app. |
 
 | No. | App | Bug | Severity | script file | Status |

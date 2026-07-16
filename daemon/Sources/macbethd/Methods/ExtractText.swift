@@ -7,7 +7,8 @@ import Vision
 func registerExtractText(
     dispatcher: Dispatcher,
     appManager: AppConnectionManager,
-    handleTable: HandleTable
+    handleTable: HandleTable,
+    glow: GlowIndicator
 ) {
     Task {
         await dispatcher.register(method: "extract_text") { params in
@@ -43,14 +44,24 @@ func registerExtractText(
 
                 let filter = SCContentFilter(desktopIndependentWindow: targetWindow)
                 let config = SCStreamConfiguration()
-                config.width = Int(targetWindow.frame.width) * 2
-                config.height = Int(targetWindow.frame.height) * 2
+                // OCR does not need the 2x backing resolution used by the screenshot
+                // RPC. Feeding Vision a Retina-sized image makes recognition roughly
+                // four times as expensive and can exceed the client's 60s deadline on
+                // large windows. Capture at one pixel per point instead.
+                config.width = max(1, Int(targetWindow.frame.width.rounded()))
+                config.height = max(1, Int(targetWindow.frame.height.rounded()))
                 config.showsCursor = false
 
                 var captured: CGImage
+                let captureAnimation = await glow.captureStarted(frame: targetWindow.frame)
                 do {
+                    if captureAnimation != nil {
+                        try? await Task.sleep(for: .milliseconds(120))
+                    }
                     captured = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
+                    await glow.captureFinished(id: captureAnimation, success: true)
                 } catch {
+                    await glow.captureFinished(id: captureAnimation, success: false)
                     throw RPCError.actionFailed("Screenshot capture failed: \(error.localizedDescription)")
                 }
 
@@ -91,49 +102,48 @@ func registerExtractText(
     }
 }
 
-private struct TextItem {
+struct TextItem {
     let text: String
     let confidence: Float
     let bbox: CGRect
 }
 
-private func recognizeText(in image: CGImage) async throws -> [TextItem] {
-    try await withCheckedThrowingContinuation { continuation in
-        let request = VNRecognizeTextRequest { request, error in
-            if let error {
-                continuation.resume(throwing: RPCError.actionFailed("OCR failed: \(error.localizedDescription)"))
-                return
-            }
+func recognizeText(in image: CGImage) async throws -> [TextItem] {
+    // Vision rejects images whose dimensions are not both greater than two.
+    // Such an image cannot contain useful text, so return the documented empty
+    // OCR result instead of asking Vision to fail it.
+    guard image.width > 2, image.height > 2 else { return [] }
 
-            guard let observations = request.results as? [VNRecognizedTextObservation] else {
-                continuation.resume(returning: [])
-                return
-            }
+    // VNImageRequestHandler.perform is synchronous. A completion-handler request
+    // wrapped in a checked continuation is unsafe here: on some Vision failures,
+    // perform both invokes the completion handler and throws, which resumes the
+    // continuation twice and crashes the entire daemon.
+    let request = VNRecognizeTextRequest()
+    // UI automation needs bounded, responsive OCR more than document-grade
+    // language analysis. Vision's accurate recognizer can occasionally stall
+    // for the client's full 60-second deadline even on a 1x app window.
+    request.recognitionLevel = .fast
+    request.usesLanguageCorrection = true
 
-            let imageWidth = Double(image.width)
-            let imageHeight = Double(image.height)
+    let handler = VNImageRequestHandler(cgImage: image, options: [:])
+    do {
+        try handler.perform([request])
+    } catch {
+        throw RPCError.actionFailed("OCR failed: \(error.localizedDescription)")
+    }
 
-            let items: [TextItem] = observations.compactMap { obs in
-                guard let candidate = obs.topCandidates(1).first else { return nil }
-                let box = obs.boundingBox
-                let bx = box.origin.x * imageWidth
-                let by = (1 - box.origin.y - box.height) * imageHeight
-                let bw = box.width * imageWidth
-                let bh = box.height * imageHeight
-                let rect = CGRect(x: bx, y: by, width: bw, height: bh)
-                return TextItem(text: candidate.string, confidence: candidate.confidence, bbox: rect)
-            }
+    guard let observations = request.results else { return [] }
+    let imageWidth = Double(image.width)
+    let imageHeight = Double(image.height)
 
-            continuation.resume(returning: items)
-        }
-        request.recognitionLevel = .accurate
-        request.usesLanguageCorrection = true
-
-        let handler = VNImageRequestHandler(cgImage: image, options: [:])
-        do {
-            try handler.perform([request])
-        } catch {
-            continuation.resume(throwing: RPCError.actionFailed("OCR failed: \(error.localizedDescription)"))
-        }
+    return observations.compactMap { obs in
+        guard let candidate = obs.topCandidates(1).first else { return nil }
+        let box = obs.boundingBox
+        let bx = box.origin.x * imageWidth
+        let by = (1 - box.origin.y - box.height) * imageHeight
+        let bw = box.width * imageWidth
+        let bh = box.height * imageHeight
+        let rect = CGRect(x: bx, y: by, width: bw, height: bh)
+        return TextItem(text: candidate.string, confidence: candidate.confidence, bbox: rect)
     }
 }

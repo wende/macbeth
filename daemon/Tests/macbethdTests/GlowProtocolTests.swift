@@ -5,14 +5,14 @@ import Foundation
 // MARK: - Wire protocol
 
 @Test func activateRoundTrips() throws {
-    let message = GlowMessage.activate(color: "#BD5CF3", debounceMs: 1500)
+    let message = GlowMessage.activate(color: "#BD5CF3", debounceMs: 100)
     let line = try message.encodedLine()
     #expect(line.last == 0x0A) // newline-terminated
     let decoded = try GlowMessage.decode(line: line)
     #expect(decoded == message)
     #expect(decoded.type == .activate)
     #expect(decoded.color == "#BD5CF3")
-    #expect(decoded.debounceMs == 1500)
+    #expect(decoded.debounceMs == 100)
 }
 
 @Test func deactivateAndShutdownRoundTrip() throws {
@@ -22,6 +22,38 @@ import Foundation
         #expect(decoded.color == nil)
         #expect(decoded.debounceMs == nil)
     }
+}
+
+@Test func captureAnimationMessagesRoundTrip() throws {
+    let rect = GlowCaptureRect(x: 12, y: 34, width: 800, height: 600)
+    let started = GlowMessage.captureStarted(id: "capture-1", rect: rect)
+    let decodedStart = try GlowMessage.decode(line: started.encodedLine())
+    #expect(decodedStart == started)
+    #expect(decodedStart.rect == rect)
+
+    let finished = GlowMessage.captureFinished(id: "capture-1", success: true)
+    let decodedFinish = try GlowMessage.decode(line: finished.encodedLine())
+    #expect(decodedFinish == finished)
+    #expect(decodedFinish.success == true)
+}
+
+@Test func windowFocusMessageRoundTrips() throws {
+    let rect = GlowCaptureRect(x: -200, y: 40, width: 640, height: 480)
+    let message = GlowMessage.windowFocused(rect: rect)
+    let decoded = try GlowMessage.decode(line: message.encodedLine())
+    #expect(decoded == message)
+    #expect(decoded.type == .focusWindow)
+    #expect(decoded.rect == rect)
+}
+
+@Test func pointerMoveMessageRoundTrips() throws {
+    let point = GlowPointerPoint(x: -120, y: 340)
+    let message = GlowMessage.pointerMoved(to: point, action: .fill)
+    let decoded = try GlowMessage.decode(line: message.encodedLine())
+    #expect(decoded == message)
+    #expect(decoded.type == .pointerMove)
+    #expect(decoded.point == point)
+    #expect(decoded.action == .fill)
 }
 
 @Test func decodesMinimalActivateWithoutConfig() throws {
@@ -105,6 +137,19 @@ import Foundation
 
 @Test func defaultGlowUsesVioletAccent() {
     #expect(glowDefaultColor == "#A855F7")
+    #expect(glowDefaultDebounceMs == 100)
+}
+
+@Test func fadeDelayRefreshesForAnotherEndRequest() {
+    var tracker = GlowActivityTracker(debounceMs: 100)
+    let firstEnd = Date(timeIntervalSinceReferenceDate: 10)
+    tracker.poke(at: firstEnd)
+    #expect(tracker.fadeOutDeadline() == firstEnd.addingTimeInterval(0.1))
+
+    let secondEnd = firstEnd.addingTimeInterval(0.075)
+    tracker.poke(at: secondEnd)
+    #expect(tracker.fadeOutDeadline() == secondEnd.addingTimeInterval(0.1))
+    #expect(tracker.isActive(at: firstEnd.addingTimeInterval(0.11)))
 }
 
 @Test func parsesSixDigitHex() {

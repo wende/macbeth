@@ -18,6 +18,36 @@ export interface ListAppsResult {
   apps: AppInfo[];
 }
 
+// list_methods
+export interface ListMethodsResult {
+  methods: string[];
+}
+
+// begin_activity / end_activity
+export interface BeginActivityResult {
+  token: string;
+}
+
+export interface EndActivityParams {
+  token: string;
+}
+
+export interface EndActivityResult {
+  ended: boolean;
+}
+
+// run_applescript
+export interface RunAppleScriptParams {
+  source: string;
+  language?: "AppleScript" | "JavaScript";
+  /** Defaults to true because arbitrary scripts may control applications. */
+  interactive?: boolean;
+}
+
+export interface RunAppleScriptResult {
+  output: string;
+}
+
 export type AppRuntime = "native" | "electron" | "unknown";
 
 export interface AppInfo {
@@ -169,6 +199,7 @@ export interface PressKeysParams {
 export interface ScreenshotParams {
   appHandle: string;
   windowHandle?: string;
+  region?: { x: number; y: number; width: number; height: number };
 }
 
 export interface ScreenshotResult {
@@ -220,6 +251,13 @@ export interface TextItem {
 export interface ExtractTextResult {
   items: TextItem[];
 }
+
+// dump_attributes
+export interface DumpAttributesParams {
+  handleId: string;
+}
+
+export type DumpAttributesResult = Record<string, unknown>;
 
 // --- Generic action result ---
 export interface ActionResult {

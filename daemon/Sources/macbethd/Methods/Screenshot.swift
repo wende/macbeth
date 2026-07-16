@@ -25,7 +25,8 @@ private func openScreenRecordingSettings() {
 /// Register the screenshot RPC method.
 func registerScreenshot(
     dispatcher: Dispatcher,
-    appManager: AppConnectionManager
+    appManager: AppConnectionManager,
+    glow: GlowIndicator
 ) {
     Task {
         await dispatcher.register(method: "screenshot") { params in
@@ -55,9 +56,9 @@ func registerScreenshot(
             }
 
             // Capture is scoped to a single window owned by the *target* app.
-            // The glow overlay lives in a separate process (macbeth-glow) and its
-            // windows also set sharingType = .none, so the indicator can never
-            // appear in a macbeth screenshot.
+            // The target-window filter only includes content owned by the target
+            // app. The recording-visible focus/capture overlays belong to the
+            // separate macbeth-glow process, so they cannot appear in this image.
             let filter = SCContentFilter(desktopIndependentWindow: targetWindow)
             let config = SCStreamConfiguration()
             config.width = Int(targetWindow.frame.width) * 2
@@ -65,9 +66,18 @@ func registerScreenshot(
             config.showsCursor = false
 
             var image: CGImage
+            let captureAnimation = await glow.captureStarted(frame: targetWindow.frame)
             do {
+                // Give the helper one frame to present the focus treatment so
+                // the physical user sees the capture begin. Its separate window
+                // is excluded by the desktop-independent target filter.
+                if captureAnimation != nil {
+                    try? await Task.sleep(for: .milliseconds(120))
+                }
                 image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
+                await glow.captureFinished(id: captureAnimation, success: true)
             } catch {
+                await glow.captureFinished(id: captureAnimation, success: false)
                 throw RPCError.actionFailed("Screenshot capture failed: \(error.localizedDescription)")
             }
 

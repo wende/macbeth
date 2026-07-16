@@ -26,6 +26,11 @@ func registerFill(
             )
             try ensureElementValid(element.element)
 
+            if let window = ElementGeometry.containingWindow(of: element.element),
+               let frame = ElementGeometry.frame(of: window) {
+                await glow.windowFocused(frame: frame)
+            }
+
             let connection = await appManager.get(appHandle)
             let isElectron = connection?.runtime == .electron
             let pid = connection?.pid
@@ -33,6 +38,10 @@ func registerFill(
             // Interaction choke point: signal the glow before touching the system.
             await glow.activityStarted()
             defer { Task { await glow.activityEnded() } }
+            if let point = ElementGeometry.interactionPoint(of: element.element),
+               await glow.pointerMoved(to: point, action: .fill) {
+                try? await Task.sleep(for: .milliseconds(470))
+            }
 
             // Check element role
             var roleRef: CFTypeRef?

@@ -2,6 +2,14 @@ import Testing
 import Foundation
 @testable import macbethd
 
+private actor ConnectionProbe {
+    private(set) var dispatchedID: String?
+    private(set) var closedIDs: [String] = []
+
+    func dispatched(_ id: String) { dispatchedID = id }
+    func closed(_ id: String) { closedIDs.append(id) }
+}
+
 @Test func parseRequest() throws {
     let json = """
     {"jsonrpc":"2.0","method":"list_apps","id":1}
@@ -62,4 +70,33 @@ import Foundation
     let data = try JSONEncoder().encode(value)
     let decoded = try JSONDecoder().decode(JSONValue.self, from: data)
     #expect(decoded == value)
+}
+
+@Test func dispatcherReportsRegisteredMethodsInStableOrder() async {
+    let dispatcher = Dispatcher()
+    await dispatcher.register(method: "zeta") { _ in .null }
+    await dispatcher.register(method: "alpha") { _ in .null }
+    await dispatcher.registerContextual(method: "contextual") { _, _ in .null }
+
+    #expect(await dispatcher.registeredMethods() == ["alpha", "contextual", "zeta"])
+}
+
+@Test func dispatcherPassesConnectionIdentityAndReportsDisconnect() async {
+    let dispatcher = Dispatcher()
+    let probe = ConnectionProbe()
+    await dispatcher.registerContextual(method: "owned") { _, connectionID in
+        await probe.dispatched(connectionID)
+        return .string(connectionID)
+    }
+    await dispatcher.registerConnectionClosed { connectionID in
+        await probe.closed(connectionID)
+    }
+
+    let request = JSONRPCRequest(jsonrpc: "2.0", method: "owned", params: nil, id: .number(1))
+    let response = await dispatcher.dispatch(request: request, connectionID: "client-42")
+    await dispatcher.connectionClosed("client-42")
+
+    #expect(response.result?.stringValue == "client-42")
+    #expect(await probe.dispatchedID == "client-42")
+    #expect(await probe.closedIDs == ["client-42"])
 }

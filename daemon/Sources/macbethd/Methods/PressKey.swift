@@ -57,6 +57,11 @@ func registerPressKey(dispatcher: Dispatcher, appManager: AppConnectionManager, 
             }
             let parsed = try parseKeyPress(.object(obj))
 
+            if let connection = await appManager.get(appHandle),
+               let frame = ElementGeometry.preferredWindowFrame(of: connection.appElement.element) {
+                await glow.windowFocused(frame: frame)
+            }
+
             // Interaction choke point: signal the glow before synthetic input.
             await glow.activityStarted()
             defer { Task { await glow.activityEnded() } }
@@ -91,6 +96,11 @@ func registerPressKeys(dispatcher: Dispatcher, appManager: AppConnectionManager,
 
             let parsedKeys = try keyValues.map(parseKeyPress)
 
+            if let connection = await appManager.get(appHandle),
+               let frame = ElementGeometry.preferredWindowFrame(of: connection.appElement.element) {
+                await glow.windowFocused(frame: frame)
+            }
+
             // Interaction choke point: signal the glow before synthetic input.
             await glow.activityStarted()
             defer { Task { await glow.activityEnded() } }
@@ -107,10 +117,6 @@ func registerPressKeys(dispatcher: Dispatcher, appManager: AppConnectionManager,
                 }
                 if parsed.delayMs > 0 {
                     try await Task.sleep(for: .milliseconds(parsed.delayMs))
-                    // Re-anchor the debounce only across an explicit delay, so a
-                    // long delayed sequence doesn't fade out mid-way. The common
-                    // no-delay burst relies on the single method-level poke.
-                    await glow.activityStarted()
                 }
             }
 

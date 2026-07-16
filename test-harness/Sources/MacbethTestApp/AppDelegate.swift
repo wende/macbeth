@@ -15,9 +15,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var segmentedControl: NSSegmentedControl!
     var stepperValueLabel: NSTextField!
     var tableView: NSTableView!
+    var gatedActionButton: NSButton!
     var tableData: [String] = ["Alice", "Bob", "Charlie", "Diana", "Eve"]
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        installDemoMenu()
+
         window = NSWindow(
             contentRect: NSRect(x: 100, y: 100, width: 600, height: 700),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
@@ -36,11 +39,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         scrollView.autohidesScrollers = true
         window.contentView = scrollView
 
-        let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: 900))
+        let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: 1250))
         contentView.autoresizingMask = [.width]
         scrollView.documentView = contentView
 
-        var y: CGFloat = 860
+        var y: CGFloat = 1210
 
         // MARK: - Header
         let header = NSTextField(labelWithString: "Macbeth UI Control Playground")
@@ -364,6 +367,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         statusLabel.frame = NSRect(x: 20, y: y, width: 560, height: 22)
         statusLabel.setAccessibilityIdentifier("status-label")
         contentView.addSubview(statusLabel)
+        y -= 42
+
+        let enableActionButton = NSButton(title: "Enable Action", target: self, action: #selector(enableGatedAction))
+        enableActionButton.frame = NSRect(x: 20, y: y, width: 120, height: 32)
+        enableActionButton.setAccessibilityIdentifier("enable-action-btn")
+        contentView.addSubview(enableActionButton)
+
+        gatedActionButton = NSButton(title: "Complete Demo", target: self, action: #selector(runGatedAction))
+        gatedActionButton.frame = NSRect(x: 155, y: y, width: 120, height: 32)
+        gatedActionButton.setAccessibilityIdentifier("gated-action-btn")
+        gatedActionButton.isEnabled = false
+        contentView.addSubview(gatedActionButton)
 
     }
 
@@ -380,6 +395,29 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         label.frame = NSRect(x: 20, y: y, width: 560, height: 18)
         view.addSubview(label)
         return y - 28
+    }
+
+    func installDemoMenu() {
+        let mainMenu = NSMenu(title: "Main Menu")
+
+        let appMenuItem = NSMenuItem()
+        appMenuItem.title = "Macbeth TestApp"
+        let appMenu = NSMenu(title: "Macbeth TestApp")
+        appMenu.addItem(withTitle: "Quit Macbeth TestApp", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        appMenuItem.submenu = appMenu
+        mainMenu.addItem(appMenuItem)
+
+        let demoMenuItem = NSMenuItem()
+        demoMenuItem.title = "Demo"
+        let demoMenu = NSMenu(title: "Demo")
+        let resetItem = NSMenuItem(title: "Reset Demo", action: #selector(resetDemo(_:)), keyEquivalent: "r")
+        resetItem.keyEquivalentModifierMask = [.command, .shift]
+        resetItem.target = self
+        demoMenu.addItem(resetItem)
+        demoMenuItem.submenu = demoMenu
+        mainMenu.addItem(demoMenuItem)
+
+        NSApp.mainMenu = mainMenu
     }
 
     // MARK: - Actions
@@ -447,6 +485,29 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         tableData.removeAll()
         tableView.reloadData()
         statusLabel.stringValue = "Status: Cleared all users"
+    }
+
+    @MainActor @objc func enableGatedAction() {
+        gatedActionButton.isEnabled = true
+        statusLabel.stringValue = "Status: Complete Demo enabled"
+    }
+
+    @MainActor @objc func runGatedAction() {
+        statusLabel.stringValue = "Status: Gated action completed"
+    }
+
+    @MainActor @objc func resetDemo(_ sender: Any?) {
+        nameField.stringValue = ""
+        emailField.stringValue = ""
+        textView.string = "Tell us about yourself..."
+        checkbox.state = .off
+        [radioControl, radioControl2].forEach { $0?.state = .off }
+        radioControl3.state = .on
+        popupButton.selectItem(at: 0)
+        tableData = ["Alice", "Bob", "Charlie", "Diana", "Eve"]
+        tableView.reloadData()
+        gatedActionButton.isEnabled = false
+        statusLabel.stringValue = "Status: Demo reset from menu"
     }
 
     @MainActor @objc func showAlert() {

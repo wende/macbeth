@@ -173,11 +173,16 @@ export class MacbethClient {
   }
 
   /** Run AppleScript or JXA via the daemon (uses OSAKit, no osascript spawn) */
-  async runAppleScript(source: string, language?: "AppleScript" | "JavaScript"): Promise<string> {
+  async runAppleScript(
+    source: string,
+    language?: "AppleScript" | "JavaScript",
+    options?: { interactive?: boolean },
+  ): Promise<string> {
     await this.ensureConnected();
     const result = await this.rpc.call<{ output: string }>("run_applescript", {
       source,
       ...(language ? { language } : {}),
+      interactive: options?.interactive ?? true,
     });
     return result.output;
   }

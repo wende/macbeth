@@ -116,7 +116,7 @@ final class GlowView: NSView {
 
     // MARK: - Show / hide
 
-    /// Fade in quickly (~150ms) and, unless reduced-motion is set, start the
+    /// Fade in smoothly (~200ms) and, unless reduced-motion is set, start the
     /// breathing animation.
     func fadeIn(reduceMotion: Bool) {
         layer?.removeAnimation(forKey: Self.fadeKey)
@@ -126,7 +126,7 @@ final class GlowView: NSView {
         let fade = CABasicAnimation(keyPath: "opacity")
         fade.fromValue = current
         fade.toValue = 1
-        fade.duration = 0.15
+        fade.duration = 0.2
         fade.timingFunction = CAMediaTimingFunction(name: .easeOut)
         layer?.add(fade, forKey: Self.fadeKey)
 
@@ -137,7 +137,7 @@ final class GlowView: NSView {
         }
     }
 
-    /// Fade out slowly (~600ms); `completion` fires when fully hidden so the
+    /// Fade out slowly (~700ms); `completion` fires when fully hidden so the
     /// window can be ordered out and all animation stopped.
     func fadeOut(completion: @escaping () -> Void) {
         // Let the breathing animation ride out the fade with the parent layer —
@@ -150,7 +150,7 @@ final class GlowView: NSView {
         let fade = CABasicAnimation(keyPath: "opacity")
         fade.fromValue = current
         fade.toValue = 0
-        fade.duration = 0.6
+        fade.duration = 0.7
         fade.timingFunction = CAMediaTimingFunction(name: .easeIn)
         CATransaction.begin()
         CATransaction.setCompletionBlock(completion)
@@ -169,7 +169,7 @@ final class GlowView: NSView {
         let breathe = CABasicAnimation(keyPath: "opacity")
         breathe.fromValue = 0.55
         breathe.toValue = 0.9
-        breathe.duration = 2.0
+        breathe.duration = 1.0
         breathe.autoreverses = true
         breathe.repeatCount = .infinity
         breathe.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
