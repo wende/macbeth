@@ -167,7 +167,7 @@ enum ElementGeometry {
         guard AXUIElementCopyAttributeValue(
             window, kAXMinimizedAttribute as CFString, &ref
         ) == .success else { return false }
-        return (ref as? Bool) ?? false
+        return (ref as? NSNumber)?.boolValue ?? false
     }
 
     private static func elementAttribute(
