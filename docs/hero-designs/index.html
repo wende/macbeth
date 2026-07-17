@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Macbeth — Hero Design A (saved reference)</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --burgundy: #61202F;
+      --burgundy-mid: #8B3342;
+      --burgundy-deep: #32111A;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #0f0d12;
+      color: #f4f1f8;
+      line-height: 1.5;
+    }
+    .note {
+      max-width: 880px;
+      margin: 0 auto;
+      padding: 40px 24px 16px;
+    }
+    .note h1 {
+      font-size: 28px;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      margin-bottom: 8px;
+    }
+    .note p { color: #b8aebc; font-size: 15px; max-width: 60ch; }
+    .note code {
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 12px;
+      background: rgba(255,255,255,0.06);
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+    .frame {
+      max-width: 1100px;
+      margin: 20px auto 48px;
+      padding: 0 16px;
+    }
+    .frame-inner {
+      border-radius: 16px;
+      overflow: hidden;
+      border: 1px solid rgba(255,255,255,0.1);
+      box-shadow: 0 40px 80px rgba(0,0,0,0.45);
+    }
+    .frame-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 14px;
+      background: #1a171f;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      font-size: 12px;
+      color: #8a8290;
+      font-family: "IBM Plex Mono", monospace;
+    }
+    .dot { width: 10px; height: 10px; border-radius: 50%; }
+    .dot.r { background: #ff5f57; }
+    .dot.y { background: #febc2e; }
+    .dot.g { background: #28c840; }
+
+    .hero-a {
+      background: #ffffff;
+      color: #1a1520;
+      padding: 56px 40px 48px;
+      text-align: center;
+    }
+    .hero-a .logo {
+      width: min(380px, 88%);
+      height: auto;
+      margin: 0 auto 28px;
+      display: block;
+    }
+    .hero-a .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--burgundy);
+      margin-bottom: 16px;
+      padding: 6px 12px;
+      border-radius: 999px;
+      background: #f8eef0;
+      border: 1px solid #efd5da;
+    }
+    .hero-a h1 {
+      font-size: clamp(28px, 4.2vw, 42px);
+      font-weight: 800;
+      letter-spacing: -0.035em;
+      line-height: 1.15;
+      max-width: 18ch;
+      margin: 0 auto 14px;
+    }
+    .hero-a .tagline {
+      font-size: 17px;
+      color: #5a5460;
+      max-width: 48ch;
+      margin: 0 auto 28px;
+      line-height: 1.55;
+    }
+    .hero-a .badges {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 8px;
+      margin-bottom: 32px;
+    }
+    .hero-a .badges img { height: 22px; }
+    .hero-a .install {
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      background: #0f0d12;
+      color: #f4f1f8;
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 14px;
+      padding: 12px 18px;
+      border-radius: 10px;
+      margin-bottom: 36px;
+      box-shadow: 0 8px 24px rgba(97, 32, 47, 0.18);
+    }
+    .hero-a .install .prompt { color: #c47a88; }
+    .hero-a .features {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      max-width: 820px;
+      margin: 0 auto;
+      text-align: left;
+    }
+    @media (max-width: 720px) {
+      .hero-a .features { grid-template-columns: 1fr; }
+      .hero-a { padding: 40px 20px 36px; }
+    }
+    .hero-a .feat {
+      padding: 16px;
+      border-radius: 12px;
+      border: 1px solid #ece6ee;
+      background: #fbfafc;
+    }
+    .hero-a .feat strong {
+      display: block;
+      font-size: 13px;
+      font-weight: 700;
+      margin-bottom: 4px;
+      color: var(--burgundy);
+    }
+    .hero-a .feat span {
+      font-size: 13px;
+      color: #5a5460;
+      line-height: 1.45;
+    }
+  </style>
+</head>
+<body>
+  <div class="note">
+    <h1>Design A — saved visual reference</h1>
+    <p>
+      Classic OSS badge-parade mockup, kept for later (landing page / marketing).
+      README hero options live in <code>docs/hero-designs/README-heroes.md</code>.
+    </p>
+  </div>
+
+  <div class="frame">
+    <div class="frame-inner">
+      <div class="frame-bar">
+        <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+        <span style="margin-left:8px">Design A · visual reference only</span>
+      </div>
+      <div class="hero-a">
+        <div class="eyebrow">Playwright for macOS</div>
+        <img class="logo" src="macbeth-logo.svg" alt="macbeth" />
+        <h1>Automate any macOS app through the Accessibility API</h1>
+        <p class="tagline">
+          Chainable locators, auto-waiting, screenshots, OCR, and an MCP server —
+          so TypeScript scripts and LLM agents can drive native AppKit and Electron apps alike.
+        </p>
+        <div class="badges">
+          <img alt="npm" src="https://img.shields.io/npm/v/macbeth?style=flat-square&color=61202F&labelColor=1a1520" />
+          <img alt="license" src="https://img.shields.io/npm/l/macbeth?style=flat-square&color=8B3342&labelColor=1a1520" />
+          <img alt="platform" src="https://img.shields.io/badge/platform-macOS%2014%2B-black?style=flat-square&labelColor=1a1520&color=32111A" />
+          <img alt="node" src="https://img.shields.io/badge/node-%E2%89%A520-339933?style=flat-square&logo=nodedotjs&logoColor=white&labelColor=1a1520" />
+          <img alt="swift" src="https://img.shields.io/badge/Swift-6-F05138?style=flat-square&logo=swift&logoColor=white&labelColor=1a1520" />
+          <img alt="typescript" src="https://img.shields.io/badge/TypeScript-5-3178C6?style=flat-square&logo=typescript&logoColor=white&labelColor=1a1520" />
+          <img alt="mcp" src="https://img.shields.io/badge/MCP-ready-8B5CF6?style=flat-square&labelColor=1a1520" />
+          <img alt="electron" src="https://img.shields.io/badge/Electron-supported-47848F?style=flat-square&logo=electron&logoColor=white&labelColor=1a1520" />
+          <img alt="ci" src="https://img.shields.io/github/actions/workflow/status/wende/macbeth/ci.yml?style=flat-square&label=CI&labelColor=1a1520" />
+          <img alt="stars" src="https://img.shields.io/github/stars/wende/macbeth?style=flat-square&color=61202F&labelColor=1a1520" />
+        </div>
+        <div class="install">
+          <span class="prompt">$</span>
+          <span>npm install macbeth</span>
+        </div>
+        <div class="features">
+          <div class="feat">
+            <strong>Native + Electron</strong>
+            <span>Same locator API across AppKit and Chromium apps — Slack, VS Code, Discord included.</span>
+          </div>
+          <div class="feat">
+            <strong>MCP for agents</strong>
+            <span>Ship tool calls to Claude & friends, with an on-screen interaction glow.</span>
+          </div>
+          <div class="feat">
+            <strong>Playwright-style DX</strong>
+            <span>Lazy chainable locators, smart click/fill strategies, screenshots & OCR.</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
