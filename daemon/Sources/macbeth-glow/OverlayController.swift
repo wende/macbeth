@@ -1,15 +1,35 @@
 import AppKit
 import GlowProtocol
 
+@MainActor
+private final class NavigationOverlayState {
+    let window: NavigationOutlineWindow
+    var rect: GlowCaptureRect
+    var fadeTimer: Timer?
+    var fadeDeadline: Date?
+    var generation = 0
+
+    init(window: NavigationOutlineWindow, rect: GlowCaptureRect) {
+        self.window = window
+        self.rect = rect
+    }
+}
+
 /// Owns the overlay windows and drives show / hide in response to daemon
 /// messages. All methods run on the main thread.
 @MainActor
 final class OverlayController: NSObject {
-    private var windows: [OverlayWindow] = []
     private var rgba: GlowRGBA
     private var tracker: GlowActivityTracker
     private var fadeOutTimer: Timer?
+    private var activityActive = false
     private var isShowing = false
+    private var captureWindows: [String: CaptureOverlayWindow] = [:]
+    private var captureTimeouts: [String: Timer] = [:]
+    private var navigationOverlays: [String: NavigationOverlayState] = [:]
+    private var activeNavigationIDs: Set<String> = []
+    private var pointerWindow: PointerOverlayWindow?
+    private var pointerGeneration = 0
 
     init(rgba: GlowRGBA, debounceMs: Int) {
         self.rgba = rgba
@@ -21,9 +41,17 @@ final class OverlayController: NSObject {
         NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
     }
 
-    func start() {
-        rebuildWindows()
+    var navigationOverlayCount: Int { navigationOverlays.count }
 
+    func navigationOutlineWindow(for id: String) -> NavigationOutlineWindow? {
+        navigationOverlays[id]?.window
+    }
+
+    func navigationFadeIsScheduled(for id: String) -> Bool {
+        navigationOverlays[id]?.fadeDeadline != nil
+    }
+
+    func start() {
         NotificationCenter.default.addObserver(
             self, selector: #selector(screenParametersChanged),
             name: NSApplication.didChangeScreenParametersNotification, object: nil
@@ -39,21 +67,207 @@ final class OverlayController: NSObject {
     func handle(_ message: GlowMessage) {
         switch message.type {
         case .activate:
+            activityActive = true
             if let hex = message.color, let parsed = parseGlowColor(hex), parsed != rgba {
                 rgba = parsed
-                windows.forEach { $0.glowView.setColor(parsed) }
             }
             if let ms = message.debounceMs { tracker.debounce = TimeInterval(max(0, ms)) / 1000.0 }
-            let wasIdle = tracker.poke()
-            if wasIdle || !isShowing { show() }
-            rearmFadeOut()
+            tracker.reset()
+            fadeOutTimer?.invalidate()
+            fadeOutTimer = nil
+            if !isShowing { show() }
 
         case .deactivate:
-            tracker.reset()
-            beginFadeOut()
+            activityActive = false
+            tracker.poke()
+            rearmFadeOut()
+            let activeIDs = activeNavigationIDs
+            activeNavigationIDs.removeAll()
+            for id in activeIDs {
+                rearmNavigationFade(id: id)
+            }
+
+        case .focusWindow:
+            guard let rect = message.rect else { return }
+            let id = message.windowId ?? legacyWindowID(for: rect)
+            focusWindow(id: id, rect: rect)
+
+        case .pointerMove:
+            guard let point = message.point else { return }
+            movePointer(to: point, action: message.action ?? .interact)
+
+        case .captureStart:
+            guard let id = message.captureId, let rect = message.rect else { return }
+            startCapture(id: id, rect: rect)
+
+        case .captureFinish:
+            guard let id = message.captureId else { return }
+            finishCapture(id: id, success: message.success ?? false)
 
         case .shutdown:
+            activityActive = false
+            for state in navigationOverlays.values {
+                state.fadeTimer?.invalidate()
+                state.window.orderOut(nil)
+            }
+            navigationOverlays.removeAll()
+            activeNavigationIDs.removeAll()
+            pointerWindow?.orderOut(nil)
             NSApp.terminate(nil)
+        }
+    }
+
+    // MARK: - Window focus and capture animation
+
+    private func focusWindow(id: String, rect: GlowCaptureRect) {
+        guard rect.width > 0, rect.height > 0,
+              rect.x.isFinite, rect.y.isFinite,
+              rect.width.isFinite, rect.height.isFinite else { return }
+
+        let frame = appKitCaptureFrame(rect)
+
+        let state: NavigationOverlayState
+        if let existing = navigationOverlays[id] {
+            state = existing
+            state.rect = rect
+            if !state.window.targetFrame.equalTo(frame) {
+                state.window.move(to: frame)
+            }
+            state.window.orderFrontRegardless()
+            state.window.outlineView.show(reduceMotion: reduceMotion)
+        } else {
+            let window = NavigationOutlineWindow(targetFrame: frame, rgba: rgba)
+            state = NavigationOverlayState(window: window, rect: rect)
+            navigationOverlays[id] = state
+            window.orderFrontRegardless()
+            window.outlineView.show(reduceMotion: reduceMotion)
+        }
+
+        // Identical focus messages are deliberately visually idempotent: they
+        // update geometry and lifetime but never restart an animation.
+        state.generation += 1
+        state.fadeTimer?.invalidate()
+        state.fadeTimer = nil
+        state.fadeDeadline = nil
+        if activityActive {
+            activeNavigationIDs.insert(id)
+        } else {
+            rearmNavigationFade(id: id)
+        }
+    }
+
+    private func rearmNavigationFade(id: String) {
+        guard let state = navigationOverlays[id] else { return }
+        state.fadeTimer?.invalidate()
+        state.generation += 1
+        let generation = state.generation
+        let deadline = Date().addingTimeInterval(max(0, tracker.debounce))
+        state.fadeDeadline = deadline
+        let timer = Timer.scheduledTimer(
+            withTimeInterval: max(0, deadline.timeIntervalSinceNow),
+            repeats: false
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.navigationFadeFired(id: id, generation: generation)
+            }
+        }
+        timer.tolerance = 0
+        state.fadeTimer = timer
+    }
+
+    private func navigationFadeFired(id: String, generation: Int) {
+        guard let state = navigationOverlays[id], state.generation == generation,
+              !activeNavigationIDs.contains(id), let deadline = state.fadeDeadline else { return }
+        if deadline.timeIntervalSinceNow > 0 {
+            let timer = Timer.scheduledTimer(
+                withTimeInterval: deadline.timeIntervalSinceNow,
+                repeats: false
+            ) { [weak self] _ in
+                Task { @MainActor in
+                    self?.navigationFadeFired(id: id, generation: generation)
+                }
+            }
+            timer.tolerance = 0
+            state.fadeTimer = timer
+            return
+        }
+
+        state.fadeTimer?.invalidate()
+        state.fadeTimer = nil
+        state.fadeDeadline = nil
+        state.window.outlineView.hide { [weak self, weak state] in
+            guard let self, let state,
+                  self.navigationOverlays[id] === state,
+                  state.generation == generation,
+                  !self.activeNavigationIDs.contains(id) else { return }
+            state.window.orderOut(nil)
+            self.navigationOverlays[id] = nil
+        }
+    }
+
+    private func legacyWindowID(for rect: GlowCaptureRect) -> String {
+        "legacy:\(rect.x):\(rect.y):\(rect.width):\(rect.height)"
+    }
+
+    private func movePointer(to point: GlowPointerPoint, action: GlowPointerAction) {
+        guard point.x.isFinite, point.y.isFinite else { return }
+        pointerGeneration += 1
+        let target = appKitPointerPoint(point)
+
+        let window: PointerOverlayWindow
+        if let existing = pointerWindow {
+            window = existing
+        } else {
+            // The presentation pointer has its own independent history. Its
+            // first approach starts near the resolved target—not at the real
+            // cursor—and later moves continue from the last synthetic target.
+            window = PointerOverlayWindow(
+                startPoint: initialPointerPoint(near: target),
+                rgba: rgba
+            )
+            pointerWindow = window
+        }
+
+        window.orderFrontRegardless()
+        window.pointerView.show(reduceMotion: reduceMotion)
+        window.displayIfNeeded()
+        window.move(to: target, action: action, reduceMotion: reduceMotion)
+    }
+
+    private func hidePointer(generation: Int) {
+        guard generation == pointerGeneration, let window = pointerWindow else { return }
+        window.pointerView.hide { [weak self, weak window] in
+            guard let self, self.pointerGeneration == generation,
+                  self.pointerWindow === window else { return }
+            window?.orderOut(nil)
+        }
+    }
+
+    private func startCapture(id: String, rect: GlowCaptureRect) {
+        captureTimeouts.removeValue(forKey: id)?.invalidate()
+        captureWindows.removeValue(forKey: id)?.orderOut(nil)
+
+        let window = CaptureOverlayWindow(
+            targetFrame: appKitCaptureFrame(rect),
+            rgba: rgba
+        )
+        captureWindows[id] = window
+        window.orderFrontRegardless()
+        window.captureView.start(reduceMotion: reduceMotion)
+
+        // A dead client must not leave a scanning overlay behind indefinitely.
+        captureTimeouts[id] = Timer.scheduledTimer(withTimeInterval: 65, repeats: false) { [weak self] _ in
+            Task { @MainActor in self?.finishCapture(id: id, success: false) }
+        }
+    }
+
+    private func finishCapture(id: String, success: Bool) {
+        captureTimeouts.removeValue(forKey: id)?.invalidate()
+        guard let window = captureWindows[id] else { return }
+        window.captureView.finish(success: success) { [weak self, weak window] in
+            guard let self, self.captureWindows[id] === window else { return }
+            window?.orderOut(nil)
+            self.captureWindows[id] = nil
         }
     }
 
@@ -61,19 +275,17 @@ final class OverlayController: NSObject {
 
     private func show() {
         isShowing = true
-        for window in windows {
-            window.orderFrontRegardless()
-            window.glowView.fadeIn(reduceMotion: reduceMotion)
-        }
     }
 
     private func rearmFadeOut() {
         fadeOutTimer?.invalidate()
         guard let deadline = tracker.fadeOutDeadline() else { return }
         let interval = max(0, deadline.timeIntervalSinceNow)
-        fadeOutTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: false) { [weak self] _ in
+        let timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: false) { [weak self] _ in
             Task { @MainActor in self?.fadeOutFired() }
         }
+        timer.tolerance = 0
+        fadeOutTimer = timer
     }
 
     private func fadeOutFired() {
@@ -90,40 +302,32 @@ final class OverlayController: NSObject {
         fadeOutTimer = nil
         guard isShowing else { return }
         isShowing = false
-        for window in windows {
-            window.glowView.fadeOut { [weak window] in
-                // Order out and stop all CA work so an idle helper uses ~0% CPU.
-                window?.glowView.stopAllAnimation()
-                window?.orderOut(nil)
-            }
-        }
+        hidePointer(generation: pointerGeneration)
     }
 
     // MARK: - Screen layout
 
-    private func rebuildWindows() {
-        for window in windows {
-            window.glowView.stopAllAnimation()
-            window.orderOut(nil)
-        }
-        windows = NSScreen.screens.map { OverlayWindow(screen: $0, rgba: rgba) }
-        if isShowing {
-            for window in windows {
-                window.orderFrontRegardless()
-                window.glowView.fadeIn(reduceMotion: reduceMotion)
-            }
-        }
-    }
-
     @objc private func screenParametersChanged() {
-        rebuildWindows()
+        for state in navigationOverlays.values {
+            state.window.move(to: appKitCaptureFrame(state.rect))
+        }
     }
 
     @objc private func accessibilityOptionsChanged() {
-        guard isShowing else { return }
-        // Re-apply the current motion preference to already-visible glows.
-        for window in windows {
-            window.glowView.fadeIn(reduceMotion: reduceMotion)
-        }
+        // Motion preferences are read on every subsequent show/move/capture.
     }
+}
+
+/// AX and ScreenCaptureKit can report sub-point frame differences for the same
+/// window across calls. Treat those as one target so the overlay moves in place
+/// instead of cross-fading two nearly identical windows.
+func approximatelyEqualWindowFrames(
+    _ lhs: CGRect,
+    _ rhs: CGRect,
+    tolerance: CGFloat = 1
+) -> Bool {
+    abs(lhs.minX - rhs.minX) <= tolerance
+        && abs(lhs.minY - rhs.minY) <= tolerance
+        && abs(lhs.width - rhs.width) <= tolerance
+        && abs(lhs.height - rhs.height) <= tolerance
 }

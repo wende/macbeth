@@ -85,6 +85,32 @@ cd client && npm run build && cd ..
 MACBETH_GUI_TESTS=1 npm run test:gui
 ```
 
+### MCP-only feature demo
+
+Run the full native + Electron presentation through the public MCP server:
+
+```bash
+npm run demo:mcp
+```
+
+The command builds the daemon, client, and fixtures, launches both apps through
+the `run_applescript` MCP tool, and presents only capabilities with an observable
+on-screen effect. Daemon/MCP parity and read-only introspection belong in
+automated integration checks rather than creating dead time in the recording.
+It arranges both fixture windows before connecting so target outlines begin on
+real, final window frames, then presents native fills, clicks, and keyboard input
+as the first feature section. It pauses between operations for recording,
+continues through independent failures, prints screenshot paths and a final
+summary, and exits nonzero when a feature fails. Use `--fast` for an
+integration-test-paced run or `--delay-ms 1200` for a slower recording. The
+runner always closes every fixture instance it launched, restores the app that
+was foreground before the demo, and closes its MCP transport so presentation
+overlays cannot outlive the run.
+
+Accessibility and Screen Recording permissions must already be granted.
+Screenshot and OCR are exercised as required checks and make the demo fail if
+either capability regresses.
+
 ## API
 
 ### Connecting
@@ -240,11 +266,8 @@ await fs.writeFile("capture.png", png);
 
 Uses ScreenCaptureKit for high-fidelity window capture. macOS will prompt for Screen Recording permission on first use.
 
-> Known limitation: Screenshot and OCR have live regression coverage in the
-> packaged test-harness suite, but currently fail locally: Screenshot can time
-> out and OCR can close the daemon connection. These failures are documented in
-> [BUGS.md](BUGS.md); they are not expected failures and must be fixed before
-> the GUI suite can be considered fully passing.
+Screenshot and OCR both have live regression coverage in the packaged
+test-harness suite and the MCP-only demo.
 
 ### Listing apps
 
@@ -399,16 +422,26 @@ Add to your Claude Code MCP config (`.mcp.json`):
 
 | Tool | Description |
 |---|---|
+| `list_daemon_methods` | List registered daemon RPCs for MCP parity checks |
+| `begin_activity` / `end_activity` | Explicitly bracket external computer-control work with the interaction glow |
 | `list_apps` | List running macOS apps |
 | `connect_app` | Connect to an app by name or PID |
-| `query_tree` | Get the accessibility tree as text |
-| `get_element` | Find an element and return its properties |
+| `query_tree` | Get the accessibility tree as text or JSON |
+| `get_element` | Find an element by query or handle and return its properties |
+| `dump_attributes` | Dump all AX attributes for an element handle |
+| `read_form` | Read form-like controls from an app or subtree |
 | `click` | Click a UI element (auto-waits) |
 | `fill` | Set a text field's value (auto-waits) |
-| `wait_for` | Wait for an element to appear |
+| `wait_for` | Wait for existence, value, change, or enabled state |
 | `press_key` | Activate the target app, then send keyboard input |
 | `press_keys` | Activate the target app, then send a sequence of key presses |
-| `screenshot` | Capture a window screenshot |
+| `screenshot` | Capture a window screenshot with a visible focus/scan/snap animation |
+| `extract_text` | OCR an app window or supplied PNG data |
+| `pin_handle` / `unpin_handle` | Control element-handle expiry |
+| `list_menu_bar` / `select_menu_item` | Inspect and select native menu items |
+| `run_applescript` | Execute AppleScript or JXA through the daemon, classified as interactive or read-only |
+| `list_shortcuts` / `run_shortcut` | Inspect and run Apple Shortcuts |
+| `list_skills` / `load_skill` / `run_skill_script` | Discover and run bundled app workflows |
 
 ### Skills
 
@@ -436,7 +469,7 @@ macbeth/
 │   │   │   └── ListApps.swift, ConnectApp.swift, ...
 │   │   └── Glow/           # GlowIndicator: drives the macbeth-glow helper
 │   ├── Sources/GlowProtocol/ # Shared IPC message + debounce logic (testable)
-│   ├── Sources/macbeth-glow/ # AppKit helper: renders the screen-edge glow
+│   ├── Sources/macbeth-glow/ # AppKit helper: renders window interaction overlays
 │   └── Tests/
 ├── client/                 # TypeScript client + MCP server
 │   ├── src/
@@ -466,25 +499,49 @@ macbeth/
 
 ## Interaction indicator
 
-Whenever the daemon actively drives the system — AX actions, synthetic keyboard
-input, window manipulation, or AppleScript/JXA — it lights a subtle glow hugging
-the edges of every attached display, so it's always obvious the machine is being
-controlled and windows aren't moving "on their own."
+Whenever an MCP tool or daemon method addresses an app window, Macbeth places a
+subtle glow and outline around that exact window. Click/fill actions add a
+synthetic presentation pointer, and screenshots add a brighter scan/snap, so it
+is apparent which app is being controlled without lighting the entire display.
 
 How it works:
 
-- The daemon has no AppKit run loop, so the glow is rendered by a tiny helper
+- The daemon has no AppKit run loop, so the overlays are rendered by a tiny helper
   process (`macbeth-glow`) that the daemon spawns lazily on the first
   interaction and reuses afterwards. Commands travel over the helper's stdin as
-  newline-delimited JSON (`{"type":"activate"|"deactivate"|"shutdown"}`).
-- One borderless, click-through overlay window per screen floats above normal
-  and full-screen content, re-laying-out when displays change. The windows are
-  `sharingType = .none` and owned by a separate process, so the glow **never
-  appears in screenshots** macbeth captures.
-- The violet glow fades smoothly inward from each screen edge, fades in fast
-  (~150ms), breathes gently while active (disabled if macOS "Reduce Motion" is
-  on), and fades out slowly (~600ms) after a debounce window so a burst of rapid
-  actions reads as one continuous glow.
+  newline-delimited JSON (`activate`, `deactivate`, window-focus, capture, and
+  shutdown messages).
+- Activity scopes are reference-counted across overlapping MCP and daemon work.
+  MCP-side operations use tokenized `begin_activity`/`end_activity` RPCs so a
+  nested action cannot turn off another action's glow.
+- Addressing an app through MCP places a quiet, click-through violet outline
+  and inward edge glow around the controlled window. Every window is keyed by
+  its stable process/window identity, so several controlled windows can remain
+  outlined simultaneously and moving one updates only its own overlay. The
+  outline and inward glow remain visually static while present. Each
+  window has an independent lifetime: after its final overlapping operation
+  ends, its outline remains fully visible for 400ms and then fades over 100ms.
+  Re-addressing an already-visible window refreshes only that deadline—it never
+  restarts fade-in, changes opacity, or pulses the border. An interrupted
+  fade-out reverses from the opacity currently visible on screen.
+- Click and fill RPCs move a violet-tinted synthetic pointer to the resolved AX
+  element before acting. Keyboard-only operations deliberately leave it at the
+  last honest pointer target because synthetic focused AX nodes often have no
+  meaningful screen geometry. The pointer makes a short first approach from a
+  synthetic offset near the first
+  target, then preserves its own last position and eases between later
+  targets—even after it briefly fades. It shows a click ring or text caret on
+  arrival, uses a subtle violet backing halo for contrast, and never reads or
+  moves the user's real cursor. Its fade is interruptible, which keeps it
+  continuous across closely spaced recorded-demo operations.
+- Window screenshots and app-window OCR intensify that perimeter with a brighter
+  rounded frame, one scan from the top through the bottom of the target, and a
+  longer completion snap. The scan holds at the bottom while capture completes
+  and cannot wrap into a partial second pass. The snap expands the border and
+  holds its light wash before dissolving. These overlays are owned by
+  `macbeth-glow` and use `sharingType = .readOnly`: Macbeth's own single-window
+  screenshots exclude them, while an external screen recording can still show
+  the animation.
 - The indicator is entirely best-effort: if the helper can't start or crashes,
   the daemon logs a warning and keeps working — automation is never blocked.
 
@@ -495,11 +552,13 @@ flag):
 | --- | --- | --- |
 | `MACBETH_GLOW` | `1` | Set to `0`/`false`/`off`/`no` to disable the indicator entirely (same as `--no-glow`). |
 | `MACBETH_GLOW_COLOR` | `#A855F7` | Accent color as hex (`#RGB`, `#RGBA`, `#RRGGBB`, or `#RRGGBBAA`). |
-| `MACBETH_GLOW_DEBOUNCE_MS` | `1500` | Milliseconds to keep the glow alive after the last action (debounce). |
+| `MACBETH_GLOW_DEBOUNCE_MS` | `400` | Refreshable fully-visible hold in milliseconds between the final activity ending and the 100ms window-highlight fade. |
 | `MACBETH_GLOW_HELPER` | — | Explicit path to the `macbeth-glow` binary (otherwise discovered next to `macbethd`). |
 
-The helper uses ~0% CPU while idle — all overlay windows are ordered out and no
-animation timers run until the next interaction.
+Each controlled-window glow remains intact for its own 400ms hold, then performs
+an interruptible 100ms fade and is ordered out. Capture animation timers exist
+only while capture is in progress. All presentation layers are click-through
+and owned by the helper process, so target-window screenshots remain clean.
 
 ## Permissions
 

@@ -17,8 +17,8 @@ while let arg = argIterator.next() {
         fputs("""
         Usage: macbeth-glow [options]
 
-        Internal helper for macbethd: draws a screen-edge glow while the daemon
-        is interacting with the system. Reads newline-delimited JSON commands on
+        Internal helper for macbethd: draws window-local interaction overlays
+        while the daemon is controlling an app. Reads newline-delimited commands on
         stdin ({"type":"activate"|"deactivate"|"shutdown"}); exits on EOF.
 
         Options:

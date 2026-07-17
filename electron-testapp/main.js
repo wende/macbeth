@@ -3,6 +3,8 @@ const path = require('path')
 
 let mainWindow
 
+app.setName('Macbeth Electron TestApp')
+
 function createWindow () {
   mainWindow = new BrowserWindow({
     width: 640,

@@ -10,6 +10,10 @@ import type {
   TreeOptions,
   ScreenshotResult,
   QueryStep,
+  ElementTarget,
+  ElementInfo,
+  ClickStrategy,
+  FillStrategy,
   FormField,
 } from "./types.js";
 
@@ -95,6 +99,47 @@ export class AppHandle extends Locator {
       keys,
     });
   }
+
+  /** Click an element addressed by a locator query or a direct handle id.
+   *  Lower-level than {@link Locator.click}: it applies no query chain and takes
+   *  `timeout` in seconds (matching the RPC). The MCP server uses this because it
+   *  resolves the target itself. */
+  async clickTarget(
+    target: ElementTarget,
+    options?: { timeout?: number; strategy?: ClickStrategy; waitForIdleMs?: number }
+  ): Promise<void> {
+    await this.rpc.call("click", {
+      appHandle: this.appHandle,
+      ...target,
+      timeout: options?.timeout ?? 30,
+      ...(options?.strategy ? { strategy: options.strategy } : {}),
+      ...(options?.waitForIdleMs !== undefined ? { waitForIdleMs: options.waitForIdleMs } : {}),
+    });
+  }
+
+  /** Fill an element addressed by a locator query or a direct handle id.
+   *  `timeout` is in seconds. See {@link clickTarget}. */
+  async fillTarget(
+    target: ElementTarget,
+    value: string,
+    options?: { timeout?: number; strategy?: FillStrategy }
+  ): Promise<void> {
+    await this.rpc.call("fill", {
+      appHandle: this.appHandle,
+      ...target,
+      value,
+      timeout: options?.timeout ?? 30,
+      ...(options?.strategy ? { strategy: options.strategy } : {}),
+    });
+  }
+
+  /** Return the properties of an element addressed by a query or a handle id. */
+  async getElementInfo(target: ElementTarget): Promise<ElementInfo> {
+    return this.rpc.call<ElementInfo>("get_element", {
+      appHandle: this.appHandle,
+      ...target,
+    });
+  }
 }
 
 /**
@@ -173,13 +218,47 @@ export class MacbethClient {
   }
 
   /** Run AppleScript or JXA via the daemon (uses OSAKit, no osascript spawn) */
-  async runAppleScript(source: string, language?: "AppleScript" | "JavaScript"): Promise<string> {
+  async runAppleScript(
+    source: string,
+    language?: "AppleScript" | "JavaScript",
+    options?: { interactive?: boolean },
+  ): Promise<string> {
     await this.ensureConnected();
     const result = await this.rpc.call<{ output: string }>("run_applescript", {
       source,
       ...(language ? { language } : {}),
+      interactive: options?.interactive ?? true,
     });
     return result.output;
+  }
+
+  /** Begin an explicit interaction-glow activity scope; returns the token that
+   *  {@link endActivity} must be called with. Intended for integrations that
+   *  control the computer outside Macbeth's own click/fill/key/script tools. */
+  async beginActivity(): Promise<string> {
+    await this.ensureConnected();
+    const result = await this.rpc.call<{ token: string }>("begin_activity", {});
+    return result.token;
+  }
+
+  /** End an activity scope previously created by {@link beginActivity}. */
+  async endActivity(token: string): Promise<void> {
+    await this.ensureConnected();
+    await this.rpc.call("end_activity", { token });
+  }
+
+  /** List every JSON-RPC method the daemon has registered. Used to verify the
+   *  MCP tool surface stays in sync with the daemon dispatcher. */
+  async listDaemonMethods(): Promise<string[]> {
+    await this.ensureConnected();
+    const result = await this.rpc.call<{ methods: string[] }>("list_methods", {});
+    return result.methods;
+  }
+
+  /** Dump all accessibility attributes for a previously resolved element handle. */
+  async dumpAttributes(handleId: string): Promise<Record<string, unknown>> {
+    await this.ensureConnected();
+    return this.rpc.call<Record<string, unknown>>("dump_attributes", { handleId });
   }
 
   /** Extract text from an app window or raw image data using OCR */

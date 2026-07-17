@@ -89,6 +89,7 @@ final class SocketServer: Sendable {
 
     private func handleClient(fd: Int32) async {
         let connection = ClientConnection(fd: fd)
+        let connectionID = UUID().uuidString
 
         // Each request runs in its own task so a slow handler doesn't stall
         // subsequent requests on the same connection. Writes are serialized
@@ -111,7 +112,10 @@ final class SocketServer: Sendable {
                     let response: JSONRPCResponse
                     do {
                         let request = try decoder.decode(JSONRPCRequest.self, from: data)
-                        response = await dispatcher.dispatch(request: request)
+                        response = await dispatcher.dispatch(
+                            request: request,
+                            connectionID: connectionID
+                        )
                     } catch {
                         response = JSONRPCResponse(
                             id: nil,
@@ -135,8 +139,18 @@ final class SocketServer: Sendable {
                 }
             }
 
+            // Release connection-owned presentation scopes as soon as EOF is
+            // observed. In-flight daemon operations keep their own activity
+            // scopes until they actually finish.
+            await self.dispatcher.connectionClosed(connectionID)
+
             // Wait for in-flight requests to finish responding before closing.
             await group.waitForAll()
+
+            // A begin request could have raced EOF and registered its token
+            // after the first cleanup. Repeating cleanup is idempotent and
+            // closes that narrow race without delaying the normal path.
+            await self.dispatcher.connectionClosed(connectionID)
         }
 
         connection.close()

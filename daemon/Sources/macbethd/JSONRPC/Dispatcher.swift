@@ -3,11 +3,26 @@ import Foundation
 /// Routes JSON-RPC method calls to registered handlers.
 actor Dispatcher {
     typealias Handler = @Sendable (JSONValue?) async throws -> JSONValue
+    typealias ContextualHandler = @Sendable (JSONValue?, String) async throws -> JSONValue
+    typealias ConnectionClosedHandler = @Sendable (String) async -> Void
 
     private var handlers: [String: Handler] = [:]
+    private var contextualHandlers: [String: ContextualHandler] = [:]
+    private var connectionClosedHandlers: [ConnectionClosedHandler] = []
 
     func register(method: String, handler: @escaping Handler) {
         handlers[method] = handler
+    }
+
+    /// Register a handler that also receives the stable id of the socket
+    /// connection which sent the request. This is used for resources whose
+    /// lifetime must not outlive a crashed or disconnected client.
+    func registerContextual(method: String, handler: @escaping ContextualHandler) {
+        contextualHandlers[method] = handler
+    }
+
+    func registerConnectionClosed(handler: @escaping ConnectionClosedHandler) {
+        connectionClosedHandlers.append(handler)
     }
 
     /// Look up a handler under actor isolation. Callers invoke it outside the actor
@@ -16,12 +31,33 @@ actor Dispatcher {
         handlers[method]
     }
 
-    nonisolated func dispatch(request: JSONRPCRequest) async -> JSONRPCResponse {
+    func contextualHandler(for method: String) -> ContextualHandler? {
+        contextualHandlers[method]
+    }
+
+    func connectionClosed(_ connectionID: String) async {
+        for handler in connectionClosedHandlers {
+            await handler(connectionID)
+        }
+    }
+
+    /// Return every registered RPC method. Used by the MCP demo to prove that
+    /// the public tool surface stays in sync with the daemon dispatcher.
+    func registeredMethods() -> [String] {
+        Set(handlers.keys).union(contextualHandlers.keys).sorted()
+    }
+
+    nonisolated func dispatch(
+        request: JSONRPCRequest,
+        connectionID: String = "anonymous"
+    ) async -> JSONRPCResponse {
         guard request.jsonrpc == "2.0" else {
             return JSONRPCResponse(id: request.id, error: .invalidRequest("jsonrpc must be \"2.0\""))
         }
 
-        guard let handler = await self.handler(for: request.method) else {
+        let contextualHandler = await self.contextualHandler(for: request.method)
+        let handler = await self.handler(for: request.method)
+        guard contextualHandler != nil || handler != nil else {
             return JSONRPCResponse(id: request.id, error: .methodNotFound(request.method))
         }
 
@@ -29,7 +65,12 @@ actor Dispatcher {
         let params = request.params
         return await Task.detached(priority: .userInitiated) { () -> JSONRPCResponse in
             do {
-                let result = try await handler(params)
+                let result: JSONValue
+                if let contextualHandler {
+                    result = try await contextualHandler(params, connectionID)
+                } else {
+                    result = try await handler!(params)
+                }
                 return JSONRPCResponse(id: id, result: result)
             } catch let error as RPCError {
                 return JSONRPCResponse(id: id, error: error.toJSONRPC())

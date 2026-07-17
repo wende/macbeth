@@ -165,6 +165,10 @@
       <input type="text" id="name-input" placeholder="Enter your name" data-testid="name-input" />
     </div>
     <div class="row">
+      <label>Name mirror:</label>
+      <span id="name-mirror" data-testid="name-mirror">Mirror: </span>
+    </div>
+    <div class="row">
       <label for="email-input">Email:</label>
       <input type="email" id="email-input" placeholder="Enter your email" data-testid="email-input" />
     </div>
@@ -309,6 +313,13 @@
   <script>
     const statusBar = document.getElementById('status-bar');
     function setStatus(msg) { statusBar.textContent = 'Status: ' + msg; }
+
+    // Updates only when Chromium delivers a real input event. The MCP demo uses
+    // this to prove Electron auto/keyboard fill updates application state rather
+    // than merely changing the accessibility value.
+    document.getElementById('name-input').addEventListener('input', (e) => {
+      document.getElementById('name-mirror').textContent = 'Mirror: ' + e.target.value;
+    });
 
     // Buttons
     document.getElementById('submit-btn').addEventListener('click', () => {

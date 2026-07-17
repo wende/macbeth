@@ -11,10 +11,15 @@ func registerRunAppleScript(dispatcher: Dispatcher, glow: GlowIndicator) {
             }
 
             let languageParam = obj["language"]?.stringValue ?? "AppleScript"
+            let isInteractive = obj["interactive"]?.boolValue ?? true
 
-            // Interaction choke point: AppleScript/JXA can drive apps and input.
-            await glow.activityStarted()
-            defer { Task { await glow.activityEnded() } }
+            // Callers can classify inspection-only scripts so they do not show
+            // an interaction indicator. Default stays interactive for backward
+            // compatibility because arbitrary AppleScript/JXA can drive input.
+            if isInteractive { await glow.activityStarted() }
+            defer {
+                if isInteractive { Task { await glow.activityEnded() } }
+            }
 
             let result: (String?, String?, Int?) = await MainActor.run {
                 let lang: OSALanguage?

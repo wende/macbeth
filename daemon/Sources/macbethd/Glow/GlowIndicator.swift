@@ -1,7 +1,8 @@
 import Foundation
+import CoreGraphics
 import GlowProtocol
 
-/// Best-effort driver for the screen-edge glow indicator.
+/// Best-effort driver for window-local interaction overlays.
 ///
 /// The daemon itself has no AppKit run loop (it runs an async socket server on
 /// the main thread), so the glow lives in a separate lightweight `macbeth-glow`
@@ -26,6 +27,14 @@ actor GlowIndicator {
 
     private var process: Process?
     private var stdin: FileHandle?
+    /// Number of overlapping daemon and MCP activity scopes. Only the final
+    /// scope ending asks the helper to fade out.
+    private var activeScopes = 0
+    /// MCP scopes use tokens so duplicate/mismatched end calls cannot corrupt
+    /// the reference count.
+    private var externalScopes: [String: String] = [:]
+    private var externalScopeExpirations: [String: Task<Void, Never>] = [:]
+    private let externalScopeLeaseSeconds = 180
     /// Set once we've permanently given up (e.g. helper binary not found) so we
     /// don't spam spawn attempts on every single action.
     private var disabled: Bool
@@ -38,26 +47,127 @@ actor GlowIndicator {
 
     // MARK: - Interaction lifecycle hooks
 
-    /// Signal that an interaction is starting (or ongoing). Shows the glow and
-    /// re-arms the helper's debounce timer. Safe to call very frequently.
+    /// Signal that an interaction is starting (or ongoing). Keeps the current
+    /// window highlight visible and cancels its pending fade.
     func activityStarted() {
         guard !disabled else { return }
         ensureRunning()
+        guard !disabled else { return }
+        activeScopes += 1
         send(.activate(color: config.color, debounceMs: config.debounceMs))
     }
 
-    /// Signal that an interaction finished. We send another keep-alive so the
-    /// debounce window is anchored to when the action *completed*, guaranteeing
-    /// the glow lingers ~debounceMs past the last action. The actual fade-out is
-    /// debounced inside the helper.
+    /// Signal that an interaction finished. The helper starts its refreshable
+    /// highlight hold only when the final overlapping scope ends.
     func activityEnded() {
         guard !disabled else { return }
-        guard process != nil else { return } // never spawn just to end
-        send(.activate(color: config.color, debounceMs: config.debounceMs))
+        guard activeScopes > 0 else {
+            if verbose { warn("ignored unmatched activity end") }
+            return
+        }
+        activeScopes -= 1
+        guard activeScopes == 0, process != nil else { return }
+        send(.deactivate)
+    }
+
+    /// Begin an MCP-owned activity scope and return its idempotent end token.
+    func beginExternalActivity(owner: String) -> String {
+        let token = UUID().uuidString
+        externalScopes[token] = owner
+        let leaseSeconds = externalScopeLeaseSeconds
+        externalScopeExpirations[token] = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(leaseSeconds))
+            guard !Task.isCancelled else { return }
+            await self?.expireExternalActivity(token: token)
+        }
+        activityStarted()
+        return token
+    }
+
+    /// End an MCP-owned scope. Returns false for unknown/already-ended tokens.
+    func endExternalActivity(token: String, owner: String) -> Bool {
+        guard externalScopes[token] == owner else { return false }
+        externalScopes[token] = nil
+        externalScopeExpirations.removeValue(forKey: token)?.cancel()
+        activityEnded()
+        return true
+    }
+
+    /// End every MCP scope owned by a socket as soon as that client
+    /// disconnects. This is the hard-kill fail-safe: no final RPC is required.
+    func endExternalActivities(owner: String) {
+        let tokens = externalScopes.compactMap { token, tokenOwner in
+            tokenOwner == owner ? token : nil
+        }
+        for token in tokens {
+            externalScopes[token] = nil
+            externalScopeExpirations.removeValue(forKey: token)?.cancel()
+            activityEnded()
+        }
+    }
+
+    private func expireExternalActivity(token: String) {
+        externalScopeExpirations[token] = nil
+        guard externalScopes.removeValue(forKey: token) != nil else { return }
+        if verbose { warn("expired abandoned external activity scope") }
+        activityEnded()
+    }
+
+    /// Start a window-local capture animation. Returns nil when the best-effort
+    /// helper is unavailable so callers can capture immediately.
+    func captureStarted(windowID: String, frame: CGRect) -> String? {
+        guard !disabled else { return nil }
+        ensureRunning()
+        guard !disabled else { return nil }
+
+        windowFocused(id: windowID, frame: frame)
+        let id = UUID().uuidString
+        let rect = captureRect(frame)
+        send(.captureStarted(id: id, rect: rect))
+        return id
+    }
+
+    func captureFinished(id: String?, success: Bool) {
+        guard let id, !disabled, process != nil else { return }
+        send(.captureFinished(id: id, success: success))
+    }
+
+    func windowFocused(id: String, frame: CGRect) {
+        guard !disabled else { return }
+        ensureRunning()
+        guard !disabled else { return }
+        send(.windowFocused(id: id, rect: captureRect(frame)))
+    }
+
+    /// Move the synthetic presentation pointer to an AX interaction target.
+    /// Returns false when the helper is unavailable so callers never wait for
+    /// an animation the user cannot see.
+    func pointerMoved(to point: CGPoint, action: GlowPointerAction) -> Bool {
+        guard !disabled else { return false }
+        ensureRunning()
+        guard !disabled else { return false }
+        send(.pointerMoved(
+            to: GlowPointerPoint(x: point.x, y: point.y),
+            action: action
+        ))
+        return true
+    }
+
+    private func captureRect(_ frame: CGRect) -> GlowCaptureRect {
+        GlowCaptureRect(
+            x: frame.origin.x,
+            y: frame.origin.y,
+            width: frame.width,
+            height: frame.height
+        )
     }
 
     /// Tear down the helper (used on daemon shutdown).
     func shutdown() {
+        activeScopes = 0
+        externalScopes.removeAll()
+        externalScopeExpirations.values.forEach { $0.cancel() }
+        externalScopeExpirations.removeAll()
         guard process != nil else { return }
         send(.shutdown)
         // Dropping our references closes the pipe's write end, so the helper also

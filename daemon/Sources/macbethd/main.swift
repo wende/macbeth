@@ -47,7 +47,7 @@ while let arg = args.next() {
         Options:
           --socket-path <path>  Unix socket path (default: $TMPDIR/macbeth-<uid>.sock)
           --verbose, -v         Enable verbose logging
-          --no-glow             Disable the screen-edge interaction glow indicator
+          --no-glow             Disable window interaction overlays
           --check-permissions   Print Accessibility + Screen Recording status, then exit
           --help, -h            Show this help
 
@@ -79,7 +79,7 @@ if !checkAccessibilityPermissions(prompt: true) {
 // Environment overrides (CLI --no-glow takes precedence):
 //   MACBETH_GLOW=0|false|off       disable the indicator
 //   MACBETH_GLOW_COLOR=#RRGGBB     accent color (default #A855F7)
-//   MACBETH_GLOW_DEBOUNCE_MS=<int> keep-alive window after last action (default 1500)
+//   MACBETH_GLOW_DEBOUNCE_MS=<int> refreshable highlight hold (default 400)
 //   MACBETH_GLOW_HELPER=<path>     explicit path to the macbeth-glow binary
 let env = ProcessInfo.processInfo.environment
 func envDisablesGlow() -> Bool {
@@ -113,7 +113,7 @@ await dispatcher.register(method: "list_apps") { _ in
     listAppsResult()
 }
 
-registerConnectApp(dispatcher: dispatcher, appManager: appManager)
+registerConnectApp(dispatcher: dispatcher, appManager: appManager, glow: glow)
 registerQueryTree(dispatcher: dispatcher, appManager: appManager, handleTable: handleTable)
 registerGetElement(dispatcher: dispatcher, appManager: appManager, handleTable: handleTable)
 registerClick(dispatcher: dispatcher, appManager: appManager, handleTable: handleTable, glow: glow)
@@ -121,10 +121,11 @@ registerFill(dispatcher: dispatcher, appManager: appManager, handleTable: handle
 registerPressKey(dispatcher: dispatcher, appManager: appManager, glow: glow)
 registerPressKeys(dispatcher: dispatcher, appManager: appManager, glow: glow)
 registerWaitFor(dispatcher: dispatcher, appManager: appManager, handleTable: handleTable)
-registerScreenshot(dispatcher: dispatcher, appManager: appManager)
+registerScreenshot(dispatcher: dispatcher, appManager: appManager, glow: glow)
 registerRunAppleScript(dispatcher: dispatcher, glow: glow)
 registerReadForm(dispatcher: dispatcher, appManager: appManager, handleTable: handleTable)
-registerExtractText(dispatcher: dispatcher, appManager: appManager, handleTable: handleTable)
+registerExtractText(dispatcher: dispatcher, appManager: appManager, handleTable: handleTable, glow: glow)
+registerGlowActivity(dispatcher: dispatcher, glow: glow)
 
 await dispatcher.register(method: "pin_handle") { params in
     guard let obj = params?.objectValue,
@@ -157,6 +158,13 @@ await dispatcher.register(method: "dump_attributes") { params in
     }
     let attrs = dumpAttributes(resolved.element)
     return .object(attrs)
+}
+
+// Introspection for MCP surface-parity checks. The closure resolves the list at
+// call time, after every registration (including this one) has completed.
+await dispatcher.register(method: "list_methods") { _ in
+    let methods = await dispatcher.registeredMethods()
+    return .object(["methods": .array(methods.map { .string($0) })])
 }
 
 // MARK: - Start server

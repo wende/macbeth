@@ -3,6 +3,7 @@ import Foundation
 import ScreenCaptureKit
 import CoreGraphics
 import ImageIO
+import GlowProtocol
 
 /// Check if Screen Recording permission is likely granted.
 /// There's no direct API like AXIsProcessTrusted, so we attempt a lightweight capture.
@@ -25,7 +26,8 @@ private func openScreenRecordingSettings() {
 /// Register the screenshot RPC method.
 func registerScreenshot(
     dispatcher: Dispatcher,
-    appManager: AppConnectionManager
+    appManager: AppConnectionManager,
+    glow: GlowIndicator
 ) {
     Task {
         await dispatcher.register(method: "screenshot") { params in
@@ -55,9 +57,10 @@ func registerScreenshot(
             }
 
             // Capture is scoped to a single window owned by the *target* app.
-            // The glow overlay lives in a separate process (macbeth-glow) and its
-            // windows also set sharingType = .none, so the indicator can never
-            // appear in a macbeth screenshot.
+            // The target-window filter only includes content owned by the target
+            // app, and the focus/capture overlays belong to the separate
+            // macbeth-glow process, so they cannot appear in this image (even
+            // though the overlays are sharingType = .readOnly for recordings).
             let filter = SCContentFilter(desktopIndependentWindow: targetWindow)
             let config = SCStreamConfiguration()
             config.width = Int(targetWindow.frame.width) * 2
@@ -65,9 +68,26 @@ func registerScreenshot(
             config.showsCursor = false
 
             var image: CGImage
+            await glow.activityStarted()
+            defer { Task { await glow.activityEnded() } }
+            let windowID = ElementGeometry.windowIdentity(
+                pid: conn.pid, windowNumber: Int(targetWindow.windowID)
+            )
+            let captureAnimation = await glow.captureStarted(
+                windowID: windowID, frame: targetWindow.frame
+            )
             do {
+                // Keep the scanning phase alive for one complete top-to-bottom
+                // pass. The helper is excluded by the desktop-independent
+                // target filter, so this presentation delay cannot affect the
+                // captured pixels.
+                if captureAnimation != nil {
+                    try? await Task.sleep(for: .seconds(glowCapturePresentationDuration))
+                }
                 image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
+                await glow.captureFinished(id: captureAnimation, success: true)
             } catch {
+                await glow.captureFinished(id: captureAnimation, success: false)
                 throw RPCError.actionFailed("Screenshot capture failed: \(error.localizedDescription)")
             }
 

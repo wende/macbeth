@@ -22,10 +22,10 @@ export class DaemonManager {
       options?.socketPath ??
       path.join(os.tmpdir(), `macbeth-${process.getuid?.() ?? 0}.sock`);
 
+    this.verbose = options?.verbose ?? false;
+
     this.binaryPath =
       options?.binaryPath ?? this.findDaemonBinary();
-
-    this.verbose = options?.verbose ?? false;
   }
 
   get socketPath(): string {
@@ -145,23 +145,53 @@ export class DaemonManager {
   }
 
   private findDaemonBinary(): string {
-    // Look for the bundled binary relative to this package
-    const candidates = [
-      // Development: built from source
-      path.resolve(__dirname, "../../daemon/.build/debug/macbethd"),
-      path.resolve(__dirname, "../../daemon/.build/release/macbethd"),
-      // npm package: bundled binary
-      path.resolve(__dirname, "../bin/macbethd"),
-    ];
-
-    for (const candidate of candidates) {
-      if (fs.existsSync(candidate)) {
-        return candidate;
+    // MACBETH_DAEMON_PATH=<path> overrides discovery entirely (mirrors the
+    // daemon's own MACBETH_GLOW_HELPER escape hatch).
+    const explicit = process.env.MACBETH_DAEMON_PATH;
+    if (explicit) {
+      if (!fs.existsSync(explicit)) {
+        throw new Error(
+          `MACBETH_DAEMON_PATH points at a missing binary: ${explicit}`
+        );
       }
+      return explicit;
     }
 
-    throw new Error(
-      `macbethd binary not found. Searched:\n${candidates.map((c) => `  - ${c}`).join("\n")}\n\nBuild it with: cd daemon && swift build`
-    );
+    const candidates = [
+      // npm package: bundled binary, produced by scripts/build-daemon.sh
+      path.resolve(__dirname, "../bin/macbethd"),
+      // Development: SwiftPM products from `swift build [-c release]`
+      path.resolve(__dirname, "../../daemon/.build/debug/macbethd"),
+      path.resolve(__dirname, "../../daemon/.build/release/macbethd"),
+    ];
+
+    // These coexist whenever a dev has run both `swift build` and
+    // build-daemon.sh, and neither is categorically the "right" one: a fixed
+    // order silently runs a stale binary for whichever workflow it deprioritizes.
+    // Pick the most recently built instead, so the last build always wins.
+    const found = candidates
+      .map((file) => {
+        try {
+          return { file, mtimeMs: fs.statSync(file).mtimeMs };
+        } catch {
+          return null;
+        }
+      })
+      .filter((c): c is { file: string; mtimeMs: number } => c !== null)
+      .sort((a, b) => b.mtimeMs - a.mtimeMs);
+
+    if (found.length === 0) {
+      throw new Error(
+        `macbethd binary not found. Searched:\n${candidates.map((c) => `  - ${c}`).join("\n")}\n\nBuild it with: cd daemon && swift build`
+      );
+    }
+
+    if (this.verbose && found.length > 1) {
+      process.stderr.write(
+        `[macbeth] Multiple macbethd builds found; using newest: ${found[0].file}\n`
+      );
+    }
+
+    return found[0].file;
   }
 }

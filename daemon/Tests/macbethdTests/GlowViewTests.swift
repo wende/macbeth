@@ -5,84 +5,202 @@ import Testing
 @testable import macbeth_glow
 
 @MainActor
-@Test func glowGradientsStartAtEachEdgeAndFadeInward() throws {
-    let view = GlowView(rgba: GlowRGBA(red: 0.66, green: 0.33, blue: 0.97))
-    view.frame = CGRect(x: 0, y: 0, width: 800, height: 600)
-    view.layoutSubtreeIfNeeded()
+@Test func captureOverlayTracksWindowWithoutStealingInput() throws {
+    let captureRect = GlowCaptureRect(x: 100, y: 200, width: 800, height: 500)
+    let targetFrame = appKitCaptureFrame(captureRect, primaryDisplayTop: 1_000)
+    #expect(targetFrame == CGRect(x: 100, y: 300, width: 800, height: 500))
 
-    let container = try #require(view.layer?.sublayers?.first)
-    let gradients = try #require(container.sublayers as? [CAGradientLayer])
-    #expect(gradients.count == 4)
+    let window = CaptureOverlayWindow(
+        targetFrame: targetFrame,
+        rgba: GlowRGBA(red: 0.66, green: 0.33, blue: 0.97)
+    )
+    #expect(window.frame == targetFrame.insetBy(dx: -18, dy: -18))
+    #expect(window.ignoresMouseEvents)
+    #expect(window.canBecomeKey == false)
+    #expect(window.canBecomeMain == false)
+    #expect(window.sharingType == .readOnly)
 
-    let top = gradients[0]
-    #expect(top.frame == CGRect(x: 0, y: 556, width: 800, height: 44))
-    #expect(top.startPoint == CGPoint(x: 0.5, y: 1))
-    #expect(top.endPoint == CGPoint(x: 0.5, y: 0))
+    window.captureView.start(reduceMotion: true)
+    let fade = try #require(
+        window.captureView.layer?.animation(forKey: "capture.rootFade") as? CABasicAnimation
+    )
+    #expect(abs(fade.duration - 0.2) < 0.001)
 
-    let bottom = gradients[1]
-    #expect(bottom.frame == CGRect(x: 0, y: 0, width: 800, height: 44))
-    #expect(bottom.startPoint == CGPoint(x: 0.5, y: 0))
-    #expect(bottom.endPoint == CGPoint(x: 0.5, y: 1))
+    window.captureView.start(reduceMotion: false)
+    let scanLayer = try #require(window.captureView.layer?.sublayers?.last)
+    let scan = try #require(
+        scanLayer.animation(forKey: "capture.scan") as? CABasicAnimation
+    )
+    #expect(abs(scan.duration - glowCaptureScanDuration) < 0.001)
+    #expect((scan.fromValue as? CGFloat) == window.captureView.bounds.maxY - 18)
+    #expect((scan.toValue as? CGFloat) == 18)
+    #expect(scan.repeatCount == 0)
+    #expect(scan.fillMode == .forwards)
+    #expect(scan.isRemovedOnCompletion == false)
 
-    let left = gradients[2]
-    #expect(left.frame == CGRect(x: 0, y: 0, width: 44, height: 600))
-    #expect(left.startPoint == CGPoint(x: 0, y: 0.5))
-    #expect(left.endPoint == CGPoint(x: 1, y: 0.5))
-
-    let right = gradients[3]
-    #expect(right.frame == CGRect(x: 756, y: 0, width: 44, height: 600))
-    #expect(right.startPoint == CGPoint(x: 1, y: 0.5))
-    #expect(right.endPoint == CGPoint(x: 0, y: 0.5))
-
-    for gradient in gradients {
-        #expect(gradient.colors?.count == 6)
-        #expect(gradient.locations == [0, 0.08, 0.24, 0.5, 0.75, 1])
-    }
+    window.captureView.finish(success: true) {}
+    let washLayer = try #require(window.captureView.layer?.sublayers?.first)
+    let snap = try #require(
+        washLayer.animation(forKey: "capture.snap") as? CAKeyframeAnimation
+    )
+    #expect(abs(snap.duration - 0.58) < 0.001)
+    let dissolve = try #require(
+        window.captureView.layer?.animation(forKey: "capture.rootFade") as? CABasicAnimation
+    )
+    #expect(abs(dissolve.duration - 0.66) < 0.001)
 }
 
 @MainActor
-@Test func overlayRemainsClickThroughAndNonCapturable() throws {
-    let screen = try #require(NSScreen.main)
-    let window = OverlayWindow(
-        screen: screen,
+@Test func navigationOutlineTracksCurrentWindowWithoutStealingInput() throws {
+    let targetFrame = CGRect(x: 120, y: 240, width: 700, height: 460)
+    let window = NavigationOutlineWindow(
+        targetFrame: targetFrame,
         rgba: GlowRGBA(red: 0.66, green: 0.33, blue: 0.97)
     )
 
+    #expect(window.frame == targetFrame.insetBy(dx: -12, dy: -12))
     #expect(window.ignoresMouseEvents)
-    #expect(window.sharingType == .none)
     #expect(window.canBecomeKey == false)
     #expect(window.canBecomeMain == false)
+    #expect(window.sharingType == .readOnly)
+
+    window.outlineView.show(reduceMotion: false)
+    let fade = try #require(
+        window.outlineView.layer?.animation(forKey: "navigation.fade") as? CABasicAnimation
+    )
+    #expect(abs(fade.duration - 0.28) < 0.001)
+
+    let innerGlow = try #require(window.outlineView.layer?.sublayers?.first)
+    let gradients = try #require(innerGlow.sublayers as? [CAGradientLayer])
+    #expect(gradients.count == 4)
+    #expect(innerGlow.animation(forKey: "navigation.breathing") == nil)
+
+    // Another focus while fade-in is still running must be a complete no-op.
+    let revealedAgain = window.outlineView.show(reduceMotion: false)
+    #expect(revealedAgain == false)
+    #expect(window.outlineView.layer?.animation(forKey: "navigation.fade") === fade)
+
+    let movedFrame = targetFrame.offsetBy(dx: 30, dy: -20)
+    window.move(to: movedFrame)
+    #expect(window.targetFrame == movedFrame)
+    #expect(window.frame == movedFrame.insetBy(dx: -12, dy: -12))
+
+    window.outlineView.hide {}
+    let fadeOut = try #require(
+        window.outlineView.layer?.animation(forKey: "navigation.fade") as? CABasicAnimation
+    )
+    #expect(abs(fadeOut.duration - glowWindowFadeDuration) < 0.001)
 }
 
 @MainActor
-@Test func renderedGradientFallsOffTowardScreenCenter() throws {
-    let width = 200
-    let height = 150
-    let view = GlowView(rgba: GlowRGBA(red: 0.66, green: 0.33, blue: 0.97))
-    view.frame = CGRect(x: 0, y: 0, width: width, height: height)
-    view.layoutSubtreeIfNeeded()
-    view.layer?.opacity = 1
+@Test func navigationControllerKeepsIndependentIdempotentWindowOutlines() throws {
+    let controller = OverlayController(
+        rgba: GlowRGBA(red: 0.66, green: 0.33, blue: 0.97),
+        debounceMs: 400
+    )
+    let firstID = "pid:42:window:1"
+    let secondID = "pid:42:window:2"
+    let firstRect = GlowCaptureRect(x: 100, y: 100, width: 500, height: 400)
+    let secondRect = GlowCaptureRect(x: 650, y: 100, width: 500, height: 400)
 
-    let context = try #require(CGContext(
-        data: nil,
-        width: width,
-        height: height,
-        bitsPerComponent: 8,
-        bytesPerRow: 0,
-        space: CGColorSpaceCreateDeviceRGB(),
-        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+    controller.handle(.windowFocused(id: firstID, rect: firstRect))
+    controller.handle(.windowFocused(id: secondID, rect: secondRect))
+    #expect(controller.navigationOverlayCount == 2)
+
+    let firstWindow = try #require(controller.navigationOutlineWindow(for: firstID))
+    let firstFade = try #require(
+        firstWindow.outlineView.layer?.animation(forKey: "navigation.fade")
+    )
+    controller.handle(.windowFocused(id: firstID, rect: firstRect))
+
+    #expect(controller.navigationOverlayCount == 2)
+    #expect(controller.navigationOutlineWindow(for: firstID) === firstWindow)
+    #expect(firstWindow.outlineView.layer?.animation(forKey: "navigation.fade") === firstFade)
+    #expect(firstWindow.outlineView.layer?.animation(forKey: "navigation.pulse") == nil)
+}
+
+@MainActor
+@Test func standaloneWindowFocusGetsItsOwnTimerDuringAnotherOperationsHold() {
+    let controller = OverlayController(
+        rgba: GlowRGBA(red: 0.66, green: 0.33, blue: 0.97),
+        debounceMs: 400
+    )
+    let controlledID = "pid:42:window:1"
+    let inspectedID = "pid:42:window:2"
+
+    controller.handle(.activate())
+    controller.handle(.windowFocused(
+        id: controlledID,
+        rect: GlowCaptureRect(x: 100, y: 100, width: 500, height: 400)
     ))
-    view.layer?.render(in: context)
+    controller.handle(.deactivate)
+    controller.handle(.windowFocused(
+        id: inspectedID,
+        rect: GlowCaptureRect(x: 650, y: 100, width: 500, height: 400)
+    ))
 
-    let pixels = try #require(context.data?.assumingMemoryBound(to: UInt8.self))
-    func alpha(x: Int, y: Int) -> UInt8 {
-        pixels[y * context.bytesPerRow + x * 4 + 3]
-    }
+    #expect(controller.navigationFadeIsScheduled(for: controlledID))
+    #expect(controller.navigationFadeIsScheduled(for: inspectedID))
+}
 
-    let edgeAlpha = alpha(x: width / 2, y: 0)
-    let middleAlpha = alpha(x: width / 2, y: 22)
-    let innerAlpha = alpha(x: width / 2, y: 45)
-    #expect(edgeAlpha > middleAlpha)
-    #expect(middleAlpha > innerAlpha)
-    #expect(innerAlpha <= 1)
+@Test func subPointWindowFrameChangesReuseTheSameOutline() {
+    let original = CGRect(x: 100, y: 200, width: 800, height: 500)
+    let jittered = CGRect(x: 100.4, y: 199.6, width: 800.5, height: 499.5)
+    let moved = CGRect(x: 104, y: 200, width: 800, height: 500)
+    #expect(approximatelyEqualWindowFrames(original, jittered))
+    #expect(!approximatelyEqualWindowFrames(original, moved))
+}
+
+@MainActor
+@Test func syntheticPointerIsClickThroughAndRecordingVisible() throws {
+    let cursorScale: CGFloat = 0.3535533906
+    let cursorSize = 128 * cursorScale
+    let source = GlowPointerPoint(x: 100, y: 200)
+    let converted = appKitPointerPoint(source, primaryDisplayTop: 1_000)
+    #expect(converted == CGPoint(x: 100, y: 800))
+    let initial = initialPointerPoint(near: converted, screens: [])
+    #expect(abs(initial.x - (100 - 96 * cursorScale)) < 0.001)
+    #expect(abs(initial.y - (800 + 78 * cursorScale)) < 0.001)
+    #expect(initial != converted)
+
+    let window = PointerOverlayWindow(
+        startPoint: converted,
+        rgba: GlowRGBA(red: 0.66, green: 0.33, blue: 0.97)
+    )
+    // AppKit rounds fractional point bounds to the display's pixel grid.
+    #expect(abs(window.frame.width - cursorSize) < 1.0)
+    #expect(abs(window.frame.height - cursorSize) < 1.0)
+    #expect(window.ignoresMouseEvents)
+    #expect(window.canBecomeKey == false)
+    #expect(window.canBecomeMain == false)
+    #expect(window.sharingType == .readOnly)
+
+    window.pointerView.show(reduceMotion: false)
+    let fade = try #require(
+        window.pointerView.layer?.animation(forKey: "pointer.fade") as? CABasicAnimation
+    )
+    #expect(abs(fade.duration - 0.18) < 0.001)
+
+    window.pointerView.hide {}
+    let fadeOut = try #require(
+        window.pointerView.layer?.animation(forKey: "pointer.fade") as? CABasicAnimation
+    )
+    #expect(abs(fadeOut.duration - 0.7) < 0.001)
+}
+
+@MainActor
+@Test func syntheticPointerTravelsBetweenDistinctTargets() async throws {
+    let cursorScale: CGFloat = 0.3535533906
+    let cursorHotspot = CGPoint(x: 18 * cursorScale, y: 114.5 * cursorScale)
+    let window = PointerOverlayWindow(
+        startPoint: CGPoint(x: 100, y: 700),
+        rgba: GlowRGBA(red: 0.66, green: 0.33, blue: 0.97)
+    )
+    let destination = CGPoint(x: 520, y: 360)
+    window.move(to: destination, action: .click, reduceMotion: false)
+
+    try await Task.sleep(for: .milliseconds(550))
+    #expect(window.targetPoint == destination)
+    #expect(abs(window.frame.origin.x - (destination.x - cursorHotspot.x)) < 1.0)
+    #expect(abs(window.frame.origin.y - (destination.y - cursorHotspot.y)) < 1.0)
 }
