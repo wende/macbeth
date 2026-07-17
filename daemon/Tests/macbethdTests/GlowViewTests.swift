@@ -5,6 +5,56 @@ import Testing
 @testable import macbeth_glow
 
 @MainActor
+private final class FakeNavigationOverlayWindow: NavigationOverlayWindow {
+    private(set) var targetFrame: CGRect
+    private(set) var orderFrontCount = 0
+    private(set) var orderOutCount = 0
+    private(set) var showCount = 0
+    private(set) var hideCount = 0
+
+    init(targetFrame: CGRect) {
+        self.targetFrame = targetFrame
+    }
+
+    func move(to frame: CGRect) {
+        targetFrame = frame
+    }
+
+    func orderFrontRegardless() {
+        orderFrontCount += 1
+    }
+
+    func orderOut(_ sender: Any?) {
+        orderOutCount += 1
+    }
+
+    func showOutline(reduceMotion: Bool) -> Bool {
+        showCount += 1
+        return showCount == 1
+    }
+
+    func hideOutline(completion: @escaping () -> Void) {
+        hideCount += 1
+        completion()
+    }
+}
+
+@MainActor
+private func fakeOverlayController(
+    debounceMs: Int = 400,
+    frontmostPid: pid_t? = 42
+) -> OverlayController {
+    OverlayController(
+        rgba: GlowRGBA(red: 0.66, green: 0.33, blue: 0.97),
+        debounceMs: debounceMs,
+        navigationWindowFactory: { frame, _ in
+            FakeNavigationOverlayWindow(targetFrame: frame)
+        },
+        frontmostPidProvider: { frontmostPid }
+    )
+}
+
+@MainActor
 @Test func captureOverlayTracksWindowWithoutStealingInput() throws {
     let captureRect = GlowCaptureRect(x: 100, y: 200, width: 800, height: 500)
     let targetFrame = appKitCaptureFrame(captureRect, primaryDisplayTop: 1_000)
@@ -94,10 +144,7 @@ import Testing
 
 @MainActor
 @Test func navigationControllerKeepsIndependentIdempotentWindowOutlines() throws {
-    let controller = OverlayController(
-        rgba: GlowRGBA(red: 0.66, green: 0.33, blue: 0.97),
-        debounceMs: 400
-    )
+    let controller = fakeOverlayController()
     let firstID = "pid:42:window:1"
     let secondID = "pid:42:window:2"
     let firstRect = GlowCaptureRect(x: 100, y: 100, width: 500, height: 400)
@@ -107,24 +154,20 @@ import Testing
     controller.handle(.windowFocused(id: secondID, rect: secondRect))
     #expect(controller.navigationOverlayCount == 2)
 
-    let firstWindow = try #require(controller.navigationOutlineWindow(for: firstID))
-    let firstFade = try #require(
-        firstWindow.outlineView.layer?.animation(forKey: "navigation.fade")
+    let firstWindow = try #require(
+        controller.navigationOutlineWindow(for: firstID) as? FakeNavigationOverlayWindow
     )
     controller.handle(.windowFocused(id: firstID, rect: firstRect))
 
     #expect(controller.navigationOverlayCount == 2)
     #expect(controller.navigationOutlineWindow(for: firstID) === firstWindow)
-    #expect(firstWindow.outlineView.layer?.animation(forKey: "navigation.fade") === firstFade)
-    #expect(firstWindow.outlineView.layer?.animation(forKey: "navigation.pulse") == nil)
+    #expect(firstWindow.orderFrontCount == 2)
+    #expect(firstWindow.showCount == 2)
 }
 
 @MainActor
 @Test func standaloneWindowFocusGetsItsOwnTimerDuringAnotherOperationsHold() {
-    let controller = OverlayController(
-        rgba: GlowRGBA(red: 0.66, green: 0.33, blue: 0.97),
-        debounceMs: 400
-    )
+    let controller = fakeOverlayController()
     let controlledID = "pid:42:window:1"
     let inspectedID = "pid:42:window:2"
 
@@ -141,6 +184,77 @@ import Testing
 
     #expect(controller.navigationFadeIsScheduled(for: controlledID))
     #expect(controller.navigationFadeIsScheduled(for: inspectedID))
+}
+
+@MainActor
+@Test func newActivityCancelsPendingNavigationFadeUntilActivityEnds() throws {
+    let controller = fakeOverlayController(frontmostPid: 42)
+    let id = "pid:42:window:1"
+    let rect = GlowCaptureRect(x: 100, y: 100, width: 500, height: 400)
+
+    controller.handle(.activate())
+    controller.handle(.windowFocused(id: id, rect: rect))
+    let originalWindow = try #require(controller.navigationOutlineWindow(for: id))
+    controller.handle(.deactivate)
+    #expect(controller.navigationFadeIsScheduled(for: id))
+
+    // The next operation starts before it has finished resolving the same
+    // window. Its activation must hold the existing outline in place — but only
+    // when that window still belongs to the frontmost app.
+    controller.handle(.activate())
+    #expect(!controller.navigationFadeIsScheduled(for: id))
+    #expect(controller.navigationOutlineWindow(for: id) === originalWindow)
+
+    controller.handle(.deactivate)
+    #expect(controller.navigationFadeIsScheduled(for: id))
+}
+
+@MainActor
+@Test func activateDoesNotRearmOutlineForBackgroundApp() throws {
+    // Frontmost app is pid 7; the controlled window belongs to pid 42.
+    let controller = fakeOverlayController(frontmostPid: 7)
+    let id = "pid:42:window:1"
+    let rect = GlowCaptureRect(x: 100, y: 100, width: 500, height: 400)
+
+    controller.handle(.activate())
+    controller.handle(.windowFocused(id: id, rect: rect))
+    controller.handle(.deactivate)
+    #expect(controller.navigationFadeIsScheduled(for: id))
+
+    // Bare activate (MCP begin_activity) while another app is frontmost must not
+    // re-arm the fading outline — that is the misleading background chrome bug.
+    controller.handle(.activate())
+    #expect(controller.navigationFadeIsScheduled(for: id))
+}
+
+@MainActor
+@Test func backgroundingFrontmostAppDismissesItsOutline() throws {
+    var frontmostPid: pid_t? = 42
+    let controller = OverlayController(
+        rgba: GlowRGBA(red: 0.66, green: 0.33, blue: 0.97),
+        debounceMs: 400,
+        navigationWindowFactory: { frame, _ in
+            FakeNavigationOverlayWindow(targetFrame: frame)
+        },
+        frontmostPidProvider: { frontmostPid }
+    )
+    let id = "pid:42:window:1"
+    let rect = GlowCaptureRect(x: 100, y: 100, width: 500, height: 400)
+
+    controller.handle(.activate())
+    controller.handle(.windowFocused(id: id, rect: rect))
+    #expect(controller.navigationOverlayCount == 1)
+    let window = try #require(
+        controller.navigationOutlineWindow(for: id) as? FakeNavigationOverlayWindow
+    )
+
+    // Another app becomes frontmost (user switch, test harness sendToBackground, …).
+    frontmostPid = 7
+    controller.reconcileOutlinesWithFrontmostApp()
+
+    #expect(controller.navigationOverlayCount == 0)
+    #expect(window.hideCount == 1)
+    #expect(window.orderOutCount == 1)
 }
 
 @Test func subPointWindowFrameChangesReuseTheSameOutline() {

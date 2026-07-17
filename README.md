@@ -116,6 +116,14 @@ cd client && npm run build && cd ..
 MACBETH_GUI_TESTS=1 npm run test:gui
 ```
 
+To audit whether demo MCP actions leave a fixture frontmost, run the opt-in
+foregrounding suite (mirrors every step in `demo:mcp`; keyboard paths are
+expected to fail today):
+
+```bash
+MACBETH_GUI_FOREGROUND_TESTS=1 npm run test:gui:foreground
+```
+
 ### MCP-only feature demo
 
 Run the full native + Electron presentation through the public MCP server:
@@ -558,7 +566,12 @@ How it works:
 - Window-local glow is shown only when the explicitly targeted window is the
   system-wide focused frontmost window at the start of the operation. Macbeth
   can still inspect or manipulate background windows, but does so without a
-  misleading outline, presentation pointer, or capture animation.
+  misleading outline, presentation pointer, or capture animation. If a
+  previously outlined app loses frontmost (user switch, harness
+  backgrounding, etc.), `macbeth-glow` drops that outline immediately.
+  Paths that must foreground the target (`press_key` / `press_keys`, keyboard
+  `fill`, Electron auto-fill) re-present the outline **after** activation so
+  chrome tracks the window the user is now looking at.
 - Addressing an app through MCP places a quiet, click-through violet outline
   and inward edge glow around the controlled window. Every window is keyed by
   its stable process/window identity, so several controlled windows can remain

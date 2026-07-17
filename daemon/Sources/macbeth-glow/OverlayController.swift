@@ -2,14 +2,37 @@ import AppKit
 import GlowProtocol
 
 @MainActor
+protocol NavigationOverlayWindow: AnyObject {
+    var targetFrame: CGRect { get }
+    func move(to frame: CGRect)
+    func orderFrontRegardless()
+    func orderOut(_ sender: Any?)
+    @discardableResult
+    func showOutline(reduceMotion: Bool) -> Bool
+    func hideOutline(completion: @escaping () -> Void)
+}
+
+extension NavigationOutlineWindow: NavigationOverlayWindow {
+    func showOutline(reduceMotion: Bool) -> Bool {
+        outlineView.show(reduceMotion: reduceMotion)
+    }
+
+    func hideOutline(completion: @escaping () -> Void) {
+        outlineView.hide(completion: completion)
+    }
+}
+
+typealias NavigationOverlayWindowFactory = @MainActor (CGRect, GlowRGBA) -> any NavigationOverlayWindow
+
+@MainActor
 private final class NavigationOverlayState {
-    let window: NavigationOutlineWindow
+    let window: any NavigationOverlayWindow
     var rect: GlowCaptureRect
     var fadeTimer: Timer?
     var fadeDeadline: Date?
     var generation = 0
 
-    init(window: NavigationOutlineWindow, rect: GlowCaptureRect) {
+    init(window: any NavigationOverlayWindow, rect: GlowCaptureRect) {
         self.window = window
         self.rect = rect
     }
@@ -30,10 +53,25 @@ final class OverlayController: NSObject {
     private var activeNavigationIDs: Set<String> = []
     private var pointerWindow: PointerOverlayWindow?
     private var pointerGeneration = 0
+    private let navigationWindowFactory: NavigationOverlayWindowFactory
+    /// Injectable for tests. Production reads the real frontmost app so a bare
+    /// `activate` (MCP `begin_activity`) cannot re-arm outlines on background windows.
+    private let frontmostPidProvider: () -> pid_t?
 
-    init(rgba: GlowRGBA, debounceMs: Int) {
+    init(
+        rgba: GlowRGBA,
+        debounceMs: Int,
+        navigationWindowFactory: @escaping NavigationOverlayWindowFactory = {
+            NavigationOutlineWindow(targetFrame: $0, rgba: $1)
+        },
+        frontmostPidProvider: @escaping () -> pid_t? = {
+            NSWorkspace.shared.frontmostApplication?.processIdentifier
+        }
+    ) {
         self.rgba = rgba
         self.tracker = GlowActivityTracker(debounceMs: debounceMs)
+        self.navigationWindowFactory = navigationWindowFactory
+        self.frontmostPidProvider = frontmostPidProvider
         super.init()
     }
 
@@ -43,7 +81,7 @@ final class OverlayController: NSObject {
 
     var navigationOverlayCount: Int { navigationOverlays.count }
 
-    func navigationOutlineWindow(for id: String) -> NavigationOutlineWindow? {
+    func navigationOutlineWindow(for id: String) -> (any NavigationOverlayWindow)? {
         navigationOverlays[id]?.window
     }
 
@@ -60,6 +98,19 @@ final class OverlayController: NSObject {
             self, selector: #selector(accessibilityOptionsChanged),
             name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil
         )
+        // Outlines are only honest while their app is frontmost. When the user
+        // (or a test harness) backgrounds a controlled app, drop its outline
+        // immediately so residual chrome does not linger on a background window.
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self, selector: #selector(frontmostApplicationChanged),
+            name: NSWorkspace.didActivateApplicationNotification, object: nil
+        )
+    }
+
+    /// Drop navigation outlines whose owning process is no longer frontmost.
+    /// Safe to call from tests after changing `frontmostPidProvider`.
+    func reconcileOutlinesWithFrontmostApp() {
+        dismissOutlinesNotBelongingToFrontmostApp()
     }
 
     // MARK: - Message handling
@@ -75,6 +126,22 @@ final class OverlayController: NSObject {
             tracker.reset()
             fadeOutTimer?.invalidate()
             fadeOutTimer = nil
+            // A new frontmost operation can spend longer than the debounce resolving
+            // its target before the next focusWindow message arrives. Resume only
+            // outlines that still belong to the system frontmost app so continuous
+            // foreground demos stay smooth — never re-arm a background window's
+            // outline from a bare activate / MCP begin_activity scope.
+            let frontmostPid = frontmostPidProvider()
+            for (id, state) in navigationOverlays where state.fadeDeadline != nil {
+                guard let frontmostPid, navigationOverlayBelongsToPid(id, pid: frontmostPid) else {
+                    continue
+                }
+                state.fadeTimer?.invalidate()
+                state.fadeTimer = nil
+                state.fadeDeadline = nil
+                state.generation += 1
+                activeNavigationIDs.insert(id)
+            }
             if !isShowing { show() }
 
         case .deactivate:
@@ -134,13 +201,13 @@ final class OverlayController: NSObject {
                 state.window.move(to: frame)
             }
             state.window.orderFrontRegardless()
-            state.window.outlineView.show(reduceMotion: reduceMotion)
+            state.window.showOutline(reduceMotion: reduceMotion)
         } else {
-            let window = NavigationOutlineWindow(targetFrame: frame, rgba: rgba)
+            let window = navigationWindowFactory(frame, rgba)
             state = NavigationOverlayState(window: window, rect: rect)
             navigationOverlays[id] = state
             window.orderFrontRegardless()
-            window.outlineView.show(reduceMotion: reduceMotion)
+            window.showOutline(reduceMotion: reduceMotion)
         }
 
         // Identical focus messages are deliberately visually idempotent: they
@@ -195,7 +262,7 @@ final class OverlayController: NSObject {
         state.fadeTimer?.invalidate()
         state.fadeTimer = nil
         state.fadeDeadline = nil
-        state.window.outlineView.hide { [weak self, weak state] in
+        state.window.hideOutline { [weak self, weak state] in
             guard let self, let state,
                   self.navigationOverlays[id] === state,
                   state.generation == generation,
@@ -207,6 +274,43 @@ final class OverlayController: NSObject {
 
     private func legacyWindowID(for rect: GlowCaptureRect) -> String {
         "legacy:\(rect.x):\(rect.y):\(rect.width):\(rect.height)"
+    }
+
+    /// Window ids are `pid:<n>:window:<n>` or `pid:<n>:ax:<hash>` (see ElementGeometry).
+    private func navigationOverlayBelongsToPid(_ id: String, pid: pid_t) -> Bool {
+        id.hasPrefix("pid:\(pid):")
+    }
+
+    @objc private func frontmostApplicationChanged(_ notification: Notification) {
+        dismissOutlinesNotBelongingToFrontmostApp()
+    }
+
+    private func dismissOutlinesNotBelongingToFrontmostApp() {
+        guard let frontmostPid = frontmostPidProvider() else { return }
+        let staleIDs = navigationOverlays.keys.filter {
+            !navigationOverlayBelongsToPid($0, pid: frontmostPid)
+        }
+        for id in staleIDs {
+            dismissNavigationOutline(id: id)
+        }
+    }
+
+    /// Tear down a navigation outline now (cancel hold / active scope membership).
+    private func dismissNavigationOutline(id: String) {
+        guard let state = navigationOverlays[id] else { return }
+        activeNavigationIDs.remove(id)
+        state.fadeTimer?.invalidate()
+        state.fadeTimer = nil
+        state.fadeDeadline = nil
+        state.generation += 1
+        let generation = state.generation
+        state.window.hideOutline { [weak self, weak state] in
+            guard let self, let state,
+                  self.navigationOverlays[id] === state,
+                  state.generation == generation else { return }
+            state.window.orderOut(nil)
+            self.navigationOverlays[id] = nil
+        }
     }
 
     private func movePointer(to point: GlowPointerPoint, action: GlowPointerAction) {
