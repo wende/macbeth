@@ -97,12 +97,27 @@ describe("resolveInstallSpec", () => {
 });
 
 describe("runUpdate", () => {
+  // Pin the installed version so these tests never depend on the real
+  // package.json (which changes on every release bump).
+  const readVersion = () => "0.2.0";
+
   it("does not install when already up to date", async () => {
     const install = vi.fn().mockResolvedValue(undefined);
     const code = await runUpdate([], {
       fetchImpl: mockFetch({ tag_name: "v0.2.0", assets: [] }),
       install,
-      // readInstalledVersion reads the real package.json (0.2.0 at time of writing).
+      readVersion,
+    });
+    expect(install).not.toHaveBeenCalled();
+    expect(code).toBe(0);
+  });
+
+  it("does not install when the installed version is newer than the release", async () => {
+    const install = vi.fn().mockResolvedValue(undefined);
+    const code = await runUpdate([], {
+      fetchImpl: mockFetch({ tag_name: "v0.1.0", assets: [] }),
+      install,
+      readVersion,
     });
     expect(install).not.toHaveBeenCalled();
     expect(code).toBe(0);
@@ -116,6 +131,21 @@ describe("runUpdate", () => {
         assets: [{ name: "macbeth-99.0.0.tgz", browser_download_url: "https://x/tgz" }],
       }),
       install,
+      readVersion,
+    });
+    expect(install).toHaveBeenCalledWith("https://x/tgz");
+    expect(code).toBe(0);
+  });
+
+  it("reinstalls the current version when --force is passed", async () => {
+    const install = vi.fn().mockResolvedValue(undefined);
+    const code = await runUpdate(["--force"], {
+      fetchImpl: mockFetch({
+        tag_name: "v0.2.0",
+        assets: [{ name: "macbeth-0.2.0.tgz", browser_download_url: "https://x/tgz" }],
+      }),
+      install,
+      readVersion,
     });
     expect(install).toHaveBeenCalledWith("https://x/tgz");
     expect(code).toBe(0);
@@ -127,6 +157,7 @@ describe("runUpdate", () => {
       check: true,
       fetchImpl: mockFetch({ tag_name: "v99.0.0", assets: [] }),
       install,
+      readVersion,
     });
     expect(install).not.toHaveBeenCalled();
     expect(code).toBe(0);
@@ -136,7 +167,47 @@ describe("runUpdate", () => {
     const code = await runUpdate([], {
       fetchImpl: mockFetch({}, false, 500),
       install: vi.fn(),
+      readVersion,
     });
     expect(code).toBe(1);
+  });
+
+  it("returns a non-zero code and logs when the install fails", async () => {
+    const install = vi.fn().mockRejectedValue(new Error("npm boom"));
+    const code = await runUpdate([], {
+      fetchImpl: mockFetch({
+        tag_name: "v99.0.0",
+        assets: [{ name: "macbeth-99.0.0.tgz", browser_download_url: "https://x/tgz" }],
+      }),
+      install,
+      readVersion,
+    });
+    expect(install).toHaveBeenCalled();
+    expect(code).toBe(1);
+  });
+
+  it("returns a non-zero code when the installed version cannot be read", async () => {
+    const code = await runUpdate([], {
+      fetchImpl: mockFetch({ tag_name: "v99.0.0", assets: [] }),
+      install: vi.fn(),
+      readVersion: () => {
+        throw new Error("no package.json");
+      },
+    });
+    expect(code).toBe(1);
+  });
+
+  it("queries the repo from MACBETH_UPDATE_REPO when set", async () => {
+    const fetchImpl = mockFetch({ tag_name: "v0.2.0", assets: [] });
+    const prev = process.env.MACBETH_UPDATE_REPO;
+    process.env.MACBETH_UPDATE_REPO = "myfork/macbeth";
+    try {
+      await runUpdate([], { fetchImpl, install: vi.fn(), readVersion });
+    } finally {
+      if (prev === undefined) delete process.env.MACBETH_UPDATE_REPO;
+      else process.env.MACBETH_UPDATE_REPO = prev;
+    }
+    const url = (fetchImpl as unknown as { mock: { calls: unknown[][] } }).mock.calls[0][0];
+    expect(url).toContain("myfork/macbeth");
   });
 });

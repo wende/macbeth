@@ -30,36 +30,40 @@ function printHelp() {
 
 const [command, ...rest] = process.argv.slice(2);
 
-switch (command) {
-  case "update":
-  case "self-update":
-  case "upgrade": {
-    const { runUpdate } = await import("../dist/update.js");
-    process.exit(await runUpdate(rest));
-    break;
-  }
-  case "version":
-  case "--version":
-  case "-v": {
-    process.stdout.write(`${readVersion()}\n`);
-    break;
-  }
-  case "help":
-  case "--help":
-  case "-h": {
-    printHelp();
-    break;
-  }
-  default: {
-    if (command && command.startsWith("-") === false) {
-      // An unrecognized bare word is almost certainly a typo; surface help
-      // rather than silently starting the MCP server.
-      process.stderr.write(`Unknown command: ${command}\n\n`);
-      printHelp();
-      process.exit(1);
+try {
+  switch (command) {
+    case "update":
+    case "self-update":
+    case "upgrade": {
+      const { runUpdate } = await import("../dist/update.js");
+      process.exit(await runUpdate(rest));
     }
-    // No command (or leading-dash flags meant for the server): start the MCP
-    // server. This is the entry point invoked by `npx macbeth` in MCP configs.
-    await import("../dist/mcp.js");
+    case "version":
+    case "--version":
+    case "-v": {
+      process.stdout.write(`${readVersion()}\n`);
+      break;
+    }
+    case "help":
+    case "--help":
+    case "-h": {
+      printHelp();
+      break;
+    }
+    default: {
+      if (command && !command.startsWith("-")) {
+        // An unrecognized bare word is almost certainly a typo; surface help
+        // rather than silently starting the MCP server.
+        process.stderr.write(`Unknown command: ${command}\n\n`);
+        printHelp();
+        process.exit(1);
+      }
+      // No command (or leading-dash flags meant for the server): start the MCP
+      // server. This is the entry point invoked by `npx macbeth` in MCP configs.
+      await import("../dist/mcp.js");
+    }
   }
+} catch (err) {
+  process.stderr.write(`${err instanceof Error ? err.message : err}\n`);
+  process.exit(1);
 }

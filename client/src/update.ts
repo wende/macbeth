@@ -159,6 +159,8 @@ export interface UpdateOptions {
   force?: boolean;
   fetchImpl?: typeof fetch;
   install?: (spec: string) => Promise<void>;
+  /** Override how the installed version is read (injectable for tests). */
+  readVersion?: () => string;
 }
 
 /**
@@ -172,8 +174,16 @@ export async function runUpdate(argv: string[] = [], options: UpdateOptions = {}
   const check = options.check ?? argv.includes("--check");
   const force = options.force ?? argv.includes("--force");
   const install = options.install ?? npmInstallGlobal;
+  const readVersion = options.readVersion ?? (() => readInstalledVersion());
 
-  const current = readInstalledVersion();
+  let current: string;
+  try {
+    current = readVersion();
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    process.stderr.write(`Could not determine the installed version: ${detail}\n`);
+    return 1;
+  }
   log(`Current version: v${current}`);
   log(`Checking ${repo} for the latest release...`);
 
