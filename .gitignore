@@ -1,6 +1,7 @@
 # Swift
 .build/
 .swiftpm/
+.cache/
 xcuserdata/
 DerivedData/
 .tmp/

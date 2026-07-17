@@ -538,7 +538,10 @@ macbeth/
 │   └── bin/macbeth.mjs     # npx entry point
 ├── protocol/               # Shared JSON-RPC schema definitions
 ├── skills/                 # Bundled app workflows (SKILL.md + scripts)
-├── test-harness/           # Packaged AppKit test harness source
+├── test/                   # Test apps & fixtures
+│   ├── test-harness/       # Packaged AppKit test harness source
+│   ├── testapp-minimal/    # Minimal Swift CI harness
+│   └── electron-testapp/   # Electron demo app for automation
 ├── assets/                 # Logo and media
 └── scripts/
     ├── build-daemon.sh     # Build universal binary
@@ -667,7 +670,7 @@ The workflow:
    cloning an existing `/bin/bash` row.
 4. Re-runs `macbethd --check-permissions` to verify the grant took.
 5. Builds and launches a minimal Swift test harness
-   (`testapp-minimal/`) with one window, one text field, one button,
+   (`test/testapp-minimal/`) with one window, one text field, one button,
    and one status label.
 6. Runs `scripts/ci-e2e-test.mjs`, which uses the real Macbeth stack
    (`MacbethClient` → daemon → AX) to:

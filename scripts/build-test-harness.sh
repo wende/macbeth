@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-HARNESS_DIR="$ROOT_DIR/test-harness"
+HARNESS_DIR="$ROOT_DIR/test/test-harness"
 BUNDLE_PATH="$HARNESS_DIR/.build/MacbethTestApp.app"
 
 swift build --package-path "$HARNESS_DIR" --configuration debug >/dev/null

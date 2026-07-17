@@ -7,7 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AppHandle, MacbethClient } from "../client.js";
 
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
-const bundlePath = resolve(rootDir, "test-harness/.build/MacbethTestApp.app");
+const bundlePath = resolve(rootDir, "test/test-harness/.build/MacbethTestApp.app");
 const guiEnabled = process.platform === "darwin" && process.env.MACBETH_GUI_TESTS === "1";
 const guiDescribe = guiEnabled ? describe : describe.skip;
 const keyboardDescribe = guiEnabled && process.env.MACBETH_GUI_KEYBOARD_TESTS === "1"
