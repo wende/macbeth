@@ -161,29 +161,51 @@ private func buildHint(parent: AXUIElement, failedStep: QueryStep) -> String {
 
 // MARK: - Recursive descent
 
-/// BFS through all descendants, returning elements that match the step.
-/// This lets query paths skip intermediate containers (like Playwright's locators).
-private func findDescendants(_ root: AXUIElement, matching step: QueryStep, maxDepth: Int = 50) -> [AXUIElement] {
-    var matches: [AXUIElement] = []
-    var queue: [(AXUIElement, Int)] = [(root, 0)]
+/// Depth-first pre-order walk collecting every descendant that matches `isMatch`.
+///
+/// The order matters: `step.index` selects from these results positionally, and users
+/// read those positions off the tree printed by `query_tree`. `TreeWalker` prints
+/// depth-first, so descent here must be depth-first too or `index: N` silently selects
+/// a different element than the one the user counted.
+///
+/// Generic over the node type so the traversal/ordering rules can be tested without a
+/// live app; `findDescendants` supplies the AX accessors.
+func findMatchingDescendants<Node>(
+    root: Node,
+    children: (Node) -> [Node],
+    isMatch: (Node) -> Bool,
+    maxDepth: Int = 50
+) -> [Node] {
+    var matches: [Node] = []
 
-    while !queue.isEmpty {
-        let (element, depth) = queue.removeFirst()
-        guard depth <= maxDepth else { continue }
-
-        let children = getChildElements(element)
-        for child in children {
-            if matchesStep(child, step) {
+    func visit(_ element: Node, _ depth: Int) {
+        guard depth <= maxDepth else { return }
+        for child in children(element) {
+            if isMatch(child) {
                 matches.append(child)
                 // Don't recurse into matched elements — a match scopes
                 // the subtree for the next query step.
             } else {
-                queue.append((child, depth + 1))
+                visit(child, depth + 1)
             }
         }
     }
 
+    visit(root, 0)
     return matches
+}
+
+/// Walk all descendants, returning elements that match the step.
+/// This lets query paths skip intermediate containers (like Playwright's locators):
+/// descent passes straight through wrapper nodes, so a path need only name the
+/// elements it cares about.
+private func findDescendants(_ root: AXUIElement, matching step: QueryStep, maxDepth: Int = 50) -> [AXUIElement] {
+    findMatchingDescendants(
+        root: root,
+        children: { getChildElements($0) },
+        isMatch: { matchesStep($0, step) },
+        maxDepth: maxDepth
+    )
 }
 
 // MARK: - Matching
@@ -236,36 +258,10 @@ private func getStringAttr(_ element: AXUIElement, _ attribute: String) -> Strin
     return value
 }
 
-/// Get the visible children of an element, skipping through anonymous structural
-/// containers (same logic as TreeWalker.shouldSkipElement) so that query paths
-/// match the flattened tree shown by query_tree.
-private func getVisibleChildren(_ element: AXUIElement) -> [AXUIElement] {
-    var result: [AXUIElement] = []
-    for child in getChildElements(element) {
-        if shouldSkipQueryElement(child) {
-            result.append(contentsOf: getVisibleChildren(child))
-        } else {
-            result.append(child)
-        }
-    }
-    return result
-}
-
-/// Mirror of TreeWalker's shouldSkipElement — skips anonymous group-like
-/// containers that have no title or identifier and have children.
-private func shouldSkipQueryElement(_ element: AXUIElement) -> Bool {
-    let role = getStringAttr(element, kAXRoleAttribute) ?? ""
-    let skippableRoles: Set<String> = [
-        "AXGroup", "AXLayoutArea", "AXLayoutItem", "AXSplitGroup",
-        "AXScrollArea",
-    ]
-    guard skippableRoles.contains(role) else { return false }
-    if getStringAttr(element, kAXTitleAttribute) != nil { return false }
-    if getStringAttr(element, kAXIdentifierAttribute) != nil { return false }
-    let children = getChildElements(element)
-    if children.isEmpty { return false }
-    return true
-}
+// Note: query descent deliberately has no flattening pass mirroring
+// `TreeWalker.shouldSkipElement`. `query_tree` skips printing anonymous containers, but
+// `findDescendants` recurses through every non-matching node anyway, so both reach the
+// same elements — flattening here would change nothing.
 
 private func getChildElements(_ element: AXUIElement) -> [AXUIElement] {
     var ref: CFTypeRef?

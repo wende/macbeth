@@ -105,6 +105,7 @@ let expirationTask = Task {
     while !Task.isCancelled {
         try? await Task.sleep(for: .seconds(60))
         await handleTable.expireStale()
+        await appManager.evictTerminatedApps()
     }
 }
 

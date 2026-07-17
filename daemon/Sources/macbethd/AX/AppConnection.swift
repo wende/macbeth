@@ -15,10 +15,46 @@ actor AppConnectionManager {
 
     private var connections: [String: Connection] = [:]
     private let handleTable: HandleTable
+    private let isProcessAlive: @Sendable (pid_t) -> Bool
 
-    init(handleTable: HandleTable) {
+    /// - Parameter isProcessAlive: Liveness probe for a connected app, injectable for tests.
+    init(
+        handleTable: HandleTable,
+        isProcessAlive: @escaping @Sendable (pid_t) -> Bool = { pid in
+            guard let app = NSRunningApplication(processIdentifier: pid) else { return false }
+            return !app.isTerminated
+        }
+    ) {
         self.handleTable = handleTable
+        self.isProcessAlive = isProcessAlive
     }
+
+    /// Drop connections whose target app has quit, along with their handles.
+    ///
+    /// Without this, `connections` only ever grows: entries are added on `connect` and
+    /// nothing removes them, so a long-lived daemon cycling through short-lived apps
+    /// retains a `Connection` and its app handle per app, forever.
+    func evictTerminatedApps() async {
+        let dead = connections.filter { !isProcessAlive($0.value.pid) }
+        guard !dead.isEmpty else { return }
+
+        for (handleId, connection) in dead {
+            connections.removeValue(forKey: handleId)
+            await handleTable.removeHandles(forPid: connection.pid)
+            vlog("Evicted connection \(handleId) for terminated pid \(connection.pid)")
+        }
+    }
+
+    /// Number of live connections.
+    var connectionCount: Int { connections.count }
+
+    #if DEBUG
+    /// Register a connection without a live app behind it. Tests only — `connect`
+    /// requires an AX-responsive process, which a unit test has no way to provide.
+    func seedForTesting(_ connection: Connection) {
+        connections[connection.handleId] = connection
+    }
+    #endif
 
     /// Connect to an app by name or PID. Returns the connection info.
     ///
