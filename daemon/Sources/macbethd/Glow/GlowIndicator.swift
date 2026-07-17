@@ -115,12 +115,12 @@ actor GlowIndicator {
 
     /// Start a window-local capture animation. Returns nil when the best-effort
     /// helper is unavailable so callers can capture immediately.
-    func captureStarted(frame: CGRect) -> String? {
+    func captureStarted(windowID: String, frame: CGRect) -> String? {
         guard !disabled else { return nil }
         ensureRunning()
         guard !disabled else { return nil }
 
-        windowFocused(frame: frame)
+        windowFocused(id: windowID, frame: frame)
         let id = UUID().uuidString
         let rect = captureRect(frame)
         send(.captureStarted(id: id, rect: rect))
@@ -132,14 +132,14 @@ actor GlowIndicator {
         send(.captureFinished(id: id, success: success))
     }
 
-    func windowFocused(frame: CGRect) {
+    func windowFocused(id: String, frame: CGRect) {
         guard !disabled else { return }
         ensureRunning()
         guard !disabled else { return }
-        send(.windowFocused(rect: captureRect(frame)))
+        send(.windowFocused(id: id, rect: captureRect(frame)))
     }
 
-    /// Move the recording-only synthetic pointer to an AX interaction target.
+    /// Move the synthetic presentation pointer to an AX interaction target.
     /// Returns false when the helper is unavailable so callers never wait for
     /// an animation the user cannot see.
     func pointerMoved(to point: CGPoint, action: GlowPointerAction) -> Bool {

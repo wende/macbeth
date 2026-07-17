@@ -45,18 +45,22 @@ func registerExtractText(
 
                 let filter = SCContentFilter(desktopIndependentWindow: targetWindow)
                 let config = SCStreamConfiguration()
-                // OCR does not need the 2x backing resolution used by the screenshot
-                // RPC. Feeding Vision a Retina-sized image makes recognition roughly
-                // four times as expensive and can exceed the client's 60s deadline on
-                // large windows. Capture at one pixel per point instead.
-                config.width = max(1, Int(targetWindow.frame.width.rounded()))
-                config.height = max(1, Int(targetWindow.frame.height.rounded()))
+                // extract_text is the fallback bridge for AX-opaque apps (Unity,
+                // Electron IDEs), where the targets are small panel labels. Capture
+                // at 2x backing resolution so Vision has the most detail to work with.
+                config.width = max(1, Int(targetWindow.frame.width.rounded()) * 2)
+                config.height = max(1, Int(targetWindow.frame.height.rounded()) * 2)
                 config.showsCursor = false
 
                 var captured: CGImage
                 await glow.activityStarted()
                 defer { Task { await glow.activityEnded() } }
-                let captureAnimation = await glow.captureStarted(frame: targetWindow.frame)
+                let windowID = ElementGeometry.windowIdentity(
+                    pid: conn.pid, windowNumber: Int(targetWindow.windowID)
+                )
+                let captureAnimation = await glow.captureStarted(
+                    windowID: windowID, frame: targetWindow.frame
+                )
                 do {
                     if captureAnimation != nil {
                         try? await Task.sleep(for: .seconds(glowCapturePresentationDuration))
@@ -122,10 +126,9 @@ func recognizeText(in image: CGImage) async throws -> [TextItem] {
     // perform both invokes the completion handler and throws, which resumes the
     // continuation twice and crashes the entire daemon.
     let request = VNRecognizeTextRequest()
-    // UI automation needs bounded, responsive OCR more than document-grade
-    // language analysis. Vision's accurate recognizer can occasionally stall
-    // for the client's full 60-second deadline even on a 1x app window.
-    request.recognitionLevel = .fast
+    // This is a fallback path for apps AX cannot read, so favor accuracy: use
+    // Vision's accurate recognizer with language correction.
+    request.recognitionLevel = .accurate
     request.usesLanguageCorrection = true
 
     let handler = VNImageRequestHandler(cgImage: image, options: [:])

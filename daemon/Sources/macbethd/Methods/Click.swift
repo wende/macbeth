@@ -26,15 +26,14 @@ func registerClick(
             )
             try ensureElementValid(element.element)
 
-            if let window = ElementGeometry.containingWindow(of: element.element),
-               let frame = ElementGeometry.frame(of: window) {
-                await glow.windowFocused(frame: frame)
-            }
-
             // Interaction choke point: signal the glow and let the recording
             // pointer visibly arrive before touching the system.
             await glow.activityStarted()
             defer { Task { await glow.activityEnded() } }
+            if let window = ElementGeometry.containingWindow(of: element.element),
+               let frame = ElementGeometry.frame(of: window) {
+                await glow.windowFocused(id: ElementGeometry.windowIdentity(of: window), frame: frame)
+            }
             if let point = ElementGeometry.interactionPoint(of: element.element),
                await glow.pointerMoved(to: point, action: .click) {
                 try? await Task.sleep(for: .milliseconds(470))

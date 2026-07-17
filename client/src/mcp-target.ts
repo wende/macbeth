@@ -1,8 +1,6 @@
-import type { QueryStep } from "./types.js";
+import type { QueryStep, ElementTarget } from "./types.js";
 
-export type ElementTarget =
-  | { query: QueryStep[]; handleId?: never }
-  | { handleId: string; query?: never };
+export type { ElementTarget };
 
 /** Validate the MCP convention shared by element tools: exactly one target. */
 export function resolveElementTarget(

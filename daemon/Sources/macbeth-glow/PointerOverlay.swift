@@ -2,10 +2,17 @@ import AppKit
 import GlowProtocol
 import QuartzCore
 
-// A 50% area reduction means each linear dimension is scaled by √½, not ½.
-private let pointerScale: CGFloat = 0.7071067812
-private let pointerWindowSize = CGSize(width: 64 * pointerScale, height: 64 * pointerScale)
-private let pointerHotspot = CGPoint(x: 16 * pointerScale, y: 52 * pointerScale)
+/// The supplied MCP cursor artwork uses a 128pt design grid. Scale it into the
+/// same compact presentation footprint as the previous synthetic pointer.
+private let pointerScale: CGFloat = 0.3535533906
+private let pointerDesignSize: CGFloat = 128
+private let pointerWindowSize = CGSize(
+    width: pointerDesignSize * pointerScale,
+    height: pointerDesignSize * pointerScale
+)
+// The SVG pointer's tip is at (18, 13.5) in top-left coordinates. AppKit's
+// drawing space is bottom-left, so the corresponding local y is 114.5.
+private let pointerHotspot = CGPoint(x: 18 * pointerScale, y: 114.5 * pointerScale)
 
 @MainActor
 func appKitPointerPoint(
@@ -24,8 +31,8 @@ func initialPointerPoint(near target: CGPoint, screens: [NSScreen]? = nil) -> CG
     let screen = availableScreens.first(where: { $0.frame.contains(target) })
         ?? availableScreens.first
     let preferred = CGPoint(
-        x: target.x - 52 * pointerScale,
-        y: target.y + 42 * pointerScale
+        x: target.x - 96 * pointerScale,
+        y: target.y + 78 * pointerScale
     )
     guard let visible = screen?.visibleFrame.insetBy(dx: 32, dy: 32) else {
         return preferred
@@ -36,9 +43,11 @@ func initialPointerPoint(near target: CGPoint, screens: [NSScreen]? = nil) -> CG
     )
 }
 
-/// A click-through, recording-only pointer. It is deliberately violet-tinted
-/// rather than impersonating the system cursor exactly, making it clear that it
-/// represents Macbeth's intended target while leaving the real pointer alone.
+/// A click-through synthetic pointer. It stays visible in external screen
+/// recordings but is excluded from Macbeth's own single-window screenshots. It
+/// is deliberately violet-tinted rather than impersonating the system cursor
+/// exactly, making it clear that it represents Macbeth's intended target while
+/// leaving the real pointer alone.
 final class PointerOverlayWindow: NSWindow {
     let pointerView: PointerOverlayView
     private(set) var targetPoint: CGPoint
@@ -144,8 +153,9 @@ final class PointerOverlayWindow: NSWindow {
 }
 
 final class PointerOverlayView: NSView {
-    private let badgeLayer = CAShapeLayer()
-    private let pointerLayer = CAShapeLayer()
+    private let cursorGradientLayer = CAGradientLayer()
+    private let pointerStrokeLayer = CAShapeLayer()
+    private let daggerCutLayer = CAShapeLayer()
     private let pulseLayer = CAShapeLayer()
     private let fillCaretLayer = CAShapeLayer()
     private var rgba: GlowRGBA
@@ -161,51 +171,55 @@ final class PointerOverlayView: NSView {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
+    override func layout() {
+        super.layout()
+        // The backing layer receives its final bounds when the click-through
+        // overlay window is ordered on screen. Keep the SVG-derived gradient in
+        // sync; setting it only during init can leave it at a zero-sized frame.
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        cursorGradientLayer.frame = bounds
+        CATransaction.commit()
+    }
+
     private func configureLayers() {
         guard let root = layer else { return }
 
-        badgeLayer.path = CGPath(
-            ellipseIn: CGRect(
-                x: 3 * pointerScale,
-                y: 7 * pointerScale,
-                width: 48 * pointerScale,
-                height: 48 * pointerScale
-            ),
-            transform: nil
-        )
-        badgeLayer.fillColor = color(alpha: 0.2)
-        badgeLayer.strokeColor = color(lightenedBy: 0.38, alpha: 0.56)
-        badgeLayer.lineWidth = 1.5 * pointerScale
-        badgeLayer.shadowColor = color(alpha: 1)
-        badgeLayer.shadowOpacity = 0.55
-        badgeLayer.shadowRadius = 10 * pointerScale
-        badgeLayer.shadowOffset = .zero
-        root.addSublayer(badgeLayer)
+        let cursorPath = transformedPointerPath()
+        let cursorMask = CAShapeLayer()
+        cursorMask.path = cursorPath
+        cursorMask.fillColor = NSColor.white.cgColor
 
-        let arrow = CGMutablePath()
-        arrow.move(to: CGPoint(x: 16 * pointerScale, y: 52 * pointerScale))
-        arrow.addLine(to: CGPoint(x: 17 * pointerScale, y: 17 * pointerScale))
-        arrow.addLine(to: CGPoint(x: 25 * pointerScale, y: 25 * pointerScale))
-        arrow.addLine(to: CGPoint(x: 32 * pointerScale, y: 11 * pointerScale))
-        arrow.addLine(to: CGPoint(x: 39 * pointerScale, y: 15 * pointerScale))
-        arrow.addLine(to: CGPoint(x: 31 * pointerScale, y: 29 * pointerScale))
-        arrow.addLine(to: CGPoint(x: 43 * pointerScale, y: 29 * pointerScale))
-        arrow.closeSubpath()
+        cursorGradientLayer.frame = bounds
+        cursorGradientLayer.colors = [
+            CGColor(red: 0x8B / 255, green: 0x33 / 255, blue: 0x42 / 255, alpha: 1),
+            CGColor(red: 0x61 / 255, green: 0x20 / 255, blue: 0x2F / 255, alpha: 1),
+            CGColor(red: 0x32 / 255, green: 0x11 / 255, blue: 0x1A / 255, alpha: 1),
+        ]
+        cursorGradientLayer.locations = [0, 0.5, 1]
+        cursorGradientLayer.startPoint = CGPoint(x: 28 / pointerDesignSize, y: 110 / pointerDesignSize)
+        cursorGradientLayer.endPoint = CGPoint(x: 87 / pointerDesignSize, y: 24 / pointerDesignSize)
+        cursorGradientLayer.mask = cursorMask
+        root.addSublayer(cursorGradientLayer)
 
-        pointerLayer.path = arrow
-        pointerLayer.fillColor = color(lightenedBy: 0.48, alpha: 0.98)
-        pointerLayer.strokeColor = CGColor(gray: 0.12, alpha: 0.95)
-        pointerLayer.lineWidth = 2 * pointerScale
-        pointerLayer.lineJoin = .round
-        pointerLayer.shadowColor = color(alpha: 1)
-        pointerLayer.shadowOpacity = 0.9
-        pointerLayer.shadowRadius = 7 * pointerScale
-        pointerLayer.shadowOffset = .zero
-        root.addSublayer(pointerLayer)
+        pointerStrokeLayer.path = cursorPath
+        pointerStrokeLayer.fillColor = NSColor.clear.cgColor
+        pointerStrokeLayer.strokeColor = CGColor(red: 0xF8 / 255, green: 0xF7 / 255, blue: 0xFA / 255, alpha: 1)
+        pointerStrokeLayer.lineWidth = 6 * pointerScale
+        pointerStrokeLayer.lineJoin = .round
+        pointerStrokeLayer.shadowColor = CGColor(red: 0x09 / 255, green: 0x06 / 255, blue: 0x12 / 255, alpha: 1)
+        pointerStrokeLayer.shadowOpacity = 0.35
+        pointerStrokeLayer.shadowRadius = 3 * pointerScale
+        pointerStrokeLayer.shadowOffset = CGSize(width: 0, height: -4 * pointerScale)
+        root.addSublayer(pointerStrokeLayer)
+
+        daggerCutLayer.path = transformedDaggerCutPath()
+        daggerCutLayer.fillColor = CGColor(red: 0xF4 / 255, green: 0xF1 / 255, blue: 0xF8 / 255, alpha: 0.09)
+        root.addSublayer(daggerCutLayer)
 
         let pulseRect = CGRect(
-            x: 7 * pointerScale,
-            y: 43 * pointerScale,
+            x: pointerHotspot.x - 9 * pointerScale,
+            y: pointerHotspot.y - 9 * pointerScale,
             width: 18 * pointerScale,
             height: 18 * pointerScale
         )
@@ -217,18 +231,82 @@ final class PointerOverlayView: NSView {
         root.addSublayer(pulseLayer)
 
         let caret = CGMutablePath()
-        caret.move(to: CGPoint(x: 12 * pointerScale, y: 42 * pointerScale))
-        caret.addLine(to: CGPoint(x: 20 * pointerScale, y: 42 * pointerScale))
-        caret.move(to: CGPoint(x: 16 * pointerScale, y: 42 * pointerScale))
-        caret.addLine(to: CGPoint(x: 16 * pointerScale, y: 60 * pointerScale))
-        caret.move(to: CGPoint(x: 12 * pointerScale, y: 60 * pointerScale))
-        caret.addLine(to: CGPoint(x: 20 * pointerScale, y: 60 * pointerScale))
+        caret.move(to: CGPoint(x: pointerHotspot.x - 4 * pointerScale, y: pointerHotspot.y - 9 * pointerScale))
+        caret.addLine(to: CGPoint(x: pointerHotspot.x + 4 * pointerScale, y: pointerHotspot.y - 9 * pointerScale))
+        caret.move(to: CGPoint(x: pointerHotspot.x, y: pointerHotspot.y - 9 * pointerScale))
+        caret.addLine(to: CGPoint(x: pointerHotspot.x, y: pointerHotspot.y + 9 * pointerScale))
+        caret.move(to: CGPoint(x: pointerHotspot.x - 4 * pointerScale, y: pointerHotspot.y + 9 * pointerScale))
+        caret.addLine(to: CGPoint(x: pointerHotspot.x + 4 * pointerScale, y: pointerHotspot.y + 9 * pointerScale))
         fillCaretLayer.path = caret
         fillCaretLayer.fillColor = NSColor.clear.cgColor
         fillCaretLayer.strokeColor = color(lightenedBy: 0.5, alpha: 1)
         fillCaretLayer.lineWidth = 2 * pointerScale
         fillCaretLayer.opacity = 0
         root.addSublayer(fillCaretLayer)
+    }
+
+    private func transformedPointerPath() -> CGPath {
+        let path = CGMutablePath()
+        path.move(to: CGPoint(x: 18, y: 13.5))
+        path.addLine(to: CGPoint(x: 18, y: 95.7))
+        path.addCurve(
+            to: CGPoint(x: 25.8, y: 98.8),
+            control1: CGPoint(x: 18, y: 99.8),
+            control2: CGPoint(x: 23, y: 101.8)
+        )
+        path.addLine(to: CGPoint(x: 44, y: 79.4))
+        path.addLine(to: CGPoint(x: 57.1, y: 107.5))
+        path.addCurve(
+            to: CGPoint(x: 63.5, y: 109.8),
+            control1: CGPoint(x: 58.2, y: 109.9),
+            control2: CGPoint(x: 61.1, y: 110.9)
+        )
+        path.addLine(to: CGPoint(x: 75.7, y: 104.1))
+        path.addCurve(
+            to: CGPoint(x: 78, y: 97.7),
+            control1: CGPoint(x: 78.1, y: 103),
+            control2: CGPoint(x: 79.1, y: 100.1)
+        )
+        path.addLine(to: CGPoint(x: 65.2, y: 70.2))
+        path.addLine(to: CGPoint(x: 90.7, y: 70.2))
+        path.addCurve(
+            to: CGPoint(x: 93.6, y: 62.3),
+            control1: CGPoint(x: 94.9, y: 70.2),
+            control2: CGPoint(x: 96.9, y: 64.9)
+        )
+        path.addLine(to: CGPoint(x: 25.4, y: 9.9))
+        path.addCurve(
+            to: CGPoint(x: 18, y: 13.5),
+            control1: CGPoint(x: 22.4, y: 7.6),
+            control2: CGPoint(x: 18, y: 9.7)
+        )
+        path.closeSubpath()
+        return flippedAndScaled(path)
+    }
+
+    private func transformedDaggerCutPath() -> CGPath {
+        let path = CGMutablePath()
+        path.move(to: CGPoint(x: 30, y: 28))
+        path.addLine(to: CGPoint(x: 73, y: 61))
+        path.addLine(to: CGPoint(x: 54.9, y: 61))
+        path.addLine(to: CGPoint(x: 70.7, y: 95))
+        path.addLine(to: CGPoint(x: 63.6, y: 98.3))
+        path.addLine(to: CGPoint(x: 47.6, y: 63.9))
+        path.addLine(to: CGPoint(x: 30, y: 82))
+        path.closeSubpath()
+        return flippedAndScaled(path)
+    }
+
+    private func flippedAndScaled(_ path: CGPath) -> CGPath {
+        var transform = CGAffineTransform(
+            a: pointerScale,
+            b: 0,
+            c: 0,
+            d: -pointerScale,
+            tx: 0,
+            ty: pointerDesignSize * pointerScale
+        )
+        return path.copy(using: &transform) ?? path
     }
 
     func show(reduceMotion: Bool) {

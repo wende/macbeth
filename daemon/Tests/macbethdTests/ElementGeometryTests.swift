@@ -41,3 +41,14 @@ import Testing
         point: CGPoint(x: 0, y: 0), inside: window
     ))
 }
+
+@Test func windowIdentityMatchesScreenCaptureWindowIdentity() {
+    #expect(
+        ElementGeometry.windowIdentity(pid: 123, windowNumber: 456)
+            == "pid:123:window:456"
+    )
+    #expect(
+        ElementGeometry.windowIdentity(pid: 123, windowNumber: 456)
+            != ElementGeometry.windowIdentity(pid: 123, windowNumber: 457)
+    )
+}

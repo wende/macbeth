@@ -21,10 +21,10 @@ func appKitCaptureFrame(
     )
 }
 
-/// A recording-visible, click-through overlay around exactly the window being
-/// captured. Macbeth's screenshot remains clean because ScreenCaptureKit is
-/// filtered to the target app's window, while this window belongs to the glow
-/// helper process.
+/// A click-through overlay around exactly the window being captured. It stays
+/// visible in external screen recordings — the point of the visibility feature —
+/// but Macbeth's own screenshots exclude it: those filter to a single target
+/// window, and this is a separate window owned by the macbeth-glow process.
 final class CaptureOverlayWindow: NSWindow {
     let captureView: CaptureOverlayView
 
@@ -46,9 +46,9 @@ final class CaptureOverlayWindow: NSWindow {
         level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.assistiveTechHighWindow)))
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
 
-        // Unlike the ordinary activity glow, this animation should be visible
-        // in an external demo recording. A desktop-independent target-window
-        // capture still excludes it because it is owned by another process.
+        // Stay visible in external screen recordings. Macbeth's own screenshots
+        // are unaffected because they filter to the single target window, and
+        // this is a separate helper-process window.
         sharingType = .readOnly
         contentView = captureView
     }
@@ -57,9 +57,8 @@ final class CaptureOverlayWindow: NSWindow {
     override var canBecomeMain: Bool { false }
 }
 
-/// A quiet, recording-visible perimeter around the window most recently
-/// addressed by MCP. It never accepts input or becomes key, and is replaced
-/// when navigation moves to another window.
+/// A quiet perimeter around one window addressed by MCP. It never accepts input
+/// or becomes key; the controller may retain several instances simultaneously.
 final class NavigationOutlineWindow: NSWindow {
     let outlineView: NavigationOutlineView
     private(set) var targetFrame: CGRect
@@ -94,9 +93,8 @@ final class NavigationOutlineWindow: NSWindow {
     }
 }
 
-/// The current-target state is intentionally calmer than capture: a fine
-/// violet stroke and low halo, with a small pulse when another operation
-/// refreshes the same window.
+/// The controlled-window state is intentionally calmer than capture: a static
+/// fine violet stroke, low halo, and inward glow.
 final class NavigationOutlineView: NSView {
     private let innerGlowLayer = CALayer()
     private let innerEdgeLayers = (0..<4).map { _ in CAGradientLayer() }
@@ -107,8 +105,6 @@ final class NavigationOutlineView: NSView {
     private var visibilityGeneration = 0
 
     private static let fadeKey = "navigation.fade"
-    private static let pulseKey = "navigation.pulse"
-    private static let breathingKey = "navigation.breathing"
     private static let innerGlowDepth: CGFloat = 32
 
     init(rgba: GlowRGBA) {
@@ -215,6 +211,9 @@ final class NavigationOutlineView: NSView {
     func show(reduceMotion: Bool) -> Bool {
         layoutSubtreeIfNeeded()
         guard let root = layer else { return false }
+        // A focus refresh for an already-present window is state-only. Do not
+        // replace an in-flight fade-in or create any other visual pulse.
+        guard !isShown else { return false }
         let currentOpacity = root.presentation()?.opacity ?? root.opacity
         visibilityGeneration += 1
         root.removeAnimation(forKey: Self.fadeKey)
@@ -234,31 +233,7 @@ final class NavigationOutlineView: NSView {
             root.add(fade, forKey: Self.fadeKey)
         }
 
-        if reduceMotion {
-            innerGlowLayer.removeAnimation(forKey: Self.breathingKey)
-        } else if innerGlowLayer.animation(forKey: Self.breathingKey) == nil {
-            let breathe = CABasicAnimation(keyPath: "opacity")
-            breathe.fromValue = 0.42
-            breathe.toValue = 0.68
-            breathe.duration = 1.2
-            breathe.autoreverses = true
-            breathe.repeatCount = .infinity
-            breathe.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            innerGlowLayer.add(breathe, forKey: Self.breathingKey)
-        }
         return needsReveal
-    }
-
-    func refresh(reduceMotion: Bool) {
-        guard !reduceMotion else { return }
-        // Refreshing activity must not dim or re-fade the outline. A tiny width
-        // emphasis communicates the new operation without opacity flicker.
-        let pulse = CAKeyframeAnimation(keyPath: "lineWidth")
-        pulse.values = [1.5, 2.15, 1.5]
-        pulse.keyTimes = [0, 0.35, 1]
-        pulse.duration = 0.42
-        pulse.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-        borderLayer.add(pulse, forKey: Self.pulseKey)
     }
 
     func hide(completion: @escaping () -> Void) {
@@ -287,7 +262,6 @@ final class NavigationOutlineView: NSView {
             guard let self,
                   self.visibilityGeneration == generation,
                   !self.isShown else { return }
-            self.innerGlowLayer.removeAnimation(forKey: Self.breathingKey)
             completion()
         }
         root.add(fade, forKey: Self.fadeKey)

@@ -57,14 +57,14 @@ func registerPressKey(dispatcher: Dispatcher, appManager: AppConnectionManager, 
             }
             let parsed = try parseKeyPress(.object(obj))
 
-            if let connection = await appManager.get(appHandle),
-               let frame = ElementGeometry.preferredWindowFrame(of: connection.appElement.element) {
-                await glow.windowFocused(frame: frame)
-            }
-
             // Interaction choke point: signal the glow before synthetic input.
             await glow.activityStarted()
             defer { Task { await glow.activityEnded() } }
+            if let connection = await appManager.get(appHandle),
+               let window = ElementGeometry.preferredWindow(of: connection.appElement.element),
+               let frame = ElementGeometry.frame(of: window) {
+                await glow.windowFocused(id: ElementGeometry.windowIdentity(of: window), frame: frame)
+            }
 
             await appManager.activate(appHandle)
             switch parsed.kind {
@@ -96,14 +96,14 @@ func registerPressKeys(dispatcher: Dispatcher, appManager: AppConnectionManager,
 
             let parsedKeys = try keyValues.map(parseKeyPress)
 
-            if let connection = await appManager.get(appHandle),
-               let frame = ElementGeometry.preferredWindowFrame(of: connection.appElement.element) {
-                await glow.windowFocused(frame: frame)
-            }
-
             // Interaction choke point: signal the glow before synthetic input.
             await glow.activityStarted()
             defer { Task { await glow.activityEnded() } }
+            if let connection = await appManager.get(appHandle),
+               let window = ElementGeometry.preferredWindow(of: connection.appElement.element),
+               let frame = ElementGeometry.frame(of: window) {
+                await glow.windowFocused(id: ElementGeometry.windowIdentity(of: window), frame: frame)
+            }
 
             await appManager.activate(appHandle)
             for parsed in parsedKeys {

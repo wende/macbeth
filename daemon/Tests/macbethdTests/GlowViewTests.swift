@@ -73,22 +73,12 @@ import Testing
     let innerGlow = try #require(window.outlineView.layer?.sublayers?.first)
     let gradients = try #require(innerGlow.sublayers as? [CAGradientLayer])
     #expect(gradients.count == 4)
-    let innerBreathing = try #require(
-        innerGlow.animation(forKey: "navigation.breathing") as? CABasicAnimation
-    )
-    #expect(abs(innerBreathing.duration - 1.2) < 0.001)
+    #expect(innerGlow.animation(forKey: "navigation.breathing") == nil)
 
-    // Once fully visible, another focus refresh must not restart fade-in.
-    window.outlineView.layer?.removeAnimation(forKey: "navigation.fade")
+    // Another focus while fade-in is still running must be a complete no-op.
     let revealedAgain = window.outlineView.show(reduceMotion: false)
     #expect(revealedAgain == false)
-    #expect(window.outlineView.layer?.animation(forKey: "navigation.fade") == nil)
-    window.outlineView.refresh(reduceMotion: false)
-    let refresh = try #require(
-        window.outlineView.layer?.sublayers?.last?.animation(forKey: "navigation.pulse")
-            as? CAKeyframeAnimation
-    )
-    #expect(refresh.keyPath == "lineWidth")
+    #expect(window.outlineView.layer?.animation(forKey: "navigation.fade") === fade)
 
     let movedFrame = targetFrame.offsetBy(dx: 30, dy: -20)
     window.move(to: movedFrame)
@@ -102,6 +92,57 @@ import Testing
     #expect(abs(fadeOut.duration - glowWindowFadeDuration) < 0.001)
 }
 
+@MainActor
+@Test func navigationControllerKeepsIndependentIdempotentWindowOutlines() throws {
+    let controller = OverlayController(
+        rgba: GlowRGBA(red: 0.66, green: 0.33, blue: 0.97),
+        debounceMs: 400
+    )
+    let firstID = "pid:42:window:1"
+    let secondID = "pid:42:window:2"
+    let firstRect = GlowCaptureRect(x: 100, y: 100, width: 500, height: 400)
+    let secondRect = GlowCaptureRect(x: 650, y: 100, width: 500, height: 400)
+
+    controller.handle(.windowFocused(id: firstID, rect: firstRect))
+    controller.handle(.windowFocused(id: secondID, rect: secondRect))
+    #expect(controller.navigationOverlayCount == 2)
+
+    let firstWindow = try #require(controller.navigationOutlineWindow(for: firstID))
+    let firstFade = try #require(
+        firstWindow.outlineView.layer?.animation(forKey: "navigation.fade")
+    )
+    controller.handle(.windowFocused(id: firstID, rect: firstRect))
+
+    #expect(controller.navigationOverlayCount == 2)
+    #expect(controller.navigationOutlineWindow(for: firstID) === firstWindow)
+    #expect(firstWindow.outlineView.layer?.animation(forKey: "navigation.fade") === firstFade)
+    #expect(firstWindow.outlineView.layer?.animation(forKey: "navigation.pulse") == nil)
+}
+
+@MainActor
+@Test func standaloneWindowFocusGetsItsOwnTimerDuringAnotherOperationsHold() {
+    let controller = OverlayController(
+        rgba: GlowRGBA(red: 0.66, green: 0.33, blue: 0.97),
+        debounceMs: 400
+    )
+    let controlledID = "pid:42:window:1"
+    let inspectedID = "pid:42:window:2"
+
+    controller.handle(.activate())
+    controller.handle(.windowFocused(
+        id: controlledID,
+        rect: GlowCaptureRect(x: 100, y: 100, width: 500, height: 400)
+    ))
+    controller.handle(.deactivate)
+    controller.handle(.windowFocused(
+        id: inspectedID,
+        rect: GlowCaptureRect(x: 650, y: 100, width: 500, height: 400)
+    ))
+
+    #expect(controller.navigationFadeIsScheduled(for: controlledID))
+    #expect(controller.navigationFadeIsScheduled(for: inspectedID))
+}
+
 @Test func subPointWindowFrameChangesReuseTheSameOutline() {
     let original = CGRect(x: 100, y: 200, width: 800, height: 500)
     let jittered = CGRect(x: 100.4, y: 199.6, width: 800.5, height: 499.5)
@@ -112,12 +153,14 @@ import Testing
 
 @MainActor
 @Test func syntheticPointerIsClickThroughAndRecordingVisible() throws {
+    let cursorScale: CGFloat = 0.3535533906
+    let cursorSize = 128 * cursorScale
     let source = GlowPointerPoint(x: 100, y: 200)
     let converted = appKitPointerPoint(source, primaryDisplayTop: 1_000)
     #expect(converted == CGPoint(x: 100, y: 800))
     let initial = initialPointerPoint(near: converted, screens: [])
-    #expect(abs(initial.x - (100 - 52 * 0.7071067812)) < 0.001)
-    #expect(abs(initial.y - (800 + 42 * 0.7071067812)) < 0.001)
+    #expect(abs(initial.x - (100 - 96 * cursorScale)) < 0.001)
+    #expect(abs(initial.y - (800 + 78 * cursorScale)) < 0.001)
     #expect(initial != converted)
 
     let window = PointerOverlayWindow(
@@ -125,8 +168,8 @@ import Testing
         rgba: GlowRGBA(red: 0.66, green: 0.33, blue: 0.97)
     )
     // AppKit rounds fractional point bounds to the display's pixel grid.
-    #expect(abs(window.frame.width - 64 * 0.7071067812) < 1.0)
-    #expect(abs(window.frame.height - 64 * 0.7071067812) < 1.0)
+    #expect(abs(window.frame.width - cursorSize) < 1.0)
+    #expect(abs(window.frame.height - cursorSize) < 1.0)
     #expect(window.ignoresMouseEvents)
     #expect(window.canBecomeKey == false)
     #expect(window.canBecomeMain == false)
@@ -147,6 +190,8 @@ import Testing
 
 @MainActor
 @Test func syntheticPointerTravelsBetweenDistinctTargets() async throws {
+    let cursorScale: CGFloat = 0.3535533906
+    let cursorHotspot = CGPoint(x: 18 * cursorScale, y: 114.5 * cursorScale)
     let window = PointerOverlayWindow(
         startPoint: CGPoint(x: 100, y: 700),
         rgba: GlowRGBA(red: 0.66, green: 0.33, blue: 0.97)
@@ -156,6 +201,6 @@ import Testing
 
     try await Task.sleep(for: .milliseconds(550))
     #expect(window.targetPoint == destination)
-    #expect(abs(window.frame.origin.x - (destination.x - 16 * 0.7071067812)) < 1.0)
-    #expect(abs(window.frame.origin.y - (destination.y - 52 * 0.7071067812)) < 1.0)
+    #expect(abs(window.frame.origin.x - (destination.x - cursorHotspot.x)) < 1.0)
+    #expect(abs(window.frame.origin.y - (destination.y - cursorHotspot.y)) < 1.0)
 }

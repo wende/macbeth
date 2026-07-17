@@ -92,6 +92,27 @@ enum ElementGeometry {
         return frame(of: window)
     }
 
+    /// Stable identity shared with CoreGraphics/ScreenCaptureKit whenever the
+    /// accessibility provider exposes AXWindowNumber. CFHash is a process-local
+    /// fallback for providers (notably some web views) that omit it.
+    static func windowIdentity(of window: AXUIElement) -> String {
+        var pid: pid_t = 0
+        AXUIElementGetPid(window, &pid)
+
+        var numberRef: CFTypeRef?
+        let numberResult = AXUIElementCopyAttributeValue(
+            window, "AXWindowNumber" as CFString, &numberRef
+        )
+        if numberResult == .success, let number = numberRef as? NSNumber {
+            return windowIdentity(pid: pid, windowNumber: number.intValue)
+        }
+        return "pid:\(pid):ax:\(CFHash(window))"
+    }
+
+    static func windowIdentity(pid: pid_t, windowNumber: Int) -> String {
+        "pid:\(pid):window:\(windowNumber)"
+    }
+
     static func interactionPoint(of element: AXUIElement) -> CGPoint? {
         guard let elementFrame = frame(of: element) else { return nil }
         let point = CGPoint(x: elementFrame.midX, y: elementFrame.midY)

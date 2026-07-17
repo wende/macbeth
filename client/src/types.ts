@@ -6,6 +6,11 @@ export interface QueryStep {
   index?: number;
 }
 
+/** Exactly one way to address an element: a locator query or a handle id. */
+export type ElementTarget =
+  | { query: QueryStep[]; handleId?: never }
+  | { handleId: string; query?: never };
+
 export type AppRuntime = "native" | "electron" | "unknown";
 
 export interface AppInfo {

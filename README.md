@@ -515,13 +515,15 @@ How it works:
   MCP-side operations use tokenized `begin_activity`/`end_activity` RPCs so a
   nested action cannot turn off another action's glow.
 - Addressing an app through MCP places a quiet, click-through violet outline
-  and inward edge glow around its current window. The inner glow uses the same
-  four-edge gradient language on only the controlled window and breathes gently.
-  After the final overlapping operation ends, the outline remains fully visible
-  for 400ms and then fades over 100ms. A new operation cancels either phase and
-  refreshes both timers. Re-addressing an already-visible window never restarts
-  fade-in or changes opacity; interrupted fade-out reverses from the opacity
-  currently visible on screen.
+  and inward edge glow around the controlled window. Every window is keyed by
+  its stable process/window identity, so several controlled windows can remain
+  outlined simultaneously and moving one updates only its own overlay. The
+  outline and inward glow remain visually static while present. Each
+  window has an independent lifetime: after its final overlapping operation
+  ends, its outline remains fully visible for 400ms and then fades over 100ms.
+  Re-addressing an already-visible window refreshes only that deadline—it never
+  restarts fade-in, changes opacity, or pulses the border. An interrupted
+  fade-out reverses from the opacity currently visible on screen.
 - Click and fill RPCs move a violet-tinted synthetic pointer to the resolved AX
   element before acting. Keyboard-only operations deliberately leave it at the
   last honest pointer target because synthetic focused AX nodes often have no
@@ -537,8 +539,9 @@ How it works:
   longer completion snap. The scan holds at the bottom while capture completes
   and cannot wrap into a partial second pass. The snap expands the border and
   holds its light wash before dissolving. These overlays are owned by
-  `macbeth-glow`, so Macbeth's desktop-independent target-window capture excludes
-  them, while an external demo recording can still show the animation.
+  `macbeth-glow` and use `sharingType = .readOnly`: Macbeth's own single-window
+  screenshots exclude them, while an external screen recording can still show
+  the animation.
 - The indicator is entirely best-effort: if the helper can't start or crashes,
   the daemon logs a warning and keeps working — automation is never blocked.
 
@@ -552,7 +555,7 @@ flag):
 | `MACBETH_GLOW_DEBOUNCE_MS` | `400` | Refreshable fully-visible hold in milliseconds between the final activity ending and the 100ms window-highlight fade. |
 | `MACBETH_GLOW_HELPER` | — | Explicit path to the `macbeth-glow` binary (otherwise discovered next to `macbethd`). |
 
-The current-window glow remains intact for the shared 400ms hold, then performs
+Each controlled-window glow remains intact for its own 400ms hold, then performs
 an interruptible 100ms fade and is ordered out. Capture animation timers exist
 only while capture is in progress. All presentation layers are click-through
 and owned by the helper process, so target-window screenshots remain clean.

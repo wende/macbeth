@@ -20,8 +20,9 @@ func registerConnectApp(
             let connection = try await appManager.connect(
                 name: name, pid: pid, readyTimeoutMs: readyTimeoutMs
             )
-            if let frame = ElementGeometry.preferredWindowFrame(of: connection.appElement.element) {
-                await glow.windowFocused(frame: frame)
+            if let window = ElementGeometry.preferredWindow(of: connection.appElement.element),
+               let frame = ElementGeometry.frame(of: window) {
+                await glow.windowFocused(id: ElementGeometry.windowIdentity(of: window), frame: frame)
             }
 
             return .object([

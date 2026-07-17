@@ -147,13 +147,11 @@ export class DaemonManager {
   private findDaemonBinary(): string {
     // Look for the bundled binary relative to this package
     const candidates = [
-      // The bundled binary is the canonical artifact produced by
-      // scripts/build-daemon.sh. Prefer it over potentially stale SwiftPM
-      // debug/release products left by an earlier test run.
-      path.resolve(__dirname, "../bin/macbethd"),
       // Development: built from source
       path.resolve(__dirname, "../../daemon/.build/debug/macbethd"),
       path.resolve(__dirname, "../../daemon/.build/release/macbethd"),
+      // npm package: bundled binary
+      path.resolve(__dirname, "../bin/macbethd"),
     ];
 
     for (const candidate of candidates) {

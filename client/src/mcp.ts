@@ -25,14 +25,8 @@ const SKILLS_DIR = SKILLS_DIR_CANDIDATES.find(existsSync) ?? SKILLS_DIR_CANDIDAT
 const client = new MacbethClient({ verbose: false });
 
 const activityControl = {
-  async begin(): Promise<string> {
-    await (client as any).ensureConnected();
-    const result = await (client as any).rpc.call("begin_activity", {});
-    return result.token;
-  },
-  async end(token: string): Promise<void> {
-    await (client as any).rpc.call("end_activity", { token });
-  },
+  begin: () => client.beginActivity(),
+  end: (token: string) => client.endActivity(token),
 };
 
 function withActivity<T>(operation: () => Promise<T>): Promise<T> {
@@ -118,20 +112,20 @@ server.registerTool("list_daemon_methods", {
   description: "List every JSON-RPC method registered by the daemon. Used to verify that daemon capabilities are exposed through MCP.",
   annotations: { readOnlyHint: true },
 }, async () => {
-  await (client as any).ensureConnected();
-  const result = await (client as any).rpc.call("list_methods", {});
-  return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+  const methods = await client.listDaemonMethods();
+  return { content: [{ type: "text", text: JSON.stringify({ methods }, null, 2) }] };
 });
 
 server.registerTool("begin_activity", {
-  description: "Begin an explicit glow activity scope. Intended for integrations that control the computer outside Macbeth's click/fill/key/script tools. Always pair with end_activity.",
+  description:
+    "Turn on the on-screen interaction indicator before you control the computer through some OTHER tool (a different MCP server, computer-use, a shell script) that Macbeth cannot see. Macbeth's own click/fill/press_key/run_applescript tools already show the indicator, so you do NOT need this for them. Returns a token; you MUST call end_activity with that token when the external work finishes (a crashed or disconnected client is cleaned up automatically after a timeout). Scopes nest safely: overlapping activities keep the indicator on until the last one ends.",
 }, async () => {
   const token = await activityControl.begin();
   return { content: [{ type: "text", text: JSON.stringify({ token }) }] };
 });
 
 server.registerTool("end_activity", {
-  description: "End a glow activity scope previously created by begin_activity.",
+  description: "End an interaction-indicator scope started by begin_activity. Pass the token that begin_activity returned. Safe to skip if the client disconnects; the daemon expires abandoned scopes on its own.",
   inputSchema: {
     token: z.string().min(1).describe("Activity token returned by begin_activity"),
   },
@@ -189,9 +183,7 @@ server.registerTool("click", {
   return withActivity(async () => {
     const handle = await client.connect(app);
     const target = resolveElementTarget(query, handleId);
-    await (handle as any).rpc.call("click", {
-      appHandle: (handle as any).appHandle,
-      ...target,
+    await handle.clickTarget(target, {
       timeout: timeout ?? 30,
       ...(strategy ? { strategy } : {}),
       ...(waitForIdleMs !== undefined ? { waitForIdleMs } : {}),
@@ -214,10 +206,7 @@ server.registerTool("fill", {
   return withActivity(async () => {
     const handle = await client.connect(app);
     const target = resolveElementTarget(query, handleId);
-    await (handle as any).rpc.call("fill", {
-      appHandle: (handle as any).appHandle,
-      ...target,
-      value,
+    await handle.fillTarget(target, value, {
       timeout: timeout ?? 30,
       ...(strategy ? { strategy } : {}),
     });
@@ -364,10 +353,7 @@ server.registerTool("get_element", {
 }, async ({ app, query, handleId }) => {
   const handle = await client.connect(app);
   const target = resolveElementTarget(query, handleId);
-  const info = await (handle as any).rpc.call("get_element", {
-    appHandle: (handle as any).appHandle,
-    ...target,
-  });
+  const info = await handle.getElementInfo(target);
   return {
     content: [{
       type: "text",
@@ -383,8 +369,7 @@ server.registerTool("dump_attributes", {
   },
   annotations: { readOnlyHint: true },
 }, async ({ handleId }) => {
-  await (client as any).ensureConnected();
-  const attributes = await (client as any).rpc.call("dump_attributes", { handleId });
+  const attributes = await client.dumpAttributes(handleId);
   return { content: [{ type: "text", text: JSON.stringify(attributes, null, 2) }] };
 });
 

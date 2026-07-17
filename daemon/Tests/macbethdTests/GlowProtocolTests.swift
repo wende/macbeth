@@ -39,10 +39,11 @@ import Foundation
 
 @Test func windowFocusMessageRoundTrips() throws {
     let rect = GlowCaptureRect(x: -200, y: 40, width: 640, height: 480)
-    let message = GlowMessage.windowFocused(rect: rect)
+    let message = GlowMessage.windowFocused(id: "pid:42:window:7", rect: rect)
     let decoded = try GlowMessage.decode(line: message.encodedLine())
     #expect(decoded == message)
     #expect(decoded.type == .focusWindow)
+    #expect(decoded.windowId == "pid:42:window:7")
     #expect(decoded.rect == rect)
 }
 

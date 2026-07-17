@@ -281,8 +281,8 @@ async function launchApps() {
     return true;
   });
   // Position both windows before the first connect_app. Connecting emits the
-  // recording-visible target outline, so doing it earlier would leave a stale
-  // outline at the fixture's pre-layout frame.
+  // target outline, so doing it earlier would leave a stale outline at the
+  // fixture's pre-layout frame.
   await callTool("run_applescript", {
     source: `tell application "System Events"
       tell (first application process whose unix id is ${nativePid})

@@ -58,8 +58,9 @@ func registerScreenshot(
 
             // Capture is scoped to a single window owned by the *target* app.
             // The target-window filter only includes content owned by the target
-            // app. The recording-visible focus/capture overlays belong to the
-            // separate macbeth-glow process, so they cannot appear in this image.
+            // app, and the focus/capture overlays belong to the separate
+            // macbeth-glow process, so they cannot appear in this image (even
+            // though the overlays are sharingType = .readOnly for recordings).
             let filter = SCContentFilter(desktopIndependentWindow: targetWindow)
             let config = SCStreamConfiguration()
             config.width = Int(targetWindow.frame.width) * 2
@@ -69,12 +70,17 @@ func registerScreenshot(
             var image: CGImage
             await glow.activityStarted()
             defer { Task { await glow.activityEnded() } }
-            let captureAnimation = await glow.captureStarted(frame: targetWindow.frame)
+            let windowID = ElementGeometry.windowIdentity(
+                pid: conn.pid, windowNumber: Int(targetWindow.windowID)
+            )
+            let captureAnimation = await glow.captureStarted(
+                windowID: windowID, frame: targetWindow.frame
+            )
             do {
                 // Keep the scanning phase alive for one complete top-to-bottom
                 // pass. The helper is excluded by the desktop-independent
-                // target filter, so this recording-visible delay cannot affect
-                // the captured pixels.
+                // target filter, so this presentation delay cannot affect the
+                // captured pixels.
                 if captureAnimation != nil {
                     try? await Task.sleep(for: .seconds(glowCapturePresentationDuration))
                 }
