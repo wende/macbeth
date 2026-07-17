@@ -4,8 +4,10 @@
 // and posts the response back as a PR comment. Used by ai-pr-review.yml for
 // both Kimi (Moonshot) and GLM (z.ai), which both expose OpenAI-compatible APIs.
 //
-// Scope: on the first run (PR opened/reopened) it reviews the full base..head
-// diff. On later pushes (synchronize) it reviews only the new commits
+// Scope: on the first run (PR opened/reopened) it reviews the PR's own changes
+// (base...head, i.e. from the merge-base, so commits that landed on the base
+// branch after the PR forked don't leak in). On later pushes (synchronize) it
+// reviews only the new commits
 // (before..head) and lets the model reply "No notable changes" for trivial
 // updates, appending each incremental review as a dated section to the comment.
 // Force-pushes/rebases (before not an ancestor of head) fall back to a full review.
@@ -161,9 +163,19 @@ const excludes = [
 ];
 
 // Decide scope: incremental (only new commits) on synchronize when BEFORE_SHA
-// is a real ancestor of HEAD; otherwise a full base..head review.
+// is a real ancestor of HEAD; otherwise a full review of the PR's own changes.
+//
+// The range separator matters. For a full review we use three-dot
+// (BASE_SHA...HEAD_SHA), which diffs from the merge-base of the two commits —
+// only what this PR added since it branched off, matching GitHub's "Files
+// changed" tab. Two-dot (BASE_SHA..HEAD_SHA) would compare the base branch's
+// current tip against HEAD, so any commits that landed on the base branch after
+// the PR forked would show up as spurious reversals in the diff. For the
+// incremental case BEFORE_SHA is a verified ancestor of HEAD, so two-dot is
+// exact and keeps the "new commits only" intent explicit.
 let incremental = false;
 let rangeBase = BASE_SHA;
+let rangeSep = "..."; // three-dot: full review diffs from the merge-base
 if (
   ACTION === "synchronize" &&
   /^[0-9a-f]{40}$/.test(BEFORE_SHA) &&
@@ -175,20 +187,22 @@ if (
       stdio: "ignore",
     });
     rangeBase = BEFORE_SHA;
+    rangeSep = ".."; // two-dot: BEFORE_SHA is a verified ancestor of HEAD
     incremental = true;
   } catch {
     incremental = false;
   }
 }
 
+const diffRange = `${rangeBase}${rangeSep}${HEAD_SHA}`;
+
 let diff;
 try {
   diff = execFileSync(
     "git",
-    // Double-dot (BEFORE_SHA..HEAD_SHA) makes the incremental intent explicit;
-    // triple-dot would rely on merge-base semantics that could change if the
-    // ancestry check above ever changes.
-    ["diff", `${rangeBase}..${HEAD_SHA}`, "--", ".", ...excludes],
+    // diffRange is three-dot for a full review (diff from the merge-base, so the
+    // PR's own changes) and two-dot for an incremental review (BEFORE_SHA..HEAD).
+    ["diff", diffRange, "--", ".", ...excludes],
     { encoding: "utf8", maxBuffer: 1024 * 1024 * 50 }
   );
 } catch (e) {
@@ -214,7 +228,7 @@ if (diff.length > maxDiffChars) {
   try {
     diffStat = execFileSync(
       "git",
-      ["diff", `${rangeBase}..${HEAD_SHA}`, "--stat", "--", ".", ...excludes],
+      ["diff", diffRange, "--stat", "--", ".", ...excludes],
       { encoding: "utf8", maxBuffer: 1024 * 1024 * 5 }
     );
   } catch {
