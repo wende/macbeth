@@ -1,12 +1,30 @@
 <p align="center">
-  <img src="assets/macbeth-logo.svg" alt="Macbeth" width="420" />
+  <img src="assets/macbeth-logo.svg" alt="Macbeth" width="300" />
 </p>
 
-# Macbeth — Playwright for macOS apps
+<h1 align="center">Playwright for macOS apps</h1>
 
-Macbeth automates macOS applications through the [Accessibility API](https://developer.apple.com/documentation/accessibility) — native AppKit apps **and** Electron/Chromium apps (Slack, VS Code, Discord, and more). It provides a TypeScript client with chainable locators, auto-waiting, and screenshot capture — the same patterns you know from Playwright, applied to real desktop UI instead of the browser DOM.
+<p align="center">
+  <a href="https://www.npmjs.com/package/macbeth"><img src="https://img.shields.io/npm/v/macbeth?style=for-the-badge&color=61202F&labelColor=1a1520" alt="npm" /></a>
+  <img src="https://img.shields.io/badge/license-MIT-8B3342?style=for-the-badge&labelColor=1a1520" alt="MIT" />
+  <img src="https://img.shields.io/badge/macOS-14%2B-32111A?style=for-the-badge&logo=apple&logoColor=white&labelColor=1a1520" alt="macOS" />
+  <img src="https://img.shields.io/badge/MCP-ready-8B5CF6?style=for-the-badge&labelColor=1a1520" alt="MCP" />
+  <img src="https://img.shields.io/badge/Swift-6-F05138?style=for-the-badge&logo=swift&logoColor=white&labelColor=1a1520" alt="Swift" />
+  <img src="https://img.shields.io/badge/TypeScript-5-3178C6?style=for-the-badge&logo=typescript&logoColor=white&labelColor=1a1520" alt="TypeScript" />
+</p>
 
-It also ships as an MCP server, so LLM agents can drive macOS apps through tool calls, with a window-local interaction glow so you can see exactly which app is being controlled.
+**Native AppKit · Electron/Chromium · MCP for agents** — same locator API, [Accessibility](https://developer.apple.com/documentation/accessibility) under the hood.
+
+```bash
+npm install macbeth
+```
+
+<p align="center">
+  <a href="#quick-start">Docs</a> ·
+  <a href="#features">Features</a> ·
+  <a href="#mcp-server">MCP server</a> ·
+  <a href="https://github.com/wende/macbeth/issues">Issues</a>
+</p>
 
 ## Demo
 

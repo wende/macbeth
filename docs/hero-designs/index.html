@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Macbeth</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --burgundy: #61202F;
+      --burgundy-mid: #8B3342;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #ffffff;
+      color: #1a1520;
+      line-height: 1.5;
+      min-height: 100vh;
+    }
+    .hero {
+      padding: 72px 40px 64px;
+      text-align: center;
+      max-width: 920px;
+      margin: 0 auto;
+    }
+    .hero .logo {
+      width: min(380px, 88%);
+      height: auto;
+      margin: 0 auto 28px;
+      display: block;
+    }
+    .hero .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--burgundy);
+      margin-bottom: 16px;
+      padding: 6px 12px;
+      border-radius: 999px;
+      background: #f8eef0;
+      border: 1px solid #efd5da;
+    }
+    .hero h1 {
+      font-size: clamp(28px, 4.2vw, 42px);
+      font-weight: 800;
+      letter-spacing: -0.035em;
+      line-height: 1.15;
+      max-width: 18ch;
+      margin: 0 auto 14px;
+    }
+    .hero .tagline {
+      font-size: 17px;
+      color: #5a5460;
+      max-width: 48ch;
+      margin: 0 auto 28px;
+      line-height: 1.55;
+    }
+    .hero .badges {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 8px;
+      margin-bottom: 32px;
+    }
+    .hero .badges img { height: 22px; }
+    .hero .install {
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      background: #0f0d12;
+      color: #f4f1f8;
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 14px;
+      padding: 12px 18px;
+      border-radius: 10px;
+      margin-bottom: 36px;
+      box-shadow: 0 8px 24px rgba(97, 32, 47, 0.18);
+    }
+    .hero .install .prompt { color: #c47a88; }
+    .hero .features {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      max-width: 820px;
+      margin: 0 auto;
+      text-align: left;
+    }
+    @media (max-width: 720px) {
+      .hero .features { grid-template-columns: 1fr; }
+      .hero { padding: 48px 20px 40px; }
+    }
+    .hero .feat {
+      padding: 16px;
+      border-radius: 12px;
+      border: 1px solid #ece6ee;
+      background: #fbfafc;
+    }
+    .hero .feat strong {
+      display: block;
+      font-size: 13px;
+      font-weight: 700;
+      margin-bottom: 4px;
+      color: var(--burgundy);
+    }
+    .hero .feat span {
+      font-size: 13px;
+      color: #5a5460;
+      line-height: 1.45;
+    }
+  </style>
+</head>
+<body>
+  <section class="hero">
+    <div class="eyebrow">Playwright for macOS</div>
+
+    <svg class="logo" xmlns="http://www.w3.org/2000/svg" width="400" height="128" viewBox="0 0 400 128" fill="none" role="img" aria-label="macbeth">
+      <title>Macbeth</title>
+      <defs>
+        <filter id="shadow" x="-30%" y="-30%" width="170%" height="180%">
+          <feDropShadow dx="0" dy="4" stdDeviation="3" flood-color="#090612" flood-opacity=".35"/>
+        </filter>
+        <linearGradient id="cursor" x1="28" y1="18" x2="87" y2="104" gradientUnits="userSpaceOnUse">
+          <stop stop-color="#8B3342"/>
+          <stop offset=".5" stop-color="#61202F"/>
+          <stop offset="1" stop-color="#32111A"/>
+        </linearGradient>
+      </defs>
+      <path d="M18 13.5v82.2c0 4.1 5 6.1 7.8 3.1L44 79.4l13.1 28.1c1.1 2.4 4 3.4 6.4 2.3l12.2-5.7c2.4-1.1 3.4-4 2.3-6.4L65.2 70.2h25.5c4.2 0 6.2-5.3 2.9-7.9L25.4 9.9c-3-2.3-7.4-.2-7.4 3.6Z" fill="url(#cursor)" stroke="#F8F7FA" stroke-width="6" stroke-linejoin="round" filter="url(#shadow)"/>
+      <path d="m30 28 43 33H54.9l15.8 34-7.1 3.3-16-34.4-17.6 19V28Z" fill="#F4F1F8" fill-opacity=".09"/>
+      <text x="140" y="84" fill="#61202F" stroke="#F8F7FA" stroke-width="4" paint-order="stroke fill" stroke-linejoin="round" filter="url(#shadow)" font-family="-apple-system, BlinkMacSystemFont, SF Pro Display, Helvetica Neue, Arial, sans-serif" font-size="67" font-weight="700" letter-spacing="-3.5">macbeth</text>
+    </svg>
+
+    <h1>Automate any macOS app through the Accessibility API</h1>
+    <p class="tagline">
+      Chainable locators, auto-waiting, screenshots, OCR, and an MCP server —
+      so TypeScript scripts and LLM agents can drive native AppKit and Electron apps alike.
+    </p>
+    <div class="badges">
+      <img alt="npm" src="https://img.shields.io/npm/v/macbeth?style=flat-square&color=61202F&labelColor=1a1520" />
+      <img alt="license" src="https://img.shields.io/npm/l/macbeth?style=flat-square&color=8B3342&labelColor=1a1520" />
+      <img alt="platform" src="https://img.shields.io/badge/platform-macOS%2014%2B-32111A?style=flat-square&labelColor=1a1520" />
+      <img alt="node" src="https://img.shields.io/badge/node-%E2%89%A520-339933?style=flat-square&logo=nodedotjs&logoColor=white&labelColor=1a1520" />
+      <img alt="swift" src="https://img.shields.io/badge/Swift-6-F05138?style=flat-square&logo=swift&logoColor=white&labelColor=1a1520" />
+      <img alt="typescript" src="https://img.shields.io/badge/TypeScript-5-3178C6?style=flat-square&logo=typescript&logoColor=white&labelColor=1a1520" />
+      <img alt="mcp" src="https://img.shields.io/badge/MCP-ready-8B5CF6?style=flat-square&labelColor=1a1520" />
+      <img alt="electron" src="https://img.shields.io/badge/Electron-supported-47848F?style=flat-square&logo=electron&logoColor=white&labelColor=1a1520" />
+      <img alt="ci" src="https://img.shields.io/github/actions/workflow/status/wende/macbeth/ci.yml?style=flat-square&label=CI&labelColor=1a1520" />
+      <img alt="stars" src="https://img.shields.io/github/stars/wende/macbeth?style=flat-square&color=61202F&labelColor=1a1520" />
+    </div>
+    <div class="install">
+      <span class="prompt">$</span>
+      <span>npm install macbeth</span>
+    </div>
+    <div class="features">
+      <div class="feat">
+        <strong>Native + Electron</strong>
+        <span>Same locator API across AppKit and Chromium apps — Slack, VS Code, Discord included.</span>
+      </div>
+      <div class="feat">
+        <strong>MCP for agents</strong>
+        <span>Ship tool calls to Claude & friends, with an on-screen interaction glow.</span>
+      </div>
+      <div class="feat">
+        <strong>Playwright-style DX</strong>
+        <span>Lazy chainable locators, smart click/fill strategies, screenshots & OCR.</span>
+      </div>
+    </div>
+  </section>
+</body>
+</html>
