@@ -3,6 +3,7 @@ import Foundation
 import ScreenCaptureKit
 import CoreGraphics
 import Vision
+import GlowProtocol
 
 func registerExtractText(
     dispatcher: Dispatcher,
@@ -53,10 +54,12 @@ func registerExtractText(
                 config.showsCursor = false
 
                 var captured: CGImage
+                await glow.activityStarted()
+                defer { Task { await glow.activityEnded() } }
                 let captureAnimation = await glow.captureStarted(frame: targetWindow.frame)
                 do {
                     if captureAnimation != nil {
-                        try? await Task.sleep(for: .milliseconds(120))
+                        try? await Task.sleep(for: .seconds(glowCapturePresentationDuration))
                     }
                     captured = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
                     await glow.captureFinished(id: captureAnimation, success: true)

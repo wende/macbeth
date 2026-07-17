@@ -67,6 +67,8 @@ func registerScreenshot(
             config.showsCursor = false
 
             var image: CGImage
+            await glow.activityStarted()
+            defer { Task { await glow.activityEnded() } }
             let captureAnimation = await glow.captureStarted(frame: targetWindow.frame)
             do {
                 // Keep the scanning phase alive for one complete top-to-bottom

@@ -14,6 +14,7 @@ final class OverlayController: NSObject {
     private var navigationWindow: NavigationOutlineWindow?
     private var navigationRect: GlowCaptureRect?
     private var navigationFadeTimer: Timer?
+    private var navigationFadeDeadline: Date?
     private var navigationGeneration = 0
     private var pointerWindow: PointerOverlayWindow?
     private var pointerGeneration = 0
@@ -53,6 +54,7 @@ final class OverlayController: NSObject {
             fadeOutTimer = nil
             navigationFadeTimer?.invalidate()
             navigationFadeTimer = nil
+            navigationFadeDeadline = nil
             if !isShowing { show() }
 
         case .deactivate:
@@ -94,10 +96,16 @@ final class OverlayController: NSObject {
         navigationGeneration += 1
         let frame = appKitCaptureFrame(rect)
 
-        if let window = navigationWindow, window.targetFrame.equalTo(frame) {
+        if let window = navigationWindow,
+           approximatelyEqualWindowFrames(window.targetFrame, frame) {
+            if !window.targetFrame.equalTo(frame) {
+                window.move(to: frame)
+            }
             window.orderFrontRegardless()
-            window.outlineView.show(reduceMotion: reduceMotion)
-            window.outlineView.refresh(reduceMotion: reduceMotion)
+            let revealed = window.outlineView.show(reduceMotion: reduceMotion)
+            if !revealed {
+                window.outlineView.refresh(reduceMotion: reduceMotion)
+            }
         } else {
             let previous = navigationWindow
             let window = NavigationOutlineWindow(targetFrame: frame, rgba: rgba)
@@ -121,19 +129,43 @@ final class OverlayController: NSObject {
 
     private func rearmNavigationFade() {
         navigationFadeTimer?.invalidate()
+        let deadline = Date().addingTimeInterval(max(0, tracker.debounce))
+        navigationFadeDeadline = deadline
         let generation = navigationGeneration
-        navigationFadeTimer = Timer.scheduledTimer(
-            withTimeInterval: max(0, tracker.debounce),
+        let timer = Timer.scheduledTimer(
+            withTimeInterval: max(0, deadline.timeIntervalSinceNow),
             repeats: false
         ) { [weak self] _ in
-            Task { @MainActor in self?.hideNavigationOutline(generation: generation) }
+            Task { @MainActor in self?.navigationFadeFired(generation: generation) }
         }
+        timer.tolerance = 0
+        navigationFadeTimer = timer
+    }
+
+    private func navigationFadeFired(generation: Int) {
+        guard generation == navigationGeneration,
+              let deadline = navigationFadeDeadline else { return }
+        if deadline.timeIntervalSinceNow > 0 {
+            navigationFadeTimer?.invalidate()
+            let timer = Timer.scheduledTimer(
+                withTimeInterval: deadline.timeIntervalSinceNow,
+                repeats: false
+            ) { [weak self] _ in
+                Task { @MainActor in self?.navigationFadeFired(generation: generation) }
+            }
+            timer.tolerance = 0
+            navigationFadeTimer = timer
+            return
+        }
+        navigationFadeDeadline = nil
+        hideNavigationOutline(generation: generation)
     }
 
     private func hideNavigationOutline(generation: Int) {
         guard generation == navigationGeneration, let window = navigationWindow else { return }
         navigationFadeTimer?.invalidate()
         navigationFadeTimer = nil
+        navigationFadeDeadline = nil
         navigationRect = nil
         window.outlineView.hide { [weak self, weak window] in
             guard let self, self.navigationGeneration == generation,
@@ -215,9 +247,11 @@ final class OverlayController: NSObject {
         fadeOutTimer?.invalidate()
         guard let deadline = tracker.fadeOutDeadline() else { return }
         let interval = max(0, deadline.timeIntervalSinceNow)
-        fadeOutTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: false) { [weak self] _ in
+        let timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: false) { [weak self] _ in
             Task { @MainActor in self?.fadeOutFired() }
         }
+        timer.tolerance = 0
+        fadeOutTimer = timer
     }
 
     private func fadeOutFired() {
@@ -236,6 +270,7 @@ final class OverlayController: NSObject {
         isShowing = false
         navigationFadeTimer?.invalidate()
         navigationFadeTimer = nil
+        navigationFadeDeadline = nil
         hideNavigationOutline(generation: navigationGeneration)
         hidePointer(generation: pointerGeneration)
     }
@@ -251,4 +286,18 @@ final class OverlayController: NSObject {
     @objc private func accessibilityOptionsChanged() {
         // Motion preferences are read on every subsequent show/move/capture.
     }
+}
+
+/// AX and ScreenCaptureKit can report sub-point frame differences for the same
+/// window across calls. Treat those as one target so the overlay moves in place
+/// instead of cross-fading two nearly identical windows.
+func approximatelyEqualWindowFrames(
+    _ lhs: CGRect,
+    _ rhs: CGRect,
+    tolerance: CGFloat = 1
+) -> Bool {
+    abs(lhs.minX - rhs.minX) <= tolerance
+        && abs(lhs.minY - rhs.minY) <= tolerance
+        && abs(lhs.width - rhs.width) <= tolerance
+        && abs(lhs.height - rhs.height) <= tolerance
 }

@@ -519,7 +519,9 @@ How it works:
   four-edge gradient language on only the controlled window and breathes gently.
   After the final overlapping operation ends, the outline remains fully visible
   for 400ms and then fades over 100ms. A new operation cancels either phase and
-  refreshes both timers.
+  refreshes both timers. Re-addressing an already-visible window never restarts
+  fade-in or changes opacity; interrupted fade-out reverses from the opacity
+  currently visible on screen.
 - Click and fill RPCs move a violet-tinted synthetic pointer to the resolved AX
   element before acting. Keyboard-only operations deliberately leave it at the
   last honest pointer target because synthetic focused AX nodes often have no
@@ -531,9 +533,10 @@ How it works:
   moves the user's real cursor. Its fade is interruptible, which keeps it
   continuous across closely spaced recorded-demo operations.
 - Window screenshots and app-window OCR intensify that perimeter with a brighter
-  rounded frame, a scan that is guaranteed time to travel from the top through
-  the bottom of the target, and a longer completion snap. The snap expands the
-  border and holds its light wash before dissolving. These overlays are owned by
+  rounded frame, one scan from the top through the bottom of the target, and a
+  longer completion snap. The scan holds at the bottom while capture completes
+  and cannot wrap into a partial second pass. The snap expands the border and
+  holds its light wash before dissolving. These overlays are owned by
   `macbeth-glow`, so Macbeth's desktop-independent target-window capture excludes
   them, while an external demo recording can still show the animation.
 - The indicator is entirely best-effort: if the helper can't start or crashes,

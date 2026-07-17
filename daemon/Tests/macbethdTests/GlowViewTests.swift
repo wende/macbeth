@@ -34,6 +34,9 @@ import Testing
     #expect(abs(scan.duration - glowCaptureScanDuration) < 0.001)
     #expect((scan.fromValue as? CGFloat) == window.captureView.bounds.maxY - 18)
     #expect((scan.toValue as? CGFloat) == 18)
+    #expect(scan.repeatCount == 0)
+    #expect(scan.fillMode == .forwards)
+    #expect(scan.isRemovedOnCompletion == false)
 
     window.captureView.finish(success: true) {}
     let washLayer = try #require(window.captureView.layer?.sublayers?.first)
@@ -75,6 +78,18 @@ import Testing
     )
     #expect(abs(innerBreathing.duration - 1.2) < 0.001)
 
+    // Once fully visible, another focus refresh must not restart fade-in.
+    window.outlineView.layer?.removeAnimation(forKey: "navigation.fade")
+    let revealedAgain = window.outlineView.show(reduceMotion: false)
+    #expect(revealedAgain == false)
+    #expect(window.outlineView.layer?.animation(forKey: "navigation.fade") == nil)
+    window.outlineView.refresh(reduceMotion: false)
+    let refresh = try #require(
+        window.outlineView.layer?.sublayers?.last?.animation(forKey: "navigation.pulse")
+            as? CAKeyframeAnimation
+    )
+    #expect(refresh.keyPath == "lineWidth")
+
     let movedFrame = targetFrame.offsetBy(dx: 30, dy: -20)
     window.move(to: movedFrame)
     #expect(window.targetFrame == movedFrame)
@@ -85,6 +100,14 @@ import Testing
         window.outlineView.layer?.animation(forKey: "navigation.fade") as? CABasicAnimation
     )
     #expect(abs(fadeOut.duration - glowWindowFadeDuration) < 0.001)
+}
+
+@Test func subPointWindowFrameChangesReuseTheSameOutline() {
+    let original = CGRect(x: 100, y: 200, width: 800, height: 500)
+    let jittered = CGRect(x: 100.4, y: 199.6, width: 800.5, height: 499.5)
+    let moved = CGRect(x: 104, y: 200, width: 800, height: 500)
+    #expect(approximatelyEqualWindowFrames(original, jittered))
+    #expect(!approximatelyEqualWindowFrames(original, moved))
 }
 
 @MainActor

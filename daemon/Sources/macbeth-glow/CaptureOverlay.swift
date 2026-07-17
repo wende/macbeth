@@ -103,6 +103,8 @@ final class NavigationOutlineView: NSView {
     private let borderLayer = CAShapeLayer()
     private let haloLayer = CAShapeLayer()
     private var rgba: GlowRGBA
+    private var isShown = false
+    private var visibilityGeneration = 0
 
     private static let fadeKey = "navigation.fade"
     private static let pulseKey = "navigation.pulse"
@@ -206,18 +208,31 @@ final class NavigationOutlineView: NSView {
         gradient.endPoint = end
     }
 
-    func show(reduceMotion: Bool) {
+    /// Reveal the outline if needed. Repeated focus messages while it is fully
+    /// visible do not restart fade-in. If a focus arrives during fade-out, the
+    /// animation reverses smoothly from the opacity currently on screen.
+    @discardableResult
+    func show(reduceMotion: Bool) -> Bool {
         layoutSubtreeIfNeeded()
-        guard let root = layer else { return }
+        guard let root = layer else { return false }
+        let currentOpacity = root.presentation()?.opacity ?? root.opacity
+        visibilityGeneration += 1
         root.removeAnimation(forKey: Self.fadeKey)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
         root.opacity = 1
+        CATransaction.commit()
+        isShown = true
 
-        let fade = CABasicAnimation(keyPath: "opacity")
-        fade.fromValue = root.presentation()?.opacity ?? 0
-        fade.toValue = 1
-        fade.duration = reduceMotion ? 0.12 : 0.28
-        fade.timingFunction = CAMediaTimingFunction(name: .easeOut)
-        root.add(fade, forKey: Self.fadeKey)
+        let needsReveal = currentOpacity < 0.999
+        if needsReveal {
+            let fade = CABasicAnimation(keyPath: "opacity")
+            fade.fromValue = currentOpacity
+            fade.toValue = 1
+            fade.duration = reduceMotion ? 0.12 : 0.28
+            fade.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            root.add(fade, forKey: Self.fadeKey)
+        }
 
         if reduceMotion {
             innerGlowLayer.removeAnimation(forKey: Self.breathingKey)
@@ -231,12 +246,15 @@ final class NavigationOutlineView: NSView {
             breathe.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
             innerGlowLayer.add(breathe, forKey: Self.breathingKey)
         }
+        return needsReveal
     }
 
     func refresh(reduceMotion: Bool) {
         guard !reduceMotion else { return }
-        let pulse = CAKeyframeAnimation(keyPath: "opacity")
-        pulse.values = [0.82, 1, 0.82]
+        // Refreshing activity must not dim or re-fade the outline. A tiny width
+        // emphasis communicates the new operation without opacity flicker.
+        let pulse = CAKeyframeAnimation(keyPath: "lineWidth")
+        pulse.values = [1.5, 2.15, 1.5]
         pulse.keyTimes = [0, 0.35, 1]
         pulse.duration = 0.42
         pulse.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
@@ -249,7 +267,14 @@ final class NavigationOutlineView: NSView {
             return
         }
         let currentOpacity = root.presentation()?.opacity ?? root.opacity
+        visibilityGeneration += 1
+        let generation = visibilityGeneration
+        isShown = false
+        root.removeAnimation(forKey: Self.fadeKey)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
         root.opacity = 0
+        CATransaction.commit()
 
         let fade = CABasicAnimation(keyPath: "opacity")
         fade.fromValue = currentOpacity
@@ -259,7 +284,10 @@ final class NavigationOutlineView: NSView {
 
         CATransaction.begin()
         CATransaction.setCompletionBlock { [weak self] in
-            self?.innerGlowLayer.removeAnimation(forKey: Self.breathingKey)
+            guard let self,
+                  self.visibilityGeneration == generation,
+                  !self.isShown else { return }
+            self.innerGlowLayer.removeAnimation(forKey: Self.breathingKey)
             completion()
         }
         root.add(fade, forKey: Self.fadeKey)
@@ -385,7 +413,10 @@ final class CaptureOverlayView: NSView {
             scan.fromValue = bounds.maxY - capturePadding
             scan.toValue = capturePadding
             scan.duration = glowCaptureScanDuration
-            scan.repeatCount = .infinity
+            // Exactly one pass. Keep its presentation at the bottom until the
+            // capture completes instead of wrapping into a partial second pass.
+            scan.fillMode = .forwards
+            scan.isRemovedOnCompletion = false
             scan.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
             scanLayer.add(scan, forKey: Self.scanKey)
 
@@ -413,9 +444,12 @@ final class CaptureOverlayView: NSView {
             return
         }
 
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        scanLayer.opacity = 0
+        CATransaction.commit()
         scanLayer.removeAnimation(forKey: Self.scanKey)
         borderLayer.removeAnimation(forKey: Self.borderBreatheKey)
-        scanLayer.opacity = 0
         borderLayer.opacity = 1
         borderLayer.strokeColor = success
             ? color(lightenedBy: 0.55, alpha: 1)
