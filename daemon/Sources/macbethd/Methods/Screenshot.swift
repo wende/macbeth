@@ -63,8 +63,16 @@ func registerScreenshot(
             // though the overlays are sharingType = .readOnly for recordings).
             let filter = SCContentFilter(desktopIndependentWindow: targetWindow)
             let config = SCStreamConfiguration()
-            config.width = Int(targetWindow.frame.width) * 2
-            config.height = Int(targetWindow.frame.height) * 2
+            // Size the capture buffer to the window's *actual* native pixel
+            // dimensions. `contentRect` is in points and `pointPixelScale` is the
+            // backing scale factor of the display the window is on (2 on Retina,
+            // 1 on a standard external monitor, etc.). Hardcoding a 2x factor
+            // assumes every display is Retina — on a 1x display the window renders
+            // into only the top-left quarter of an oversized buffer, leaving the
+            // rest blank (the "4x too big with whitespace" bug).
+            let pixelScale = CGFloat(filter.pointPixelScale)
+            config.width = max(1, Int((filter.contentRect.width * pixelScale).rounded()))
+            config.height = max(1, Int((filter.contentRect.height * pixelScale).rounded()))
             config.showsCursor = false
 
             var image: CGImage
@@ -98,7 +106,9 @@ func registerScreenshot(
             }
 
             if let regionObj = obj["region"]?.objectValue {
-                let scale = Double(config.width) / targetWindow.frame.width
+                // Region coordinates arrive in window points; convert to the
+                // captured image's pixels using the same native scale factor.
+                let scale = Double(pixelScale)
                 let rx = (regionObj["x"]?.numberValue ?? 0) * scale
                 let ry = (regionObj["y"]?.numberValue ?? 0) * scale
                 let rw = (regionObj["width"]?.numberValue ?? Double(image.width)) * scale

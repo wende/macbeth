@@ -47,9 +47,14 @@ func registerExtractText(
                 let config = SCStreamConfiguration()
                 // extract_text is the fallback bridge for AX-opaque apps (Unity,
                 // Electron IDEs), where the targets are small panel labels. Capture
-                // at 2x backing resolution so Vision has the most detail to work with.
-                config.width = max(1, Int(targetWindow.frame.width.rounded()) * 2)
-                config.height = max(1, Int(targetWindow.frame.height.rounded()) * 2)
+                // at the window's actual native pixel resolution so Vision has the
+                // most detail to work with. `pointPixelScale` is the backing scale
+                // factor of the display the window is on (2 on Retina, 1 on a
+                // standard external monitor); hardcoding 2x renders the window into
+                // only the top-left quarter of an oversized buffer on 1x displays.
+                let pixelScale = CGFloat(filter.pointPixelScale)
+                config.width = max(1, Int((filter.contentRect.width * pixelScale).rounded()))
+                config.height = max(1, Int((filter.contentRect.height * pixelScale).rounded()))
                 config.showsCursor = false
 
                 var captured: CGImage
@@ -79,7 +84,7 @@ func registerExtractText(
                 }
 
                 if let regionObj = obj["region"]?.objectValue {
-                    let scale = Double(config.width) / targetWindow.frame.width
+                    let scale = Double(pixelScale)
                     let rx = (regionObj["x"]?.numberValue ?? 0) * scale
                     let ry = (regionObj["y"]?.numberValue ?? 0) * scale
                     let rw = (regionObj["width"]?.numberValue ?? Double(captured.width)) * scale
