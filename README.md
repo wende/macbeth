@@ -469,7 +469,7 @@ macbeth/
 │   │   │   └── ListApps.swift, ConnectApp.swift, ...
 │   │   └── Glow/           # GlowIndicator: drives the macbeth-glow helper
 │   ├── Sources/GlowProtocol/ # Shared IPC message + debounce logic (testable)
-│   ├── Sources/macbeth-glow/ # AppKit helper: renders the screen-edge glow
+│   ├── Sources/macbeth-glow/ # AppKit helper: renders window interaction overlays
 │   └── Tests/
 ├── client/                 # TypeScript client + MCP server
 │   ├── src/
@@ -499,15 +499,14 @@ macbeth/
 
 ## Interaction indicator
 
-Whenever an MCP tool or daemon method actively drives the system — AX actions,
-synthetic keyboard input, window manipulation, interactive AppleScript/JXA,
-Shortcuts, or skill scripts — it lights a subtle glow hugging the edges of every
-attached display, so it's always obvious the machine is being controlled and
-windows aren't moving "on their own."
+Whenever an MCP tool or daemon method addresses an app window, Macbeth places a
+subtle glow and outline around that exact window. Click/fill actions add a
+synthetic presentation pointer, and screenshots add a brighter scan/snap, so it
+is apparent which app is being controlled without lighting the entire display.
 
 How it works:
 
-- The daemon has no AppKit run loop, so the glow is rendered by a tiny helper
+- The daemon has no AppKit run loop, so the overlays are rendered by a tiny helper
   process (`macbeth-glow`) that the daemon spawns lazily on the first
   interaction and reuses afterwards. Commands travel over the helper's stdin as
   newline-delimited JSON (`activate`, `deactivate`, window-focus, capture, and
@@ -515,16 +514,12 @@ How it works:
 - Activity scopes are reference-counted across overlapping MCP and daemon work.
   MCP-side operations use tokenized `begin_activity`/`end_activity` RPCs so a
   nested action cannot turn off another action's glow.
-- One borderless, click-through overlay window per screen floats above normal
-  and full-screen content, re-laying-out when displays change. The windows are
-  `sharingType = .none` and owned by a separate process, so the glow **never
-  appears in screenshots** macbeth captures.
 - Addressing an app through MCP places a quiet, click-through violet outline
   and inward edge glow around its current window. The inner glow uses the same
-  four-edge gradient language as the display indicator and breathes gently with
-  it. The outline follows the shared activity lifecycle: after the final
-  overlapping operation ends, it waits through the refreshable 100ms idle grace
-  and then fades with the display glow.
+  four-edge gradient language on only the controlled window and breathes gently.
+  After the final overlapping operation ends, the outline remains fully visible
+  for 400ms and then fades over 100ms. A new operation cancels either phase and
+  refreshes both timers.
 - Click and fill RPCs move a violet-tinted synthetic pointer to the resolved AX
   element before acting. Keyboard-only operations deliberately leave it at the
   last honest pointer target because synthetic focused AX nodes often have no
@@ -536,16 +531,11 @@ How it works:
   moves the user's real cursor. Its fade is interruptible, which keeps it
   continuous across closely spaced recorded-demo operations.
 - Window screenshots and app-window OCR intensify that perimeter with a brighter
-  rounded frame, a five-point scanning line, and a longer completion snap over
-  the exact target window. The snap expands the border and holds its light wash
-  before dissolving. These overlays are owned by `macbeth-glow`, so Macbeth's
-  desktop-independent target-window capture excludes them, while an external
-  demo recording can still show the animation.
-- The violet glow fades smoothly inward from each screen edge, fades in over
-  ~200ms, breathes gently while active (disabled if macOS "Reduce Motion" is
-  on), and fades out over ~700ms. After the final overlapping activity ends, a
-  refreshable 100ms delay gives the next operation time to begin so a rapid
-  sequence reads as one continuous glow instead of flashing between calls.
+  rounded frame, a scan that is guaranteed time to travel from the top through
+  the bottom of the target, and a longer completion snap. The snap expands the
+  border and holds its light wash before dissolving. These overlays are owned by
+  `macbeth-glow`, so Macbeth's desktop-independent target-window capture excludes
+  them, while an external demo recording can still show the animation.
 - The indicator is entirely best-effort: if the helper can't start or crashes,
   the daemon logs a warning and keeps working — automation is never blocked.
 
@@ -556,14 +546,13 @@ flag):
 | --- | --- | --- |
 | `MACBETH_GLOW` | `1` | Set to `0`/`false`/`off`/`no` to disable the indicator entirely (same as `--no-glow`). |
 | `MACBETH_GLOW_COLOR` | `#A855F7` | Accent color as hex (`#RGB`, `#RGBA`, `#RRGGBB`, or `#RRGGBBAA`). |
-| `MACBETH_GLOW_DEBOUNCE_MS` | `100` | Refreshable delay in milliseconds between the final activity ending and fade-out beginning. |
+| `MACBETH_GLOW_DEBOUNCE_MS` | `400` | Refreshable fully-visible hold in milliseconds between the final activity ending and the 100ms window-highlight fade. |
 | `MACBETH_GLOW_HELPER` | — | Explicit path to the `macbeth-glow` binary (otherwise discovered next to `macbethd`). |
 
-The screen glow, current-window glow, and synthetic pointer all begin their
-interruptible fade after the shared 100ms idle grace and are ordered out when
-the fade completes. Capture animation timers exist only while capture is in
-progress. All window-local presentation layers are click-through and owned by
-the helper process, so target-window screenshots remain clean.
+The current-window glow remains intact for the shared 400ms hold, then performs
+an interruptible 100ms fade and is ordered out. Capture animation timers exist
+only while capture is in progress. All presentation layers are click-through
+and owned by the helper process, so target-window screenshots remain clean.
 
 ## Permissions
 

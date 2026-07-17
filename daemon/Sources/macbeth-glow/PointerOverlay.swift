@@ -275,8 +275,8 @@ final class PointerOverlayView: NSView {
         let fade = CABasicAnimation(keyPath: "opacity")
         fade.fromValue = current
         fade.toValue = 0
-        // Match the screen glow's fade so the next operation can interrupt and
-        // resume it without the pointer blinking out between paced demo calls.
+        // Keep this interruptible so the next operation can resume the same
+        // synthetic pointer without blinking between paced demo calls.
         fade.duration = 0.7
         fade.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
         CATransaction.begin()

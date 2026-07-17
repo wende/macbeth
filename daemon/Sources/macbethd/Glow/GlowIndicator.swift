@@ -2,7 +2,7 @@ import Foundation
 import CoreGraphics
 import GlowProtocol
 
-/// Best-effort driver for the screen-edge glow indicator.
+/// Best-effort driver for window-local interaction overlays.
 ///
 /// The daemon itself has no AppKit run loop (it runs an async socket server on
 /// the main thread), so the glow lives in a separate lightweight `macbeth-glow`
@@ -47,8 +47,8 @@ actor GlowIndicator {
 
     // MARK: - Interaction lifecycle hooks
 
-    /// Signal that an interaction is starting (or ongoing). Shows the glow and
-    /// cancels the helper's pending fade. Safe to call very frequently.
+    /// Signal that an interaction is starting (or ongoing). Keeps the current
+    /// window highlight visible and cancels its pending fade.
     func activityStarted() {
         guard !disabled else { return }
         ensureRunning()
@@ -58,7 +58,7 @@ actor GlowIndicator {
     }
 
     /// Signal that an interaction finished. The helper starts its refreshable
-    /// fade delay only when the final overlapping scope ends.
+    /// highlight hold only when the final overlapping scope ends.
     func activityEnded() {
         guard !disabled else { return }
         guard activeScopes > 0 else {

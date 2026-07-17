@@ -3,6 +3,7 @@ import Foundation
 import ScreenCaptureKit
 import CoreGraphics
 import ImageIO
+import GlowProtocol
 
 /// Check if Screen Recording permission is likely granted.
 /// There's no direct API like AXIsProcessTrusted, so we attempt a lightweight capture.
@@ -68,11 +69,12 @@ func registerScreenshot(
             var image: CGImage
             let captureAnimation = await glow.captureStarted(frame: targetWindow.frame)
             do {
-                // Give the helper one frame to present the focus treatment so
-                // the physical user sees the capture begin. Its separate window
-                // is excluded by the desktop-independent target filter.
+                // Keep the scanning phase alive for one complete top-to-bottom
+                // pass. The helper is excluded by the desktop-independent
+                // target filter, so this recording-visible delay cannot affect
+                // the captured pixels.
                 if captureAnimation != nil {
-                    try? await Task.sleep(for: .milliseconds(120))
+                    try? await Task.sleep(for: .seconds(glowCapturePresentationDuration))
                 }
                 image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
                 await glow.captureFinished(id: captureAnimation, success: true)

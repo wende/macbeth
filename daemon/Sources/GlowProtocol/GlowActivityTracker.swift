@@ -1,14 +1,14 @@
 import Foundation
 
-/// Pure, timer-free state machine for the glow's debounce behavior.
+/// Pure, timer-free state machine for the window highlight's hold behavior.
 ///
 /// The helper "pokes" this tracker when the daemon reports that all activity
-/// ended. The resulting deadline delays fade-out; a new activation resets the
-/// tracker and cancels that pending fade.
+/// ended. The resulting deadline holds the highlight intact; a new activation
+/// resets the tracker and cancels that pending fade.
 ///
 /// Keeping this logic separate from AppKit makes it directly unit-testable.
 public struct GlowActivityTracker: Sendable {
-    /// Debounce window in seconds.
+    /// Fully-visible hold in seconds.
     public var debounce: TimeInterval
 
     /// Timestamp of the most recent poke, or nil if idle.

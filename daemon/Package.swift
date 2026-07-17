@@ -19,7 +19,7 @@ let package = Package(
             dependencies: ["GlowProtocol"],
             path: "Sources/macbethd"
         ),
-        // Lightweight AppKit helper that renders the screen-edge glow overlay.
+        // Lightweight AppKit helper that renders window-local interaction overlays.
         .executableTarget(
             name: "macbeth-glow",
             dependencies: ["GlowProtocol"],

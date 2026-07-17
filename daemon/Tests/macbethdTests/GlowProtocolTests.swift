@@ -137,18 +137,20 @@ import Foundation
 
 @Test func defaultGlowUsesVioletAccent() {
     #expect(glowDefaultColor == "#A855F7")
-    #expect(glowDefaultDebounceMs == 100)
+    #expect(glowDefaultDebounceMs == 400)
+    #expect(glowWindowFadeDuration == 0.1)
+    #expect(glowCapturePresentationDuration > glowCaptureScanDuration)
 }
 
 @Test func fadeDelayRefreshesForAnotherEndRequest() {
-    var tracker = GlowActivityTracker(debounceMs: 100)
+    var tracker = GlowActivityTracker(debounceMs: 400)
     let firstEnd = Date(timeIntervalSinceReferenceDate: 10)
     tracker.poke(at: firstEnd)
-    #expect(tracker.fadeOutDeadline() == firstEnd.addingTimeInterval(0.1))
+    #expect(tracker.fadeOutDeadline() == firstEnd.addingTimeInterval(0.4))
 
     let secondEnd = firstEnd.addingTimeInterval(0.075)
     tracker.poke(at: secondEnd)
-    #expect(tracker.fadeOutDeadline() == secondEnd.addingTimeInterval(0.1))
+    #expect(tracker.fadeOutDeadline() == secondEnd.addingTimeInterval(0.4))
     #expect(tracker.isActive(at: firstEnd.addingTimeInterval(0.11)))
 }
 

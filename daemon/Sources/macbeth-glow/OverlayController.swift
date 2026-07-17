@@ -5,7 +5,6 @@ import GlowProtocol
 /// messages. All methods run on the main thread.
 @MainActor
 final class OverlayController: NSObject {
-    private var windows: [OverlayWindow] = []
     private var rgba: GlowRGBA
     private var tracker: GlowActivityTracker
     private var fadeOutTimer: Timer?
@@ -18,9 +17,6 @@ final class OverlayController: NSObject {
     private var navigationGeneration = 0
     private var pointerWindow: PointerOverlayWindow?
     private var pointerGeneration = 0
-    /// Invalidates completion handlers from an interrupted fade-out so they
-    /// cannot order out a newly reactivated window.
-    private var transitionGeneration = 0
 
     init(rgba: GlowRGBA, debounceMs: Int) {
         self.rgba = rgba
@@ -33,8 +29,6 @@ final class OverlayController: NSObject {
     }
 
     func start() {
-        rebuildWindows()
-
         NotificationCenter.default.addObserver(
             self, selector: #selector(screenParametersChanged),
             name: NSApplication.didChangeScreenParametersNotification, object: nil
@@ -52,7 +46,6 @@ final class OverlayController: NSObject {
         case .activate:
             if let hex = message.color, let parsed = parseGlowColor(hex), parsed != rgba {
                 rgba = parsed
-                windows.forEach { $0.glowView.setColor(parsed) }
             }
             if let ms = message.debounceMs { tracker.debounce = TimeInterval(max(0, ms)) / 1000.0 }
             tracker.reset()
@@ -215,12 +208,7 @@ final class OverlayController: NSObject {
     // MARK: - Show / hide
 
     private func show() {
-        transitionGeneration += 1
         isShowing = true
-        for window in windows {
-            window.orderFrontRegardless()
-            window.glowView.fadeIn(reduceMotion: reduceMotion)
-        }
     }
 
     private func rearmFadeOut() {
@@ -246,52 +234,21 @@ final class OverlayController: NSObject {
         fadeOutTimer = nil
         guard isShowing else { return }
         isShowing = false
-        transitionGeneration += 1
-        let generation = transitionGeneration
         navigationFadeTimer?.invalidate()
         navigationFadeTimer = nil
         hideNavigationOutline(generation: navigationGeneration)
         hidePointer(generation: pointerGeneration)
-        for window in windows {
-            window.glowView.fadeOut { [weak self, weak window] in
-                guard let self,
-                      self.transitionGeneration == generation,
-                      !self.isShowing else { return }
-                // Order out and stop all CA work so an idle helper uses ~0% CPU.
-                window?.glowView.stopAllAnimation()
-                window?.orderOut(nil)
-            }
-        }
     }
 
     // MARK: - Screen layout
 
-    private func rebuildWindows() {
-        for window in windows {
-            window.glowView.stopAllAnimation()
-            window.orderOut(nil)
-        }
-        windows = NSScreen.screens.map { OverlayWindow(screen: $0, rgba: rgba) }
-        if isShowing {
-            for window in windows {
-                window.orderFrontRegardless()
-                window.glowView.fadeIn(reduceMotion: reduceMotion)
-            }
-        }
-    }
-
     @objc private func screenParametersChanged() {
-        rebuildWindows()
         if let rect = navigationRect {
             navigationWindow?.move(to: appKitCaptureFrame(rect))
         }
     }
 
     @objc private func accessibilityOptionsChanged() {
-        guard isShowing else { return }
-        // Re-apply the current motion preference to already-visible glows.
-        for window in windows {
-            window.glowView.fadeIn(reduceMotion: reduceMotion)
-        }
+        // Motion preferences are read on every subsequent show/move/capture.
     }
 }

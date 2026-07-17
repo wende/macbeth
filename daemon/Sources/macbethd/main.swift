@@ -47,7 +47,7 @@ while let arg = args.next() {
         Options:
           --socket-path <path>  Unix socket path (default: $TMPDIR/macbeth-<uid>.sock)
           --verbose, -v         Enable verbose logging
-          --no-glow             Disable the screen-edge interaction glow indicator
+          --no-glow             Disable window interaction overlays
           --check-permissions   Print Accessibility + Screen Recording status, then exit
           --help, -h            Show this help
 
@@ -79,7 +79,7 @@ if !checkAccessibilityPermissions(prompt: true) {
 // Environment overrides (CLI --no-glow takes precedence):
 //   MACBETH_GLOW=0|false|off       disable the indicator
 //   MACBETH_GLOW_COLOR=#RRGGBB     accent color (default #A855F7)
-//   MACBETH_GLOW_DEBOUNCE_MS=<int> refreshable fade delay (default 100)
+//   MACBETH_GLOW_DEBOUNCE_MS=<int> refreshable highlight hold (default 400)
 //   MACBETH_GLOW_HELPER=<path>     explicit path to the macbeth-glow binary
 let env = ProcessInfo.processInfo.environment
 func envDisablesGlow() -> Bool {

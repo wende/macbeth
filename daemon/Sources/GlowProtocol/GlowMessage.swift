@@ -3,9 +3,21 @@ import Foundation
 /// Default accent color for the glow (a vivid but balanced violet).
 public let glowDefaultColor = "#A855F7"
 
-/// Default delay between the final activity ending and the glow beginning to
-/// fade. A new activity during this window cancels the pending fade.
-public let glowDefaultDebounceMs = 100
+/// Default fully-visible hold after the final activity ends. The controlled
+/// window then fades over `glowWindowFadeDuration`; a new activity cancels
+/// either phase and refreshes the lifecycle.
+public let glowDefaultDebounceMs = 400
+
+/// Duration of the controlled-window highlight's fade-out.
+public let glowWindowFadeDuration: TimeInterval = 0.1
+
+/// Duration of one complete top-to-bottom screenshot scan.
+public let glowCaptureScanDuration: TimeInterval = 0.9
+
+/// Minimum time the capture overlay remains in its scanning phase. This is a
+/// little longer than one scan so the bottom edge is visibly crossed before
+/// the completion snap interrupts the animation.
+public let glowCapturePresentationDuration: TimeInterval = 0.95
 
 /// A window rectangle in CoreGraphics global coordinates (origin at the
 /// top-left of the primary display), as reported by ScreenCaptureKit.
@@ -49,7 +61,7 @@ public enum GlowPointerAction: String, Codable, Sendable {
 ///
 /// Examples:
 /// ```
-/// {"type":"activate","color":"#A855F7","debounceMs":100}
+/// {"type":"activate","color":"#A855F7","debounceMs":400}
 /// {"type":"deactivate"}
 /// {"type":"focusWindow","rect":{"x":0,"y":0,"width":800,"height":600}}
 /// {"type":"pointerMove","point":{"x":120,"y":240},"action":"click"}
@@ -59,10 +71,10 @@ public enum GlowPointerAction: String, Codable, Sendable {
 /// ```
 public struct GlowMessage: Codable, Equatable, Sendable {
     public enum Kind: String, Codable, Sendable {
-        /// Interaction started (or is ongoing) — show the glow and cancel any
+        /// Interaction started (or is ongoing) — keep the highlight and cancel any
         /// pending fade. Optional `color`/`debounceMs` update configuration.
         case activate
-        /// The daemon reports idle — schedule a debounced fade-out.
+        /// The daemon reports idle — hold, then schedule the highlight fade-out.
         case deactivate
         /// Keep a subtle outline around the most recently addressed window.
         case focusWindow

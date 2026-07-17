@@ -254,7 +254,7 @@ final class NavigationOutlineView: NSView {
         let fade = CABasicAnimation(keyPath: "opacity")
         fade.fromValue = currentOpacity
         fade.toValue = 0
-        fade.duration = 0.7
+        fade.duration = glowWindowFadeDuration
         fade.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
 
         CATransaction.begin()
@@ -384,7 +384,7 @@ final class CaptureOverlayView: NSView {
             let scan = CABasicAnimation(keyPath: "position.y")
             scan.fromValue = bounds.maxY - capturePadding
             scan.toValue = capturePadding
-            scan.duration = 0.72
+            scan.duration = glowCaptureScanDuration
             scan.repeatCount = .infinity
             scan.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
             scanLayer.add(scan, forKey: Self.scanKey)
