@@ -6,6 +6,7 @@
     "build:test-harness": "./scripts/build-test-harness.sh",
     "launch:test-harness": "./scripts/launch-test-harness.sh",
     "test:gui": "npm --prefix client run test:gui",
+    "test:gui:foreground": "npm --prefix client run test:gui:foreground",
     "demo:mcp": "node scripts/demo-mcp.mjs"
   }
 }

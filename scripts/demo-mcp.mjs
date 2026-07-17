@@ -197,6 +197,23 @@ function rememberCreatedFixtures(appListText) {
   }
 }
 
+async function positionFixtureWindow(pid, position, { frontmost = false } = {}) {
+  await pollTool(
+    "run_applescript",
+    {
+      source: `tell application "System Events"
+        tell (first application process whose unix id is ${pid})
+          set position of window 1 to ${position}
+          ${frontmost ? "set frontmost to true" : ""}
+        end tell
+        return "ready"
+      end tell`,
+    },
+    (text) => text.trim() === "ready",
+    15_000
+  );
+}
+
 async function captureInitialState() {
   const apps = textOf(await callTool("list_apps", {}, { quiet: true, noDelay: true }));
   for (const pid of pidsForListedName(apps, APP_NATIVE)) baselineNativePids.add(pid);
@@ -283,17 +300,12 @@ async function launchApps() {
   // Position both windows before the first connect_app. Connecting emits the
   // target outline, so doing it earlier would leave a stale outline at the
   // fixture's pre-layout frame.
-  await callTool("run_applescript", {
-    source: `tell application "System Events"
-      tell (first application process whose unix id is ${nativePid})
-        set position of window 1 to {40, 70}
-        set frontmost to true
-      end tell
-      tell (first application process whose unix id is ${electronPid})
-        set position of window 1 to {680, 70}
-      end tell
-    end tell`,
-  });
+  // Process discovery happens before a newly launched app necessarily exposes
+  // its first AX window. Poll the actual positioning operation so a transient
+  // missing window is treated as app startup, not as a demo failure. Position
+  // the native app last so it remains frontmost for the first native action.
+  await positionFixtureWindow(electronPid, "{680, 70}");
+  await positionFixtureWindow(nativePid, "{40, 70}", { frontmost: true });
 
   const electronConnection = await pollTool(
     "connect_app",

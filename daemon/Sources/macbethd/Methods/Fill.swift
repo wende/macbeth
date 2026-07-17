@@ -31,19 +31,20 @@ func registerFill(
             let pid = connection?.pid
 
             let targetWindow = ElementGeometry.containingWindow(of: element.element)
-            let showGlow = targetWindow.map(ElementGeometry.isFrontmostWindow) ?? false
-            if showGlow { await glow.activityStarted() }
+            // Glow only when the window is already frontmost (background AX stays quiet).
+            // Keyboard synthesis below re-presents after activate when it must foreground.
+            var glowScoped = false
             defer {
-                if showGlow { Task { await glow.activityEnded() } }
+                if glowScoped { Task { await glow.activityEnded() } }
             }
-            if showGlow, let window = targetWindow,
-               let frame = ElementGeometry.frame(of: window) {
-                await glow.windowFocused(id: ElementGeometry.windowIdentity(of: window), frame: frame)
-            }
-            if showGlow,
-               let point = ElementGeometry.interactionPoint(of: element.element),
-               await glow.pointerMoved(to: point, action: .fill) {
-                try? await Task.sleep(for: .milliseconds(470))
+            if targetWindow.map(ElementGeometry.isFrontmostWindow) == true {
+                await presentInteractionGlow(
+                    glow: glow,
+                    window: targetWindow,
+                    element: element.element,
+                    pointerAction: .fill,
+                    scoped: &glowScoped
+                )
             }
 
             // Check element role
@@ -84,7 +85,20 @@ func registerFill(
             }
 
             // --- Keyboard synthesis path (strategy == .keyboard, or auto fallback) ---
+            // Always activates the target so HID events land — outline the window we
+            // just foregrounded. When the window was already frontmost the glow is up
+            // from the block above; re-presenting would replay the pointer approach to
+            // a point it already occupies and pay the animation delay a second time.
             await appManager.activate(appHandle)
+            if !glowScoped {
+                await presentInteractionGlow(
+                    glow: glow,
+                    window: targetWindow,
+                    element: element.element,
+                    pointerAction: .fill,
+                    scoped: &glowScoped
+                )
+            }
             try await fillViaKeyboard(element.element, value: value, pid: pid)
             return .object(["success": .bool(true)])
         }

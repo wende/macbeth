@@ -61,17 +61,19 @@ func registerPressKey(dispatcher: Dispatcher, appManager: AppConnectionManager, 
             let targetWindow = connection.flatMap {
                 ElementGeometry.preferredWindow(of: $0.appElement.element)
             }
-            let showGlow = targetWindow.map(ElementGeometry.isFrontmostWindow) ?? false
-            if showGlow { await glow.activityStarted() }
+            // press_key always activates the target so HID events land — outline
+            // after activate so background-to-front paths get honest chrome.
+            var glowScoped = false
             defer {
-                if showGlow { Task { await glow.activityEnded() } }
-            }
-            if showGlow, let window = targetWindow,
-               let frame = ElementGeometry.frame(of: window) {
-                await glow.windowFocused(id: ElementGeometry.windowIdentity(of: window), frame: frame)
+                if glowScoped { Task { await glow.activityEnded() } }
             }
 
             await appManager.activate(appHandle)
+            await presentInteractionGlow(
+                glow: glow,
+                window: targetWindow,
+                scoped: &glowScoped
+            )
             switch parsed.kind {
             case .key(let keyCode, let flags):
                 postKeyEvent(keyCode: keyCode, flags: flags)
@@ -105,17 +107,17 @@ func registerPressKeys(dispatcher: Dispatcher, appManager: AppConnectionManager,
             let targetWindow = connection.flatMap {
                 ElementGeometry.preferredWindow(of: $0.appElement.element)
             }
-            let showGlow = targetWindow.map(ElementGeometry.isFrontmostWindow) ?? false
-            if showGlow { await glow.activityStarted() }
+            var glowScoped = false
             defer {
-                if showGlow { Task { await glow.activityEnded() } }
-            }
-            if showGlow, let window = targetWindow,
-               let frame = ElementGeometry.frame(of: window) {
-                await glow.windowFocused(id: ElementGeometry.windowIdentity(of: window), frame: frame)
+                if glowScoped { Task { await glow.activityEnded() } }
             }
 
             await appManager.activate(appHandle)
+            await presentInteractionGlow(
+                glow: glow,
+                window: targetWindow,
+                scoped: &glowScoped
+            )
             for parsed in parsedKeys {
                 switch parsed.kind {
                 case .key(let keyCode, let flags):
