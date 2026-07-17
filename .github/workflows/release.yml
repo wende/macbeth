@@ -3,13 +3,19 @@ name: Signed Release
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to build and publish
+        required: true
+        type: string
 
 permissions:
   contents: write
   id-token: write
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ inputs.tag || github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -20,16 +26,19 @@ jobs:
     environment: release
     env:
       MACBETH_CODESIGN_IDENTITY: "Developer ID Application: Krzysztof Wende (5N28UN29Z6)"
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.tag || github.ref }}
 
       - name: Select Xcode 16.2
         run: sudo xcode-select -s /Applications/Xcode_16.2.app
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
@@ -54,7 +63,7 @@ jobs:
       - name: Validate tag matches package version
         run: |
           VERSION="$(node -p 'require("./client/package.json").version')"
-          test "v$VERSION" = "$GITHUB_REF_NAME"
+          test "v$VERSION" = "$RELEASE_TAG"
 
       - name: Import Developer ID certificate
         env:
@@ -102,7 +111,7 @@ jobs:
           cp client/bin/macbethd client/bin/macbeth-glow notarization/macbeth/
           ditto -c -k --sequesterRsrc --keepParent \
             notarization/macbeth \
-            "artifacts/macbeth-$GITHUB_REF_NAME-macos-universal.zip"
+            "artifacts/macbeth-$RELEASE_TAG-macos-universal.zip"
 
       - name: Notarize signed binaries
         env:
@@ -114,7 +123,7 @@ jobs:
           printf '%s' "$APPLE_API_PRIVATE_KEY" > "$API_KEY_PATH"
           chmod 600 "$API_KEY_PATH"
           xcrun notarytool submit \
-            "artifacts/macbeth-$GITHUB_REF_NAME-macos-universal.zip" \
+            "artifacts/macbeth-$RELEASE_TAG-macos-universal.zip" \
             --key "$API_KEY_PATH" \
             --key-id "$APPLE_API_KEY_ID" \
             --issuer "$APPLE_API_ISSUER_ID" \
@@ -124,13 +133,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" artifacts/* --clobber
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" artifacts/* --clobber
           else
-            gh release create "$GITHUB_REF_NAME" artifacts/* \
-              --title "$GITHUB_REF_NAME" \
+            gh release create "$RELEASE_TAG" artifacts/* \
+              --title "$RELEASE_TAG" \
               --generate-notes
           fi
 
       - name: Publish npm package
-        run: npm publish artifacts/*.tgz --access public
+        run: npm publish ./artifacts/*.tgz --access public
