@@ -467,6 +467,21 @@ Add to your Claude Code MCP config (`.mcp.json`):
 }
 ```
 
+### Updating
+
+macbeth can update itself to the most recent signed GitHub release:
+
+```bash
+npx macbeth update          # install the latest release
+npx macbeth update --check  # report whether an update is available, without installing
+```
+
+`update` queries the latest release of [`wende/macbeth`](https://github.com/wende/macbeth/releases),
+compares it against the installed version, and — when a newer one exists —
+installs the notarized package attached to that release via `npm install -g`
+(falling back to the npm registry if the release has no packaged tarball). Set
+`MACBETH_UPDATE_REPO` to point the check at a fork.
+
 ### Available tools
 
 | Tool | Description |
