@@ -1,6 +1,6 @@
 {
   "name": "macbeth",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Playwright for macOS native apps — automation via the Accessibility API",
   "repository": {
     "type": "git",
