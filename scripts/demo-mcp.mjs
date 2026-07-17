@@ -10,8 +10,8 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const NATIVE_BUNDLE = join(ROOT, "test-harness/.build/MacbethTestApp.app");
-const ELECTRON_APP = join(ROOT, "electron-testapp");
+const NATIVE_BUNDLE = join(ROOT, "test/test-harness/.build/MacbethTestApp.app");
+const ELECTRON_APP = join(ROOT, "test/electron-testapp");
 const ELECTRON_BUNDLE = join(ELECTRON_APP, "node_modules/electron/dist/Electron.app");
 const MCP_ENTRY = join(ROOT, "client/bin/macbeth.mjs");
 const BUILD_TMP = join(ROOT, ".tmp");
@@ -227,7 +227,7 @@ async function prepare() {
     runBootstrap("npm", ["install"]);
   }
   if (!existsSync(ELECTRON_BUNDLE)) {
-    runBootstrap("npm", ["ci", "--prefix", "electron-testapp"]);
+    runBootstrap("npm", ["ci", "--prefix", "test/electron-testapp"]);
   }
   runBootstrap(join(ROOT, "scripts/build-daemon.sh"), []);
   runBootstrap("npm", ["--prefix", "client", "run", "build"]);

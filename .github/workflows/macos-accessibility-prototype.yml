@@ -167,10 +167,10 @@ jobs:
       - name: Build test harness app
         run: |
           set -euxo pipefail
-          pushd testapp-minimal > /dev/null
+          pushd test/testapp-minimal > /dev/null
           swift build -c release
           popd > /dev/null
-          cp testapp-minimal/.build/release/MacbethCIHarness "$HARNESS_PATH"
+          cp test/testapp-minimal/.build/release/MacbethCIHarness "$HARNESS_PATH"
           chmod +x "$HARNESS_PATH"
           file "$HARNESS_PATH" || true
           ls -la "$HARNESS_PATH"
