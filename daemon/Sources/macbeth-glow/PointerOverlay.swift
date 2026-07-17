@@ -192,9 +192,9 @@ final class PointerOverlayView: NSView {
 
         cursorGradientLayer.frame = bounds
         cursorGradientLayer.colors = [
-            CGColor(red: 0x8B / 255, green: 0x33 / 255, blue: 0x42 / 255, alpha: 1),
-            CGColor(red: 0x61 / 255, green: 0x20 / 255, blue: 0x2F / 255, alpha: 1),
-            CGColor(red: 0x32 / 255, green: 0x11 / 255, blue: 0x1A / 255, alpha: 1),
+            color(alpha: 1),
+            color(darkenedBy: 0.28, alpha: 1),
+            color(darkenedBy: 0.62, alpha: 1),
         ]
         cursorGradientLayer.locations = [0, 0.5, 1]
         cursorGradientLayer.startPoint = CGPoint(x: 28 / pointerDesignSize, y: 110 / pointerDesignSize)
@@ -368,6 +368,15 @@ final class PointerOverlayView: NSView {
             red: rgba.red + (1 - rgba.red) * amount,
             green: rgba.green + (1 - rgba.green) * amount,
             blue: rgba.blue + (1 - rgba.blue) * amount,
+            alpha: rgba.alpha * alpha
+        )
+    }
+
+    private func color(darkenedBy amount: Double, alpha: Double) -> CGColor {
+        CGColor(
+            red: rgba.red * (1 - amount),
+            green: rgba.green * (1 - amount),
+            blue: rgba.blue * (1 - amount),
             alpha: rgba.alpha * alpha
         )
     }

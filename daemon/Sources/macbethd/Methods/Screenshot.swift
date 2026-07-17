@@ -68,14 +68,20 @@ func registerScreenshot(
             config.showsCursor = false
 
             var image: CGImage
-            await glow.activityStarted()
-            defer { Task { await glow.activityEnded() } }
+            let showGlow = ElementGeometry.isFrontmostWindow(
+                pid: conn.pid,
+                windowNumber: Int(targetWindow.windowID)
+            )
+            if showGlow { await glow.activityStarted() }
+            defer {
+                if showGlow { Task { await glow.activityEnded() } }
+            }
             let windowID = ElementGeometry.windowIdentity(
                 pid: conn.pid, windowNumber: Int(targetWindow.windowID)
             )
-            let captureAnimation = await glow.captureStarted(
-                windowID: windowID, frame: targetWindow.frame
-            )
+            let captureAnimation = showGlow
+                ? await glow.captureStarted(windowID: windowID, frame: targetWindow.frame)
+                : nil
             do {
                 // Keep the scanning phase alive for one complete top-to-bottom
                 // pass. The helper is excluded by the desktop-independent

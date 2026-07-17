@@ -1,8 +1,36 @@
-# Macbeth - Playwright for MacOS native apps
+<p align="center">
+  <img src="assets/macbeth-logo.svg" alt="Macbeth" width="420" />
+</p>
 
-Macbeth automates any macOS application through the [Accessibility API](https://developer.apple.com/documentation/accessibility). It provides a TypeScript client with chainable locators, auto-waiting, and screenshot capture — the same patterns you know from Playwright, applied to native macOS UI elements instead of the browser DOM.
+# Macbeth — Playwright for macOS apps
 
-It also ships as an MCP server, so LLM agents can drive macOS apps through tool calls.
+Macbeth automates macOS applications through the [Accessibility API](https://developer.apple.com/documentation/accessibility) — native AppKit apps **and** Electron/Chromium apps (Slack, VS Code, Discord, and more). It provides a TypeScript client with chainable locators, auto-waiting, and screenshot capture — the same patterns you know from Playwright, applied to real desktop UI instead of the browser DOM.
+
+It also ships as an MCP server, so LLM agents can drive macOS apps through tool calls, with a window-local interaction glow so you can see exactly which app is being controlled.
+
+## Demo
+
+> **Video demo coming soon.** Until then, run the on-screen presentation yourself:
+>
+> ```bash
+> npm run demo:mcp
+> ```
+>
+> That launches native + Electron fixtures through the public MCP server and walks through fills, clicks, keyboard input, screenshots, and OCR with the interaction overlays visible. Use `--fast` for a quicker paced run or `--delay-ms 1200` for a slower recording.
+>
+> <!-- Replace this block with an embedded demo once the video is ready:
+> [![Macbeth demo](assets/demo-thumbnail.png)](https://…your-video-url…)
+> -->
+
+## Features
+
+- **Native + Electron** — AppKit apps and Chromium-based apps share the same locator API. On connect, Electron trees are switched on via `AXManualAccessibility` and waited on until web content is ready.
+- **Playwright-style locators** — chainable, immutable, lazy; no RPC until `.click()`, `.fill()`, or another terminal method.
+- **Smart action strategies** — `click` (`auto` / `ax` / `mouse`) and `fill` (`auto` / `ax` / `keyboard`) with Electron-aware fallbacks (keystroke synthesis for React-style inputs; AXPress + safe mouse click for stubborn controls).
+- **MCP server** — tool surface for Claude and other agents, plus bundled app skills (Calendar, Mail, Safari, System Settings, Electron, …).
+- **Screenshots & OCR** — ScreenCaptureKit capture and Vision-based `extract_text` for apps with thin AX trees.
+- **Interaction glow** — violet window outline, synthetic pointer on click/fill, and scan/snap on screenshots so recorded demos stay readable.
+- **Menus, AppleScript, Shortcuts** — menu-bar automation, `run_applescript`, and Shortcuts integration alongside AX queries.
 
 ## How it works
 
@@ -56,6 +84,9 @@ npm install macbeth
 # Build the TypeScript client
 cd client && npm run build
 ```
+
+Maintainers: see [docs/releasing.md](docs/releasing.md) for signed and notarized
+GitHub/npm releases.
 
 ### Packaged GUI test harness
 
@@ -278,17 +309,17 @@ const apps = await client.listApps();
 //  { name: "Slack", pid: 1234, runtime: "electron" }, ...]
 ```
 
-macbeth auto-detects whether apps are native, Electron, or unknown. Native macOS
-apps are supported today. Electron automation is detected but not yet supported;
-it remains a planned future feature.
+`list_apps` reports each process as `native`, `electron`, or `unknown`. Both native
+AppKit apps and Electron/Chromium apps are fully supported through the same client
+and MCP APIs (see [Electron apps](#electron-apps) for runtime-specific details).
 
 ### Electron apps
 
-macbeth automates Electron apps (Slack, VS Code, Discord, …) in addition to native
-AppKit apps. Chromium keeps its accessibility tree disabled until it detects an
-assistive-technology client, so on connect macbeth sets the documented
-`AXManualAccessibility` attribute to switch the tree on, then waits for the web content
-to appear before returning.
+macbeth automates Electron apps (Slack, VS Code, Discord, Notion, Figma desktop, …)
+with the same locator API as native AppKit apps. Chromium keeps its accessibility
+tree disabled until it detects an assistive-technology client, so on connect macbeth
+sets the documented `AXManualAccessibility` attribute to switch the tree on, then
+waits for the web content to appear before returning.
 
 ```ts
 const slack = await client.connect("Slack");
@@ -447,6 +478,8 @@ Add to your Claude Code MCP config (`.mcp.json`):
 
 Drop a `SKILL.md` file into `skills/<name>/` to teach agents how to automate specific apps or workflows. Skills are loadable via the `list_skills` and `load_skill` MCP tools.
 
+Bundled skills include Calendar, Contacts, Mail, Maps, Messages, Music, Notes, Reminders, Safari, System Settings, Logic Pro, and an [Electron](skills/electron/SKILL.md) guide covering web-area trees, fill/click strategies, and common gotchas.
+
 ## Architecture
 
 ```
@@ -459,13 +492,16 @@ macbeth/
 │   │   ├── AX/             # Accessibility API wrappers
 │   │   │   ├── HandleTable.swift      # Opaque handle management (5-min TTL)
 │   │   │   ├── AppConnection.swift    # App connection + fuzzy name matching
+│   │   │   ├── ElectronSupport.swift  # AXManualAccessibility + web-area readiness
 │   │   │   ├── TreeWalker.swift       # Recursive AX tree traversal
 │   │   │   ├── TreeSerializer.swift   # Text + JSON tree output
 │   │   │   ├── ElementQuery.swift     # Query path resolution
+│   │   │   ├── ElementValidity.swift  # Stale-handle detection (Electron re-renders)
+│   │   │   ├── SafeMouseClick.swift   # Coordinate click with app/window restore
 │   │   │   └── KeyCodes.swift         # Key name → CGKeyCode mapping
 │   │   ├── Methods/        # RPC method implementations
 │   │   │   ├── Click.swift, Fill.swift, PressKey.swift
-│   │   │   ├── Screenshot.swift, WaitFor.swift
+│   │   │   ├── Screenshot.swift, WaitFor.swift, ExtractText.swift
 │   │   │   └── ListApps.swift, ConnectApp.swift, ...
 │   │   └── Glow/           # GlowIndicator: drives the macbeth-glow helper
 │   ├── Sources/GlowProtocol/ # Shared IPC message + debounce logic (testable)
@@ -480,21 +516,26 @@ macbeth/
 │   │   ├── daemon.ts       # Daemon process management
 │   │   ├── mcp.ts          # MCP server
 │   │   └── types.ts        # TypeScript interfaces
+│   ├── test-electron/      # End-to-end Electron fixture + runner
 │   └── bin/macbeth.mjs     # npx entry point
 ├── protocol/               # Shared JSON-RPC schema definitions
+├── skills/                 # Bundled app workflows (SKILL.md + scripts)
 ├── test-harness/           # Packaged AppKit test harness source
+├── assets/                 # Logo and media
 └── scripts/
-    └── build-daemon.sh     # Build universal binary
+    ├── build-daemon.sh     # Build universal binary
+    └── demo-mcp.mjs        # MCP feature demo (native + Electron)
 ```
 
 ### Key design decisions
 
 - **Protocol**: JSON-RPC 2.0 over Unix domain socket, newline-delimited JSON framing. Fast, no HTTP overhead, no port conflicts.
-- **Handles**: UI elements are referenced by opaque string IDs (`h_0`, `h_1`, ...) stored in a server-side handle table with 5-minute TTL. This avoids serializing AXUIElement references across process boundaries.
+- **Handles**: UI elements are referenced by opaque string IDs (`h_0`, `h_1`, ...) stored in a server-side handle table with 5-minute TTL. This avoids serializing AXUIElement references across process boundaries. Locators re-resolve on `stale-element` errors from Electron re-renders.
 - **Auto-wait**: All action methods (click, fill) poll for the target element until it appears or the timeout expires. No manual waits needed.
 - **Locators are lazy**: Building a locator chain (`app.window('X').button('Y')`) does nothing — the query is only resolved when you call a terminal method.
+- **Electron without DOM access**: Enable Chromium's AX tree with `AXManualAccessibility` (never `AXEnhancedUserInterface`, which resizes windows). Prefer AX actions; synthesize keystrokes or safe mouse clicks only when the web content needs real input events.
 - **Daemon lifecycle**: The TypeScript client auto-spawns the daemon as a subprocess and shuts it down on close. No background service to manage.
-- **Zero external Swift dependencies**: The daemon uses only Foundation, ApplicationServices, ScreenCaptureKit, and CoreGraphics.
+- **Zero external Swift dependencies**: The daemon uses only Foundation, ApplicationServices, ScreenCaptureKit, CoreGraphics, and Vision.
 - **Swift 6 strict concurrency**: Full Sendable compliance. AXUIElement is wrapped in `@unchecked Sendable` (safe — it's a mach port).
 
 ## Interaction indicator
@@ -514,6 +555,10 @@ How it works:
 - Activity scopes are reference-counted across overlapping MCP and daemon work.
   MCP-side operations use tokenized `begin_activity`/`end_activity` RPCs so a
   nested action cannot turn off another action's glow.
+- Window-local glow is shown only when the explicitly targeted window is the
+  system-wide focused frontmost window at the start of the operation. Macbeth
+  can still inspect or manipulate background windows, but does so without a
+  misleading outline, presentation pointer, or capture animation.
 - Addressing an app through MCP places a quiet, click-through violet outline
   and inward edge glow around the controlled window. Every window is keyed by
   its stable process/window identity, so several controlled windows can remain
@@ -551,7 +596,7 @@ flag):
 | Variable | Default | Description |
 | --- | --- | --- |
 | `MACBETH_GLOW` | `1` | Set to `0`/`false`/`off`/`no` to disable the indicator entirely (same as `--no-glow`). |
-| `MACBETH_GLOW_COLOR` | `#A855F7` | Accent color as hex (`#RGB`, `#RGBA`, `#RRGGBB`, or `#RRGGBBAA`). |
+| `MACBETH_GLOW_COLOR` | `#8B3342` | Accent color as hex (`#RGB`, `#RGBA`, `#RRGGBB`, or `#RRGGBBAA`). |
 | `MACBETH_GLOW_DEBOUNCE_MS` | `400` | Refreshable fully-visible hold in milliseconds between the final activity ending and the 100ms window-highlight fade. |
 | `MACBETH_GLOW_HELPER` | — | Explicit path to the `macbeth-glow` binary (otherwise discovered next to `macbethd`). |
 

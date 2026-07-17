@@ -1,7 +1,11 @@
 {
   "name": "macbeth",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Playwright for macOS native apps — automation via the Accessibility API",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wende/macbeth.git"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -23,7 +27,7 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
-    "prepack": "node ./scripts/sync-skills.mjs",
+    "prepack": "../scripts/build-daemon.sh && npm run build && node ./scripts/sync-skills.mjs",
     "postpack": "node ./scripts/clean-skills.mjs",
     "test": "vitest run",
     "test:electron": "npm run build && node ./test-electron/run.mjs",

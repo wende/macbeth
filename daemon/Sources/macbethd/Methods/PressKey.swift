@@ -57,11 +57,16 @@ func registerPressKey(dispatcher: Dispatcher, appManager: AppConnectionManager, 
             }
             let parsed = try parseKeyPress(.object(obj))
 
-            // Interaction choke point: signal the glow before synthetic input.
-            await glow.activityStarted()
-            defer { Task { await glow.activityEnded() } }
-            if let connection = await appManager.get(appHandle),
-               let window = ElementGeometry.preferredWindow(of: connection.appElement.element),
+            let connection = await appManager.get(appHandle)
+            let targetWindow = connection.flatMap {
+                ElementGeometry.preferredWindow(of: $0.appElement.element)
+            }
+            let showGlow = targetWindow.map(ElementGeometry.isFrontmostWindow) ?? false
+            if showGlow { await glow.activityStarted() }
+            defer {
+                if showGlow { Task { await glow.activityEnded() } }
+            }
+            if showGlow, let window = targetWindow,
                let frame = ElementGeometry.frame(of: window) {
                 await glow.windowFocused(id: ElementGeometry.windowIdentity(of: window), frame: frame)
             }
@@ -96,11 +101,16 @@ func registerPressKeys(dispatcher: Dispatcher, appManager: AppConnectionManager,
 
             let parsedKeys = try keyValues.map(parseKeyPress)
 
-            // Interaction choke point: signal the glow before synthetic input.
-            await glow.activityStarted()
-            defer { Task { await glow.activityEnded() } }
-            if let connection = await appManager.get(appHandle),
-               let window = ElementGeometry.preferredWindow(of: connection.appElement.element),
+            let connection = await appManager.get(appHandle)
+            let targetWindow = connection.flatMap {
+                ElementGeometry.preferredWindow(of: $0.appElement.element)
+            }
+            let showGlow = targetWindow.map(ElementGeometry.isFrontmostWindow) ?? false
+            if showGlow { await glow.activityStarted() }
+            defer {
+                if showGlow { Task { await glow.activityEnded() } }
+            }
+            if showGlow, let window = targetWindow,
                let frame = ElementGeometry.frame(of: window) {
                 await glow.windowFocused(id: ElementGeometry.windowIdentity(of: window), frame: frame)
             }

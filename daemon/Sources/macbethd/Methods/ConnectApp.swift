@@ -21,6 +21,7 @@ func registerConnectApp(
                 name: name, pid: pid, readyTimeoutMs: readyTimeoutMs
             )
             if let window = ElementGeometry.preferredWindow(of: connection.appElement.element),
+               ElementGeometry.isFrontmostWindow(window),
                let frame = ElementGeometry.frame(of: window) {
                 await glow.windowFocused(id: ElementGeometry.windowIdentity(of: window), frame: frame)
             }

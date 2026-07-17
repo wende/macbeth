@@ -30,14 +30,18 @@ func registerFill(
             let isElectron = connection?.runtime == .electron
             let pid = connection?.pid
 
-            // Interaction choke point: signal the glow before touching the system.
-            await glow.activityStarted()
-            defer { Task { await glow.activityEnded() } }
-            if let window = ElementGeometry.containingWindow(of: element.element),
+            let targetWindow = ElementGeometry.containingWindow(of: element.element)
+            let showGlow = targetWindow.map(ElementGeometry.isFrontmostWindow) ?? false
+            if showGlow { await glow.activityStarted() }
+            defer {
+                if showGlow { Task { await glow.activityEnded() } }
+            }
+            if showGlow, let window = targetWindow,
                let frame = ElementGeometry.frame(of: window) {
                 await glow.windowFocused(id: ElementGeometry.windowIdentity(of: window), frame: frame)
             }
-            if let point = ElementGeometry.interactionPoint(of: element.element),
+            if showGlow,
+               let point = ElementGeometry.interactionPoint(of: element.element),
                await glow.pointerMoved(to: point, action: .fill) {
                 try? await Task.sleep(for: .milliseconds(470))
             }

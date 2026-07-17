@@ -62,37 +62,65 @@ export class DaemonManager {
     const args = ["--socket-path", this._socketPath];
     if (this.verbose) args.push("--verbose");
 
-    this.process = spawn(this.binaryPath, args, {
-      stdio: ["ignore", "ignore", this.verbose ? "inherit" : "ignore"],
+    const spawned = spawn(this.binaryPath, args, {
+      // Always capture startup diagnostics. In verbose mode they are also
+      // mirrored live; otherwise they are included only when startup fails.
+      stdio: ["ignore", "ignore", "pipe"],
       detached: false,
     });
+    this.process = spawned;
+
+    let startupStderr = "";
+    let startupFailure: string | null = null;
+    const appendStartupStderr = (chunk: Buffer | string): void => {
+      const text = chunk.toString();
+      startupStderr = (startupStderr + text).slice(-16_384);
+      if (this.verbose) process.stderr.write(text);
+    };
+    spawned.stderr?.on("data", appendStartupStderr);
 
     // Don't keep the parent process alive just because the daemon is running.
     // The daemon stays warm for subsequent scripts.
-    this.process.unref();
+    spawned.unref();
 
-    this.process.on("error", (err) => {
-      process.stderr.write(`[macbeth] Daemon error: ${err.message}\n`);
+    spawned.on("error", (err) => {
+      startupFailure = `could not launch ${this.binaryPath}: ${err.message}`;
+      if (this.verbose) process.stderr.write(`[macbeth] Daemon error: ${err.message}\n`);
     });
 
-    this.process.on("exit", (code) => {
+    spawned.on("exit", (code, signal) => {
+      startupFailure = signal
+        ? `exited before creating its socket (signal=${signal})`
+        : `exited before creating its socket (code=${code ?? "unknown"})`;
       if (this.verbose) {
-        process.stderr.write(`[macbeth] Daemon exited (code=${code})\n`);
+        process.stderr.write(`[macbeth] Daemon exited (code=${code}, signal=${signal})\n`);
       }
-      this.process = null;
+      if (this.process === spawned) this.process = null;
     });
 
     // Wait until the socket accepts connections, not merely until its path exists.
     const deadline = Date.now() + 5000;
     while (Date.now() < deadline) {
+      if (startupFailure) {
+        const detail = startupStderr.trim();
+        throw new Error(
+          `Daemon failed to start: ${startupFailure}${detail ? `\n${detail}` : ""}`
+        );
+      }
       if (await this.isSocketConnectable()) {
+        if (!this.verbose) {
+          spawned.stderr?.off("data", appendStartupStderr);
+          spawned.stderr?.resume();
+        }
         return this._socketPath;
       }
       await new Promise((r) => setTimeout(r, 100));
     }
 
+    const detail = startupStderr.trim();
     throw new Error(
       `Daemon failed to start: socket not created at ${this._socketPath} within 5s`
+      + `${detail ? `\n${detail}` : ""}`
     );
   }
 

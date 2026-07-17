@@ -14,6 +14,8 @@ fi
 
 mkdir -p ../client/bin
 
+SIGNING_IDENTITY="${MACBETH_CODESIGN_IDENTITY:--}"
+
 for name in macbethd macbeth-glow; do
     BINARY="$PRODUCTS/$name"
     if [ ! -f "$BINARY" ]; then
@@ -21,7 +23,37 @@ for name in macbethd macbeth-glow; do
         exit 1
     fi
     DEST="../client/bin/$name"
-    cp "$BINARY" "$DEST"
-    chmod +x "$DEST"
+    # Build and sign beside the destination, then replace it atomically. This
+    # prevents a concurrently starting MCP client from observing the brief
+    # unsigned/partially-signed state between cp and codesign.
+    TEMP_DEST="$(mktemp "$DEST.tmp.XXXXXX")"
+    trap 'rm -f "$TEMP_DEST"' EXIT
+    cp "$BINARY" "$TEMP_DEST"
+    chmod +x "$TEMP_DEST"
+    # SwiftPM combines the two linker-signed thin executables with lipo. That
+    # invalidates their per-slice signatures, and current macOS releases kill
+    # the resulting universal executable before main() with SIGKILL. Sign the
+    # final fat binary, then fail the build if it is not launch-valid.
+    IDENTIFIER="com.macbeth.$name"
+    if [ "$SIGNING_IDENTITY" = "-" ]; then
+        codesign \
+            --force \
+            --sign - \
+            --identifier "$IDENTIFIER" \
+            --timestamp=none \
+            "$TEMP_DEST"
+    else
+        codesign \
+            --force \
+            --sign "$SIGNING_IDENTITY" \
+            --identifier "$IDENTIFIER" \
+            --options runtime \
+            --timestamp \
+            "$TEMP_DEST"
+    fi
+    codesign --verify --all-architectures --strict "$TEMP_DEST"
+    mv -f "$TEMP_DEST" "$DEST"
+    trap - EXIT
+    codesign --verify --all-architectures --strict "$DEST"
     echo "Built: $DEST ($(du -h "$DEST" | cut -f1))"
 done

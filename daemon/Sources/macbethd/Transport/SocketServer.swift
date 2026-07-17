@@ -55,7 +55,7 @@ final class SocketServer: Sendable {
         log("Listening on \(socketPath)")
 
         // Accept loop
-        try await withThrowingTaskGroup(of: Void.self) { group in
+        await withTaskGroup(of: Void.self) { group in
             while !Task.isCancelled {
                 let clientFd = await acceptConnection(serverFd: fd)
                 guard clientFd >= 0 else {

@@ -1,7 +1,10 @@
 import Foundation
 
-/// Default accent color for the glow (a vivid but balanced violet).
-public let glowDefaultColor = "#A855F7"
+/// Macbeth brand burgundy (#8B3342) — the accent used for all glow effects.
+public let MACBETH_BURGUNDY = "#8B3342"
+
+/// Default accent color for the glow.
+public let glowDefaultColor = MACBETH_BURGUNDY
 
 /// Default fully-visible hold after the final activity ends. The controlled
 /// window then fades over `glowWindowFadeDuration`; a new activity cancels
@@ -61,7 +64,7 @@ public enum GlowPointerAction: String, Codable, Sendable {
 ///
 /// Examples:
 /// ```
-/// {"type":"activate","color":"#A855F7","debounceMs":400}
+/// {"type":"activate","color":"#8B3342","debounceMs":400}
 /// {"type":"deactivate"}
 /// {"type":"focusWindow","windowId":"123:456","rect":{"x":0,"y":0,"width":800,"height":600}}
 /// {"type":"pointerMove","point":{"x":120,"y":240},"action":"click"}
@@ -89,7 +92,7 @@ public struct GlowMessage: Codable, Equatable, Sendable {
     }
 
     public var type: Kind
-    /// Optional hex color (e.g. "#A855F7"). Only meaningful on `.activate`.
+    /// Optional hex color (e.g. "#8B3342"). Only meaningful on `.activate`.
     public var color: String?
     /// Optional debounce window in milliseconds. Only meaningful on `.activate`.
     public var debounceMs: Int?

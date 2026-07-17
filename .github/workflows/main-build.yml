@@ -1,0 +1,61 @@
+name: Main Branch Build
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: main-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  package:
+    name: Build universal MCP package
+    runs-on: macos-14
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Select Xcode 16.2
+        run: sudo xcode-select -s /Applications/Xcode_16.2.app
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      # npm pack runs the client's prepack lifecycle, which builds, ad-hoc
+      # signs, and verifies both universal native binaries before packaging.
+      - name: Build package
+        run: |
+          mkdir -p artifacts
+          cd client
+          npm pack --pack-destination ../artifacts
+
+      - name: Verify packaged binaries
+        run: |
+          codesign --verify --all-architectures --strict --verbose=2 client/bin/macbethd
+          codesign --verify --all-architectures --strict --verbose=2 client/bin/macbeth-glow
+          file client/bin/macbethd client/bin/macbeth-glow
+
+      - name: Upload main build
+        uses: actions/upload-artifact@v4
+        with:
+          name: macbeth-main-${{ github.sha }}
+          retention-days: 14
+          if-no-files-found: error
+          path: |
+            artifacts/*.tgz
+            client/bin/macbethd
+            client/bin/macbeth-glow

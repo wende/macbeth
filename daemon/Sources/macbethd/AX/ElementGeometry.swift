@@ -66,6 +66,36 @@ enum ElementGeometry {
         elementAttribute(application, kAXFocusedWindowAttribute)
     }
 
+    /// The window that currently receives keyboard input system-wide.
+    ///
+    /// Reading the focused application from the system-wide AX element avoids
+    /// guessing from an app's remembered focused window while that app is in
+    /// the background.
+    static func frontmostFocusedWindow() -> AXUIElement? {
+        let systemWide = AXUIElementCreateSystemWide()
+        guard let application = elementAttribute(systemWide, kAXFocusedApplicationAttribute) else {
+            return nil
+        }
+        return focusedWindow(of: application)
+    }
+
+    /// Whether this exact AX window is the system-wide focused frontmost window.
+    /// Failure to resolve either side is intentionally false: glow is optional,
+    /// so an indeterminate target should not produce a potentially misleading
+    /// overlay.
+    static func isFrontmostWindow(_ window: AXUIElement) -> Bool {
+        guard let focused = frontmostFocusedWindow() else { return false }
+        return CFEqual(focused, window)
+            || windowIdentity(of: focused) == windowIdentity(of: window)
+    }
+
+    /// ScreenCaptureKit counterpart of `isFrontmostWindow(_:)`.
+    static func isFrontmostWindow(pid: pid_t, windowNumber: Int) -> Bool {
+        guard let focused = frontmostFocusedWindow() else { return false }
+        return windowIdentity(of: focused)
+            == windowIdentity(pid: pid, windowNumber: windowNumber)
+    }
+
     static func preferredWindow(of application: AXUIElement) -> AXUIElement? {
         if let focused = focusedWindow(of: application) { return focused }
         if let main = elementAttribute(application, kAXMainWindowAttribute) { return main }

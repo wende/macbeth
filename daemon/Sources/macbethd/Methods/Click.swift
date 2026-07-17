@@ -26,15 +26,20 @@ func registerClick(
             )
             try ensureElementValid(element.element)
 
-            // Interaction choke point: signal the glow and let the recording
-            // pointer visibly arrive before touching the system.
-            await glow.activityStarted()
-            defer { Task { await glow.activityEnded() } }
-            if let window = ElementGeometry.containingWindow(of: element.element),
+            // Only present an interaction overlay for the exact window the
+            // user is currently looking at. Background AX work remains quiet.
+            let targetWindow = ElementGeometry.containingWindow(of: element.element)
+            let showGlow = targetWindow.map(ElementGeometry.isFrontmostWindow) ?? false
+            if showGlow { await glow.activityStarted() }
+            defer {
+                if showGlow { Task { await glow.activityEnded() } }
+            }
+            if showGlow, let window = targetWindow,
                let frame = ElementGeometry.frame(of: window) {
                 await glow.windowFocused(id: ElementGeometry.windowIdentity(of: window), frame: frame)
             }
-            if let point = ElementGeometry.interactionPoint(of: element.element),
+            if showGlow,
+               let point = ElementGeometry.interactionPoint(of: element.element),
                await glow.pointerMoved(to: point, action: .click) {
                 try? await Task.sleep(for: .milliseconds(470))
             }

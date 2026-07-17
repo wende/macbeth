@@ -53,14 +53,20 @@ func registerExtractText(
                 config.showsCursor = false
 
                 var captured: CGImage
-                await glow.activityStarted()
-                defer { Task { await glow.activityEnded() } }
+                let showGlow = ElementGeometry.isFrontmostWindow(
+                    pid: conn.pid,
+                    windowNumber: Int(targetWindow.windowID)
+                )
+                if showGlow { await glow.activityStarted() }
+                defer {
+                    if showGlow { Task { await glow.activityEnded() } }
+                }
                 let windowID = ElementGeometry.windowIdentity(
                     pid: conn.pid, windowNumber: Int(targetWindow.windowID)
                 )
-                let captureAnimation = await glow.captureStarted(
-                    windowID: windowID, frame: targetWindow.frame
-                )
+                let captureAnimation = showGlow
+                    ? await glow.captureStarted(windowID: windowID, frame: targetWindow.frame)
+                    : nil
                 do {
                     if captureAnimation != nil {
                         try? await Task.sleep(for: .seconds(glowCapturePresentationDuration))

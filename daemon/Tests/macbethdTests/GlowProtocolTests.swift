@@ -136,8 +136,8 @@ import Foundation
 
 // MARK: - Color parsing
 
-@Test func defaultGlowUsesVioletAccent() {
-    #expect(glowDefaultColor == "#A855F7")
+@Test func defaultGlowUsesBrandAccent() {
+    #expect(glowDefaultColor == "#8B3342")
     #expect(glowDefaultDebounceMs == 400)
     #expect(glowWindowFadeDuration == 0.1)
     #expect(glowCapturePresentationDuration > glowCaptureScanDuration)
