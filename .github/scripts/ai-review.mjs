@@ -17,6 +17,13 @@
 // (~~...~~ — ✅ addressed in <sha>), so prior text stays byte-exact and a bad
 // response can never wipe existing content. Prior dated ### Update sections are
 // left untouched (append-only).
+//
+// Structured mode (STRUCTURED_OUTPUT=true, used by MiniMax): the model returns a
+// JSON {verdict, summary, comments[]} contract instead of markdown. Rather than
+// dumping that JSON into a comment, the script submits an actual GitHub PR review
+// — mapping the verdict to APPROVE / REQUEST_CHANGES / COMMENT, using the summary
+// as the review body, and posting each comment inline on its file/line. This path
+// is self-contained and does not use the revise/strike machinery above.
 
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
@@ -49,7 +56,9 @@ function fail(msg) {
 
 // Extract and validate JSON when a reviewer prompt declares a machine-readable
 // contract. Some providers wrap otherwise valid JSON in a think tag or fence.
-function formatStructuredReview(raw) {
+// Returns the parsed object so the caller can act on the verdict/comments —
+// submitting a real PR review — rather than dumping the raw JSON into a comment.
+function parseStructuredReview(raw) {
   const withoutReasoning = raw.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
   const start = withoutReasoning.indexOf("{");
   const end = withoutReasoning.lastIndexOf("}");
@@ -67,7 +76,39 @@ function formatStructuredReview(raw) {
     fail("Structured review did not match the required verdict, summary, and comments schema.");
   }
   if (parsed.comments.length > 10) fail("Structured review exceeded the 10-comment limit.");
-  return JSON.stringify(parsed, null, 2);
+  return parsed;
+}
+
+// Severity → emoji for rendering findings that can't be anchored inline.
+const SEVERITY_EMOJI = {
+  blocker: "🔴",
+  high: "🟠",
+  suggestion: "🟡",
+  nit: "⚪",
+};
+
+// Map the model's verdict to a GitHub review event and a human-readable label.
+const VERDICT_MAP = {
+  approve: { event: "APPROVE", label: "✅ Approve" },
+  request_changes: { event: "REQUEST_CHANGES", label: "🛑 Request changes" },
+  comment: { event: "COMMENT", label: "💬 Comment" },
+};
+
+// Render one structured comment as a markdown block. Used both for the body of
+// a fallback review (when a finding can't be anchored to a diff line) and as the
+// body of an inline review comment.
+function renderComment(c, { withLocation = false } = {}) {
+  const emoji = SEVERITY_EMOJI[c.severity] || "•";
+  const sev = c.severity ? `**${c.severity}**` : "";
+  const cat = c.category ? ` · _${c.category}_` : "";
+  const loc =
+    withLocation && c.file
+      ? ` · \`${c.file}${Number.isInteger(c.line) ? `:${c.line}` : ""}\``
+      : "";
+  const issue = typeof c.issue === "string" ? c.issue : "";
+  const fix =
+    typeof c.fix === "string" && c.fix.trim() ? `\n\n${c.fix.trim()}` : "";
+  return `${emoji} ${sev}${cat}${loc}\n\n${issue}${fix}`.trim();
 }
 
 let systemPrompt = SYSTEM_PROMPT;
@@ -385,14 +426,17 @@ function applyStrikes(base, snippets, sha) {
   return { base: lines.join("\n"), count };
 }
 
-const existing = await findExistingComment();
+const structuredOutput = STRUCTURED_OUTPUT === "true";
+
+// Structured reviews are posted as real PR reviews (not issue comments), so the
+// existing-comment lookup and revise machinery below are irrelevant to them.
+const existing = structuredOutput ? null : await findExistingComment();
 
 // Revise mode: we have a prior comment and only new commits to review, so the
 // model reproduces its prior base review with resolved points struck through,
 // then reviews the new commits separately. The two parts are split by a line
 // containing exactly REVISE_SEPARATOR.
 const REVISE_SEPARATOR = "---NEW-REVIEW---";
-const structuredOutput = STRUCTURED_OUTPUT === "true";
 const reviseMode = incremental && !!existing && !structuredOutput;
 
 let priorBase = "";
@@ -444,6 +488,7 @@ if (reviseMode) {
 
 const endpoint = `${API_BASE.replace(/\/$/, "")}/chat/completions`;
 let review;
+let structuredReview = null;
 try {
   const res = await fetchWithRetry(endpoint, {
     method: "POST",
@@ -497,7 +542,7 @@ try {
     }
     fail(`Empty response from API: ${JSON.stringify(data).slice(0, 500)}`);
   }
-  if (structuredOutput) review = formatStructuredReview(review);
+  if (structuredOutput) structuredReview = parseStructuredReview(review);
 } catch (e) {
   fail(
     `API call error (likely during fetch) from provider "${PROVIDER_NAME}" at ${endpoint}: ` +
@@ -505,17 +550,83 @@ try {
   );
 }
 
+// --- Structured mode: submit a real PR review ----------------------------
+
+// Submit a review to the pulls API. Returns the fetch Response so the caller
+// can degrade the payload on failure. fetchWithRetry only retries transient
+// 429/5xx, so a 422 (bad line position, self-approval) returns immediately.
+async function submitReview(event, reviewBody, comments) {
+  return fetchWithRetry(
+    `${apiBase}/repos/${owner}/${repo}/pulls/${PR_NUMBER}/reviews`,
+    {
+      method: "POST",
+      headers: ghHeaders,
+      body: JSON.stringify({
+        event,
+        body: reviewBody,
+        ...(comments.length ? { comments } : {}),
+      }),
+    }
+  );
+}
+
+if (structuredOutput) {
+  const { verdict, summary, comments } = structuredReview;
+  const { event, label } = VERDICT_MAP[verdict] || VERDICT_MAP.comment;
+
+  // Anchor each finding to a diff line as an inline review comment. The reviews
+  // API only accepts lines that fall inside the diff; anything else 422s the
+  // whole review, so we fall back to folding findings into the body below.
+  const inline = comments
+    .filter((c) => c && c.file && Number.isInteger(c.line) && c.line > 0)
+    .map((c) => ({
+      path: c.file,
+      line: c.line,
+      side: "RIGHT",
+      body: renderComment(c),
+    }));
+
+  const scopeNote = incremental ? " · _incremental review of new commits_" : "";
+  const bodyBase = `${header}\n\n**Verdict:** ${label}${scopeNote}\n\n${summary}${truncNote}`;
+  const findingsList = comments.length
+    ? "\n\n### Findings\n\n" +
+      comments.map((c) => `- ${renderComment(c, { withLocation: true })}`).join("\n\n")
+    : "";
+  const bodyWithFindings = bodyBase + findingsList;
+
+  // Cascade: (1) verdict event + inline comments; (2) same event with findings
+  // folded into the body (handles hallucinated/out-of-diff line numbers);
+  // (3) downgrade to COMMENT (handles "can't approve/request-changes your own PR").
+  let res = await submitReview(event, bodyBase, inline);
+  if (!res.ok && inline.length) {
+    console.warn(
+      `[${PROVIDER_NAME}] Review with inline comments failed (${res.status}); ` +
+      `retrying with findings in the body.`
+    );
+    res = await submitReview(event, bodyWithFindings, []);
+  }
+  if (!res.ok && event !== "COMMENT") {
+    console.warn(
+      `[${PROVIDER_NAME}] "${event}" review failed (${res.status}); ` +
+      `downgrading to a COMMENT review.`
+    );
+    res = await submitReview("COMMENT", bodyWithFindings, []);
+  }
+  if (!res.ok) {
+    fail(`Failed to submit review: ${res.status} ${res.statusText}`);
+  }
+
+  console.log(
+    `[${PROVIDER_NAME}] Submitted ${event} review on PR #${PR_NUMBER} ` +
+    `with ${inline.length} inline comment(s) (${incremental ? "incremental" : "full"}).`
+  );
+  process.exit(0);
+}
+
 // --- Assemble and post the comment body ----------------------------------
 
 let body;
-if (structuredOutput && incremental && existing) {
-  // A JSON response cannot also carry the free-form resolved-point separator.
-  // Keep prior structured reviews as dated history and append this update.
-  const date = new Date().toISOString().slice(0, 16).replace("T", " ");
-  const prior = stripHeader(existing.body);
-  const update = `${SECTION_SENTINEL}### Update ${shortSha} — ${date} UTC\n\n${review}${truncNote}`;
-  body = trimToLimit(`${header}\n\n${prior}${update}`);
-} else if (reviseMode) {
+if (reviseMode) {
   // Split the response: PART 1 = resolved-point snippets, PART 2 = new review.
   const idx = review.indexOf(REVISE_SEPARATOR);
   let resolvedPart = "";
