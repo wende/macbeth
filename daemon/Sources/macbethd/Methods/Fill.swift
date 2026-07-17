@@ -38,7 +38,7 @@ func registerFill(
                 if glowScoped { Task { await glow.activityEnded() } }
             }
             if targetWindow.map(ElementGeometry.isFrontmostWindow) == true {
-                _ = await presentInteractionGlow(
+                await presentInteractionGlow(
                     glow: glow,
                     window: targetWindow,
                     element: element.element,
@@ -85,15 +85,20 @@ func registerFill(
             }
 
             // --- Keyboard synthesis path (strategy == .keyboard, or auto fallback) ---
-            // Always activates the target so HID events land — restore outline after.
+            // Always activates the target so HID events land — outline the window we
+            // just foregrounded. When the window was already frontmost the glow is up
+            // from the block above; re-presenting would replay the pointer approach to
+            // a point it already occupies and pay the animation delay a second time.
             await appManager.activate(appHandle)
-            _ = await presentInteractionGlow(
-                glow: glow,
-                window: targetWindow,
-                element: element.element,
-                pointerAction: .fill,
-                scoped: &glowScoped
-            )
+            if !glowScoped {
+                await presentInteractionGlow(
+                    glow: glow,
+                    window: targetWindow,
+                    element: element.element,
+                    pointerAction: .fill,
+                    scoped: &glowScoped
+                )
+            }
             try await fillViaKeyboard(element.element, value: value, pid: pid)
             return .object(["success": .bool(true)])
         }

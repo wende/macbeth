@@ -133,7 +133,7 @@ final class OverlayController: NSObject {
             // outline from a bare activate / MCP begin_activity scope.
             let frontmostPid = frontmostPidProvider()
             for (id, state) in navigationOverlays where state.fadeDeadline != nil {
-                guard let frontmostPid, navigationOverlayBelongsToPid(id, pid: frontmostPid) else {
+                guard navigationOverlayMayBeArmed(id, frontmostPid: frontmostPid) else {
                     continue
                 }
                 state.fadeTimer?.invalidate()
@@ -277,8 +277,18 @@ final class OverlayController: NSObject {
     }
 
     /// Window ids are `pid:<n>:window:<n>` or `pid:<n>:ax:<hash>` (see ElementGeometry).
-    private func navigationOverlayBelongsToPid(_ id: String, pid: pid_t) -> Bool {
-        id.hasPrefix("pid:\(pid):")
+    /// Geometry-keyed legacy ids name no owner; nil means "ownership unknown", and
+    /// those outlines stay exempt from the frontmost rules below rather than being
+    /// treated as belonging to no one and dropped on the next app switch.
+    private func navigationOverlayOwnerPid(_ id: String) -> pid_t? {
+        let parts = id.split(separator: ":", maxSplits: 2, omittingEmptySubsequences: false)
+        guard parts.count >= 2, parts[0] == "pid", let pid = pid_t(parts[1]) else { return nil }
+        return pid
+    }
+
+    private func navigationOverlayMayBeArmed(_ id: String, frontmostPid: pid_t?) -> Bool {
+        guard let owner = navigationOverlayOwnerPid(id) else { return true }
+        return owner == frontmostPid
     }
 
     @objc private func frontmostApplicationChanged(_ notification: Notification) {
@@ -287,8 +297,9 @@ final class OverlayController: NSObject {
 
     private func dismissOutlinesNotBelongingToFrontmostApp() {
         guard let frontmostPid = frontmostPidProvider() else { return }
-        let staleIDs = navigationOverlays.keys.filter {
-            !navigationOverlayBelongsToPid($0, pid: frontmostPid)
+        let staleIDs = navigationOverlays.keys.filter { id in
+            guard let owner = navigationOverlayOwnerPid(id) else { return false }
+            return owner != frontmostPid
         }
         for id in staleIDs {
             dismissNavigationOutline(id: id)

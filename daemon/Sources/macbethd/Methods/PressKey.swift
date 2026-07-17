@@ -69,7 +69,7 @@ func registerPressKey(dispatcher: Dispatcher, appManager: AppConnectionManager, 
             }
 
             await appManager.activate(appHandle)
-            _ = await presentInteractionGlow(
+            await presentInteractionGlow(
                 glow: glow,
                 window: targetWindow,
                 scoped: &glowScoped
@@ -113,7 +113,7 @@ func registerPressKeys(dispatcher: Dispatcher, appManager: AppConnectionManager,
             }
 
             await appManager.activate(appHandle)
-            _ = await presentInteractionGlow(
+            await presentInteractionGlow(
                 glow: glow,
                 window: targetWindow,
                 scoped: &glowScoped

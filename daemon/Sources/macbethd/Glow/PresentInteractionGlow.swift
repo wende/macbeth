@@ -13,16 +13,15 @@ import GlowProtocol
 /// - Parameters:
 ///   - scoped: Tracks whether this RPC already opened a glow activity scope so
 ///     callers can `activityEnded` exactly once in a `defer`.
-@discardableResult
 func presentInteractionGlow(
     glow: GlowIndicator,
     window: AXUIElement?,
     element: AXUIElement? = nil,
     pointerAction: GlowPointerAction? = nil,
     scoped: inout Bool
-) async -> Bool {
+) async {
     guard let window, let frame = ElementGeometry.frame(of: window) else {
-        return false
+        return
     }
 
     if !scoped {
@@ -40,7 +39,5 @@ func presentInteractionGlow(
        let point = ElementGeometry.interactionPoint(of: element),
        await glow.pointerMoved(to: point, action: pointerAction) {
         try? await Task.sleep(for: .milliseconds(470))
-        return true
     }
-    return false
 }

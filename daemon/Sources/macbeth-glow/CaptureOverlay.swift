@@ -94,7 +94,8 @@ final class NavigationOutlineWindow: NSWindow {
 }
 
 /// The controlled-window state is intentionally calmer than capture: a static
-/// fine violet stroke, low halo, and inward glow.
+/// fine burgundy stroke, low halo, and inward glow — same shape as the original
+/// dark treatment, with brighter / more saturated stops so it doesn't read muddy.
 final class NavigationOutlineView: NSView {
     private let innerGlowLayer = CALayer()
     private let innerEdgeLayers = (0..<4).map { _ in CAGradientLayer() }
@@ -137,13 +138,16 @@ final class NavigationOutlineView: NSView {
     private func configureLayers() {
         guard let root = layer else { return }
 
+        // Same stop layout as the original dark glow, but each stop is lifted
+        // (brighter + more chroma) and alphas are a notch higher so the wash
+        // reads vivid rather than brown-muddy on light window chrome.
         innerGlowLayer.masksToBounds = true
-        innerGlowLayer.opacity = 0.62
+        innerGlowLayer.opacity = 0.82
         let colors = [
-            color(lightenedBy: 0.2, alpha: 0.5),
-            color(lightenedBy: 0.08, alpha: 0.3),
-            color(alpha: 0.13),
-            color(alpha: 0),
+            color(lightenedBy: 0.38, vividBoost: 0.35, alpha: 0.62),
+            color(lightenedBy: 0.18, vividBoost: 0.4, alpha: 0.42),
+            color(lightenedBy: 0.04, vividBoost: 0.45, alpha: 0.22),
+            color(vividBoost: 0.35, alpha: 0),
         ]
         innerEdgeLayers.forEach {
             $0.colors = colors
@@ -153,19 +157,19 @@ final class NavigationOutlineView: NSView {
         root.addSublayer(innerGlowLayer)
 
         haloLayer.fillColor = NSColor.clear.cgColor
-        haloLayer.strokeColor = color(lightenedBy: 0.08, alpha: 0.72)
+        haloLayer.strokeColor = color(lightenedBy: 0.22, vividBoost: 0.4, alpha: 0.82)
         haloLayer.lineWidth = 3
-        haloLayer.opacity = 0.45
-        haloLayer.shadowColor = color(alpha: 0.9)
-        haloLayer.shadowOpacity = 0.65
-        haloLayer.shadowRadius = 8
+        haloLayer.opacity = 0.55
+        haloLayer.shadowColor = color(vividBoost: 0.45, alpha: 0.95)
+        haloLayer.shadowOpacity = 0.75
+        haloLayer.shadowRadius = 10
         haloLayer.shadowOffset = .zero
         root.addSublayer(haloLayer)
 
         borderLayer.fillColor = NSColor.clear.cgColor
-        borderLayer.strokeColor = color(lightenedBy: 0.24, alpha: 0.92)
+        borderLayer.strokeColor = color(lightenedBy: 0.4, vividBoost: 0.35, alpha: 0.98)
         borderLayer.lineWidth = 1.5
-        borderLayer.opacity = 0.82
+        borderLayer.opacity = 0.92
         root.addSublayer(borderLayer)
     }
 
@@ -268,13 +272,32 @@ final class NavigationOutlineView: NSView {
         CATransaction.commit()
     }
 
-    private func color(lightenedBy amount: Double = 0, alpha: Double) -> CGColor {
-        CGColor(
-            red: rgba.red + (1 - rgba.red) * amount,
-            green: rgba.green + (1 - rgba.green) * amount,
-            blue: rgba.blue + (1 - rgba.blue) * amount,
-            alpha: rgba.alpha * alpha
-        )
+    private func color(
+        lightenedBy amount: Double = 0,
+        vividBoost: Double = 0,
+        alpha: Double
+    ) -> CGColor {
+        // Lift toward white, then push chroma back up so "brighter" stays
+        // burgundy instead of washing out to dusty pink/grey.
+        var r = rgba.red + (1 - rgba.red) * amount
+        var g = rgba.green + (1 - rgba.green) * amount
+        var b = rgba.blue + (1 - rgba.blue) * amount
+        if vividBoost > 0 {
+            let maxC = max(r, g, b)
+            let minC = min(r, g, b)
+            let mid = (maxC + minC) / 2
+            if maxC > minC {
+                r = min(1, mid + (r - mid) * (1 + vividBoost))
+                g = min(1, mid + (g - mid) * (1 + vividBoost))
+                b = min(1, mid + (b - mid) * (1 + vividBoost))
+            }
+            // Small value lift so saturated stops still feel luminous.
+            let lift = 0.08 * vividBoost
+            r = min(1, r + lift)
+            g = min(1, g + lift * 0.35)
+            b = min(1, b + lift * 0.45)
+        }
+        return CGColor(red: r, green: g, blue: b, alpha: rgba.alpha * alpha)
     }
 }
 

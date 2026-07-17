@@ -228,6 +228,29 @@ private func fakeOverlayController(
 }
 
 @MainActor
+@Test func geometryKeyedOutlinesAreExemptFromFrontmostRules() throws {
+    // Legacy focus messages carry no windowId, so the outline is keyed by geometry
+    // and names no owning process. Ownership rules must skip it rather than read the
+    // missing owner as "not the frontmost app" and drop it on the first app switch.
+    let controller = fakeOverlayController(frontmostPid: 7)
+    let rect = GlowCaptureRect(x: 100, y: 100, width: 500, height: 400)
+    let id = "legacy:100.0:100.0:500.0:400.0"
+
+    controller.handle(.activate())
+    controller.handle(GlowMessage(type: .focusWindow, rect: rect))
+    #expect(controller.navigationOverlayCount == 1)
+    #expect(controller.navigationOutlineWindow(for: id) != nil)
+
+    controller.reconcileOutlinesWithFrontmostApp()
+    #expect(controller.navigationOverlayCount == 1)
+
+    controller.handle(.deactivate)
+    #expect(controller.navigationFadeIsScheduled(for: id))
+    controller.handle(.activate())
+    #expect(!controller.navigationFadeIsScheduled(for: id))
+}
+
+@MainActor
 @Test func backgroundingFrontmostAppDismissesItsOutline() throws {
     var frontmostPid: pid_t? = 42
     let controller = OverlayController(
