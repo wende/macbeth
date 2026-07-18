@@ -4,6 +4,12 @@ This guide covers the common failure modes when installing and running the
 **macbeth** MCP server. Work top to bottom — the first two steps resolve the
 majority of cases.
 
+> **Shortcut:** run `npx macbeth doctor`. When it finds a problem it prints a
+> ready-to-paste block — the error, your environment, and a link back here —
+> that you can drop straight into your coding agent (Claude Code, Cursor, …) to
+> diagnose and fix it. The steps below are the same guidance, for when you'd
+> rather do it by hand.
+
 ## 1. Run the doctor
 
 ```bash
@@ -22,7 +28,13 @@ macbethd permission preflight
   pid:            12345
   accessibility:  GRANTED
   screen_capture: GRANTED
+
+✓ macbeth is ready — all permissions granted.
 ```
+
+If a check fails, `doctor` follows the preflight with a framed **paste-to-your-agent**
+block containing the error, your environment, and a link back to this guide —
+copy it into your agent and let it drive the fix. To resolve it yourself:
 
 - `accessibility: DENIED` → jump to [Accessibility permission](#accessibility-permission-denied).
 - `screen_capture: DENIED` → screenshots only; see [Screen Recording](#screen-recording-denied-screenshots-fail).

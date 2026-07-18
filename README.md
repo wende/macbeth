@@ -505,11 +505,18 @@ After registering, confirm the two macOS permissions and daemon are healthy:
 npx macbeth doctor   # prints Accessibility + Screen Recording status, exits non-zero if AX is denied
 ```
 
+When something is wrong, `doctor` doesn't just print an error — it emits a
+**"paste this to your agent to fix it"** block: a self-contained prompt with the
+exact error, your environment (macbeth/macOS/Node versions), and a link to the
+troubleshooting guide. Copy it straight into Claude Code, Cursor, or any agent
+and let it walk you through the fix. The same block is printed for any
+unexpected CLI failure.
+
 Then ask your agent to run this **smoke-test prompt**:
 
 > Using the macbeth MCP tools, call `list_apps` and tell me which apps are running. Then `connect_app` to Finder, `query_tree` its front window, and report the first few elements you see.
 
-A healthy install returns a list of running apps and a small accessibility tree for Finder. If any step fails — the tools don't appear, `list_apps` errors, or the tree comes back empty — see **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)**.
+A healthy install returns a list of running apps and a small accessibility tree for Finder. If any step fails — the tools don't appear, `list_apps` errors, or the tree comes back empty — run `npx macbeth doctor` and paste its fix block to your agent, or see **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)**.
 
 ### Updating
 
