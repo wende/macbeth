@@ -55,7 +55,7 @@ macbeth/
 
 ## Error codes
 
-RPC errors use `-32000`–`-32009`. AppleScript/JXA: `-1728` → `menuItemNotFound`, `-1719` → `menuItemDisabled`, `-600`/`-609` → `appBusy`. MCP formats as `[error_kind]: message`.
+RPC errors use `-32000`–`-32009`. AppleScript/JXA: `-1728` → `menu_item_not_found`, `-1719` → `menu_item_disabled`, `-600`/`-609` → `app_busy`. MCP formats as `[error_kind]: message`.
 
 ## AX gaps
 
