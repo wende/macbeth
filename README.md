@@ -39,20 +39,28 @@ npm install macbeth
 
 ## MCP server
 
-Add to your MCP config (e.g. Claude Code `.mcp.json`):
+macbeth includes an MCP server so LLM agents (Claude, etc.) can automate macOS apps through tool calls. The published package ships a **prebuilt, notarized universal daemon** — no build step, no Swift toolchain.
+
+**Claude Code** — register from your terminal:
+
+```bash
+claude mcp add macbeth -- npx -y macbeth
+```
+
+For other clients, add to your MCP config (e.g. `.mcp.json`):
 
 ```json
 {
   "mcpServers": {
     "macbeth": {
       "command": "npx",
-      "args": ["macbeth"]
+      "args": ["-y", "macbeth"]
     }
   }
 }
 ```
 
-Grant Accessibility (and Screen Recording if you need screenshots), then the agent can connect to apps, query UI trees, click, fill, screenshot, OCR, run menus/AppleScript/Shortcuts, and load bundled skills.
+Grant Accessibility (and Screen Recording if you need screenshots), then the agent can connect to apps, query UI trees, click, fill, screenshot, OCR, run menus/AppleScript/Shortcuts, and load bundled skills. Verify the install with `npx macbeth doctor`.
 
 Update:
 
@@ -61,7 +69,7 @@ npx macbeth update          # install latest signed release
 npx macbeth update --check  # report only
 ```
 
-Full tool list and skills: [docs/mcp.md](docs/mcp.md).
+Setup for other clients, the full tool list, and skills: [docs/mcp.md](docs/mcp.md).
 
 ## Test tool
 
