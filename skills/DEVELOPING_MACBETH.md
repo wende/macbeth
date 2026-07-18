@@ -8,7 +8,7 @@ Playwright-style TypeScript client for native macOS and Electron apps. For MCP s
 npm install macbeth
 ```
 
-macOS 14+ required. Accessibility is prompted on first run; Screen Recording only when you take screenshots.
+macOS 14+ required. Accessibility is prompted on first run; Screen Recording is requested only when you take screenshots.
 
 ### Build from source
 
