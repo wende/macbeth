@@ -21,6 +21,7 @@ function printHelp() {
     `macbeth — Playwright for macOS native apps (Accessibility API)\n\n` +
       `Usage:\n` +
       `  macbeth               Start the MCP server (default; used by LLM agents)\n` +
+      `  macbeth doctor        Check macOS Accessibility + Screen Recording permissions\n` +
       `  macbeth update        Update to the latest GitHub release\n` +
       `  macbeth update --check  Report whether an update is available, without installing\n` +
       `  macbeth version       Print the installed version\n` +
@@ -37,6 +38,25 @@ try {
     case "upgrade": {
       const { runUpdate } = await import("../dist/update.js");
       process.exit(await runUpdate(rest));
+    }
+    case "doctor": {
+      const { spawnSync } = await import("node:child_process");
+      const { DaemonManager } = await import("../dist/daemon.js");
+      let binary;
+      try {
+        binary = new DaemonManager().daemonBinaryPath;
+      } catch (err) {
+        process.stderr.write(
+          `${err instanceof Error ? err.message : err}\n`
+        );
+        process.exit(1);
+      }
+      process.stdout.write(`macbeth ${readVersion()}\n`);
+      process.stdout.write(`daemon: ${binary}\n\n`);
+      const result = spawnSync(binary, ["--check-permissions"], {
+        stdio: "inherit",
+      });
+      process.exit(result.status ?? 1);
     }
     case "version":
     case "--version":

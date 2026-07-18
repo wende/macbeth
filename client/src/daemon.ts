@@ -32,6 +32,15 @@ export class DaemonManager {
     return this._socketPath;
   }
 
+  /**
+   * Resolved path to the `macbethd` binary this manager would spawn. Exposed so
+   * CLI diagnostics (e.g. `macbeth doctor`) can invoke the daemon's
+   * `--check-permissions` mode without duplicating the binary discovery logic.
+   */
+  get daemonBinaryPath(): string {
+    return this.binaryPath;
+  }
+
   async ensureRunning(): Promise<string> {
     // Check if socket exists and is connectable
     if (await this.isSocketConnectable()) {
