@@ -1,7 +1,7 @@
 {
   "name": "macbeth",
   "version": "0.2.1",
-  "description": "Playwright for macOS native apps — automation via the Accessibility API",
+  "description": "Open-source computer use for macOS agents and TypeScript automation",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/wende/macbeth.git"

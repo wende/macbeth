@@ -5,7 +5,7 @@ const COLS = [
     title: "Explore",
     links: [
       { label: "Features", href: "#features" },
-      { label: "Live demo", href: "#demo" },
+      { label: "Walkthrough", href: "#demo" },
     ],
   },
   {
@@ -23,7 +23,7 @@ const COLS = [
       { label: "GitHub", href: "https://github.com/wende/macbeth" },
       { label: "npm", href: "https://www.npmjs.com/package/macbeth" },
       { label: "Issues", href: "https://github.com/wende/macbeth/issues" },
-      { label: "MIT License", href: "https://github.com/wende/macbeth/blob/main/LICENSE" },
+      { label: "MIT License", href: "https://github.com/wende/macbeth#license" },
     ],
   },
 ];
@@ -36,7 +36,7 @@ export default function Footer() {
           <div>
             <Logo showWordmark={false} className="mb-3 h-[30px] w-auto" />
             <p className="max-w-[30ch] text-[13px] leading-[1.6] text-[#5a5460]">
-              Playwright for macOS — automate native and Electron apps through the Accessibility API.
+              Open-source computer use for macOS agents and TypeScript automation.
             </p>
           </div>
           <div className="grid grid-cols-2 gap-8 sm:grid-cols-3">

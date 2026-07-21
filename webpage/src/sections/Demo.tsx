@@ -384,13 +384,13 @@ export default function Demo() {
     <section id="demo" className="border-y border-[#ece6ee] bg-[#fbfafc]">
       <div className="section-shell">
         <Reveal className="mb-8 text-center">
-          <span className="eyebrow-pill mb-4">Live demo</span>
+          <span className="eyebrow-pill mb-4">Interactive walkthrough</span>
           <h2 className="mx-auto mb-3 max-w-[22ch] text-[clamp(24px,3.4vw,34px)] font-extrabold leading-[1.2] tracking-[-0.03em]">
-            Watch an agent drive your Mac
+            See the interaction model
           </h2>
           <p className="mx-auto max-w-[56ch] text-[15.5px] text-[#5a5460]">
-            Pick a scenario — Claude calls macbeth's MCP tools on the left, and the window on the
-            right shows every glow, keystroke, click, and capture as it happens.
+            This simulated interface illustrates Macbeth's tool sequence and interaction glow.
+            Pick a scenario to follow each inspection, action, capture, and result.
           </p>
         </Reveal>
 
@@ -456,15 +456,15 @@ export default function Demo() {
           </div>
 
           <p className="mt-5 text-center text-[12.5px] text-[#8b8296]">
-            Simulated on the real MCP tool surface — the burgundy outline, synthetic pointer, and
-            scan animation mirror what macbeth draws on your actual screen.{" "}
+            This walkthrough uses Macbeth's current MCP tool names and illustrates its glow,
+            pointer, and capture sequence.{" "}
             <a
-              href="https://github.com/wende/macbeth#readme"
+              href="https://github.com/wende/macbeth#quickstart"
               target="_blank"
               rel="noreferrer"
               className="font-medium text-[#61202f] underline decoration-[#d9c3ca] underline-offset-2 hover:decoration-[#61202f]"
             >
-              Run it yourself
+              Try the Finder smoke test
             </a>
           </p>
         </Reveal>

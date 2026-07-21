@@ -6,8 +6,8 @@ import Reveal from "../components/Reveal";
 const FEATURES = [
   {
     icon: AppWindow,
-    title: "Any Mac app, one API",
-    body: "Native and Electron apps alike — same locators, same actions.",
+    title: "A common Mac interface",
+    body: "Query native AppKit and Electron accessibility trees through the same control layer.",
   },
   {
     icon: MousePointerClick,
@@ -16,13 +16,13 @@ const FEATURES = [
   },
   {
     icon: Camera,
-    title: "Screenshots & OCR",
-    body: "Capture any window and read its text — even when AX sees nothing.",
+    title: "Visual fallback",
+    body: "Capture a target window and run local Vision OCR when accessibility data is incomplete.",
   },
   {
     icon: ListTree,
-    title: "LLM-readable UI trees",
-    body: "Clean, indented element trees agents can act on directly.",
+    title: "Structured UI trees",
+    body: "Give agents named controls, values, state, and hierarchy instead of pixels alone.",
   },
 ];
 
@@ -32,11 +32,11 @@ export default function Features() {
       <Reveal className="mb-12 text-center">
         <span className="eyebrow-pill mb-4">Features</span>
         <h2 className="mx-auto mb-3 max-w-[22ch] text-[clamp(24px,3.4vw,34px)] font-extrabold leading-[1.2] tracking-[-0.03em]">
-          Playwright ergonomics, pointed at real desktop UI
+          Structured when possible, visual when necessary
         </h2>
         <p className="mx-auto max-w-[56ch] text-[15.5px] text-[#5a5460]">
-          macbeth drives apps through the macOS Accessibility API — if you know Playwright, you
-          already know macbeth.
+          Macbeth uses macOS accessibility primitives first, then keeps screenshots, OCR, menus,
+          keyboard input, AppleScript, and Shortcuts available for difficult surfaces.
         </p>
       </Reveal>
 

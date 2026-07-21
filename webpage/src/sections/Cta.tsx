@@ -4,7 +4,7 @@ import Reveal from "../components/Reveal";
 
 export default function Cta() {
   const [copied, setCopied] = useState(false);
-  const cmd = "npm install macbeth";
+  const cmd = "claude mcp add macbeth -- npx -y macbeth";
 
   const copy = async () => {
     try {
@@ -22,16 +22,16 @@ export default function Cta() {
             Open source · MIT
           </span>
           <h2 className="mx-auto mb-4 max-w-[20ch] text-[clamp(26px,4vw,40px)] font-extrabold leading-[1.15] tracking-[-0.03em] text-white">
-            Your scripts already know how to drive a Mac
+            Give your agent a Mac interface
           </h2>
           <p className="mx-auto mb-9 max-w-[52ch] text-[15.5px] leading-[1.6] text-[#b7adbf]">
-            Install one package, grant two permissions, and point Playwright-style locators at any
-            app on the machine — or hand the whole thing to an agent over MCP.
+            Add one local MCP server, grant only the permissions your workflow needs, and start
+            with a read-only inspection of an application you trust.
           </p>
           <div className="mb-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
             <button
               onClick={copy}
-              className="group flex items-center gap-3 rounded-xl bg-white px-5 py-3 font-mono text-[14px] text-[#1a1520] shadow-[0_16px_40px_-12px_rgba(0,0,0,0.5)] transition-transform hover:-translate-y-0.5"
+              className="group flex max-w-full items-center gap-3 overflow-x-auto whitespace-nowrap rounded-xl bg-white px-5 py-3 font-mono text-[11px] text-[#1a1520] shadow-[0_16px_40px_-12px_rgba(0,0,0,0.5)] transition-transform hover:-translate-y-0.5 sm:text-[14px]"
             >
               <span className="text-[#8b3342]">$</span>
               {cmd}

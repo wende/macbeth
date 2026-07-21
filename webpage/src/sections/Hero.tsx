@@ -2,16 +2,16 @@ import Logo from "../components/Logo";
 
 const FEATURES = [
   {
-    title: "Native + Electron",
-    body: "Same locator API across AppKit and Chromium apps — Slack, VS Code, Discord included.",
+    title: "One control layer",
+    body: "Inspect and operate native AppKit and Electron interfaces through the same primitives.",
   },
   {
-    title: "MCP for agents",
-    body: "Ship tool calls to Claude & friends, with an on-screen interaction glow.",
+    title: "Bring your own agent",
+    body: "Connect through MCP over stdio, with an on-screen glow for visible interactions.",
   },
   {
-    title: "Playwright-style DX",
-    body: "Lazy chainable locators, smart click/fill strategies, screenshots & OCR.",
+    title: "Structured + visual",
+    body: "Use roles, labels, state, and auto-waiting actions, with screenshots and OCR as fallbacks.",
   },
 ];
 
@@ -31,16 +31,16 @@ export default function Hero() {
         <Logo className="mx-auto mb-7 block h-auto w-[min(380px,88%)]" />
 
         <h1 className="mx-auto mb-3.5 max-w-[18ch] text-[clamp(28px,4.2vw,42px)] font-extrabold leading-[1.15] tracking-[-0.035em]">
-          Playwright for macOS
+          Computer Use for macOS
         </h1>
         <p className="mx-auto mb-7 max-w-[48ch] text-[17px] leading-[1.55] text-[#5a5460]">
-          Chainable locators, auto-waiting, screenshots, OCR, and an MCP server — so TypeScript
-          scripts and LLM agents can drive native AppKit and Electron apps alike.
+          Let the agent you already use inspect and operate native AppKit and Electron interfaces
+          through structured UI trees, reliable actions, screenshots, OCR, and reusable skills.
         </p>
 
-        <div className="mb-9 inline-flex items-center gap-3 rounded-[10px] bg-[#0f0d12] px-[18px] py-3 font-mono text-[14px] text-[#f4f1f8] shadow-[0_8px_24px_rgba(97,32,47,0.18)]">
+        <div className="mb-9 inline-flex max-w-full items-center gap-3 overflow-x-auto whitespace-nowrap rounded-[10px] bg-[#0f0d12] px-[18px] py-3 font-mono text-[11px] text-[#f4f1f8] shadow-[0_8px_24px_rgba(97,32,47,0.18)] sm:text-[14px]">
           <span className="text-[#c47a88]">$</span>
-          <span>npm install macbeth</span>
+          <span>claude mcp add macbeth -- npx -y macbeth</span>
         </div>
 
         <div className="mx-auto grid max-w-[820px] grid-cols-1 gap-4 text-left sm:grid-cols-3">

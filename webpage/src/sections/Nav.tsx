@@ -4,7 +4,7 @@ import Logo from "../components/Logo";
 
 const LINKS = [
   { href: "#features", label: "Features" },
-  { href: "#demo", label: "Demo" },
+  { href: "#demo", label: "Walkthrough" },
   { href: "#faq", label: "FAQ" },
 ];
 
@@ -45,12 +45,12 @@ export default function Nav() {
 
         <div className="ml-auto flex items-center gap-2.5">
           <a
-            href="https://www.npmjs.com/package/macbeth"
+            href="https://github.com/wende/macbeth#quickstart"
             target="_blank"
             rel="noreferrer"
             className="hidden items-center gap-2 rounded-lg border border-[#ece6ee] bg-white px-3 py-1.5 font-mono text-[12px] text-[#1a1520] transition-colors hover:border-[#d9c3ca] hover:bg-[#fbfafc] sm:flex"
           >
-            <span className="text-[#c47a88]">$</span> npm install macbeth
+            Agent quickstart
           </a>
           <a
             href="https://github.com/wende/macbeth"

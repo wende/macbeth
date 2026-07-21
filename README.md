@@ -2,111 +2,152 @@
   <img src="assets/macbeth-logo.svg" alt="Macbeth" width="300" />
 </p>
 
-<h1 align="center">Playwright for macOS</h1>
+<h1 align="center">Macbeth — Computer Use for macOS</h1>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/macbeth"><img src="https://img.shields.io/npm/v/macbeth?style=for-the-badge&color=61202F&labelColor=1a1520" alt="npm" /></a>
-  <img src="https://img.shields.io/badge/license-MIT-8B3342?style=for-the-badge&labelColor=1a1520" alt="MIT" />
-  <img src="https://img.shields.io/badge/macOS-14%2B-32111A?style=for-the-badge&logo=apple&logoColor=white&labelColor=1a1520" alt="macOS" />
-  <img src="https://img.shields.io/badge/MCP-ready-8B5CF6?style=for-the-badge&labelColor=1a1520" alt="MCP" />
+  <strong>Let the agent you already use inspect and operate your Mac.</strong>
 </p>
 
 <p align="center">
-  Chainable locators, auto-waiting, screenshots, OCR, and an MCP server — so TypeScript scripts and LLM agents can drive native AppKit and Electron apps alike.
+  Macbeth is an open-source control layer for native AppKit and Electron applications.<br />
+  It gives MCP agents and TypeScript scripts structured UI trees, reliable actions, screenshots, OCR, menus, AppleScript, Shortcuts, and reusable app skills.
 </p>
 
-```bash
-npm install macbeth
-```
+<p align="center"><em>Think Playwright for your Mac: structured locators when available, visual fallbacks when necessary.</em></p>
 
 <p align="center">
-  <a href="#features">Features</a> ·
-  <a href="#mcp-server">MCP</a> ·
-  <a href="#test-tool">Test tool</a> ·
-  <a href="#docs">Docs</a> ·
-  <a href="https://github.com/wende/macbeth/issues">Issues</a>
+  <a href="#quickstart">Quickstart</a> ·
+  <a href="#what-can-your-agent-do">Examples</a> ·
+  <a href="#typescript-api">TypeScript</a> ·
+  <a href="#security-and-limitations">Security</a> ·
+  <a href="#teach-macbeth-an-application">Skills</a>
 </p>
 
-## Features
+## Quickstart
 
-- **Any Mac app, one API** — Native and Electron apps alike — same locators, same actions.
-- **Playwright-style locators** — Chainable queries with auto-waiting click, fill, and keyboard input.
-- **MCP for agents** — Tool calls for Claude and friends, with an on-screen interaction glow.
-- **Screenshots & OCR** — Capture any window and read its text — even when AX sees nothing.
-- **LLM-readable UI trees** — Clean, indented element trees agents can act on directly.
-- **Menus, AppleScript, Shortcuts** — Menu-bar automation and system integration alongside AX queries.
-- **Bundled app skills** — Calendar, Mail, Safari, System Settings, Electron, and more.
-
-## MCP server
-
-macbeth includes an MCP server so LLM agents (Claude, etc.) can automate macOS apps through tool calls. The published package ships a **prebuilt, notarized universal daemon** — no build step, no Swift toolchain.
-
-**Claude Code** — register from your terminal:
+Give Claude Code access to Macbeth:
 
 ```bash
 claude mcp add macbeth -- npx -y macbeth
 ```
 
-For other clients, add to your MCP config (e.g. `.mcp.json`):
+Then ask it to verify the connection:
 
-```json
-{
-  "mcpServers": {
-    "macbeth": {
-      "command": "npx",
-      "args": ["-y", "macbeth"]
-    }
-  }
-}
-```
+> Using Macbeth, list the running applications, connect to Finder, inspect its front window, and summarize the first few controls you can see. Do not perform any other actions.
 
-Grant Accessibility (and Screen Recording if you need screenshots), then the agent can connect to apps, query UI trees, click, fill, screenshot, OCR, run menus/AppleScript/Shortcuts, and load bundled skills. Verify the install with `npx macbeth doctor`.
+Macbeth ships with a prebuilt, signed and notarized universal daemon. No Swift toolchain or manual service installation is required. If setup fails, run `npx macbeth doctor`; it prints a self-contained diagnostic prompt you can paste back into your agent.
 
-Update:
+Any MCP client that can launch a stdio server can use `npx -y macbeth`. See [MCP setup](docs/mcp.md) for generic configuration, updates, and the complete tool list.
 
-```bash
-npx macbeth update          # install latest signed release
-npx macbeth update --check  # report only
-```
+<details>
+<summary>Let your agent guide the installation</summary>
 
-Setup for other clients, the full tool list, and skills: [docs/mcp.md](docs/mcp.md).
+> Add Macbeth as an MCP server using `npx -y macbeth`. Run `npx macbeth doctor`, guide me through granting only the permissions I need, and verify the setup by inspecting Finder. Do not take any unrelated actions.
 
-## Test tool
+</details>
 
-Use macbeth from Node the same way you use Playwright against a browser — connect to an app, chain locators, assert.
+> [!CAUTION]
+> Macbeth can read visible interface content and can click, type, run scripts, invoke Shortcuts, and operate menus. Connect it only to agents and MCP clients you trust, and require confirmation for consequential actions.
+
+## What can your agent do?
+
+### Work in a professional application
+
+> “In Logic Pro, set the project tempo to 128 BPM and start playback.”
+
+The bundled [Logic Pro skill](skills/LogicPro/SKILL.md) documents its transport, tracks, tempo, mixer, menus, and known accessibility quirks.
+
+### Inspect and navigate macOS
+
+> “Open System Settings, find the firewall controls, and report their current state without changing anything.”
+
+Macbeth can inspect named controls and values, select native menu items, and use keyboard input when a semantic action is unavailable.
+
+### Work with Electron interfaces
+
+> “Inspect this Electron application's front window, find its main search field, and tell me which controls are available.”
+
+Macbeth enables Chromium's accessibility tree and applies Electron-aware click and fill strategies. The exact tree still varies by application and version; see the [Electron skill](skills/electron/SKILL.md).
+
+### See beyond the accessibility tree
+
+> “Capture the frontmost Notes window and extract all visible text.”
+
+ScreenCaptureKit screenshots and local Vision OCR provide a fallback for content that macOS does not expose as useful accessibility data.
+
+### Build repeatable scripts and tests
+
+The same engine is available as a TypeScript API with lazy locators, auto-waiting actions, explicit state waits, screenshots, and application connections.
+
+## Why Macbeth?
+
+- **Use your own agent.** Macbeth is a control layer, not a model or agent runtime.
+- **Structured when possible.** Query roles, labels, values, enabled state, hierarchy, and stable handles instead of relying only on coordinates.
+- **Visual when necessary.** Fall back to window capture and OCR when accessibility metadata is thin.
+- **Application-aware.** Versioned skills preserve workflows, shortcuts, and known failure modes.
+- **Scriptable.** Use the same primitives interactively over MCP or directly from TypeScript.
+
+### Structured before pixels
+
+| Capability | Screenshot-only control | Macbeth |
+|---|---|---|
+| Find a labeled control | Visual inference | Accessibility query when exposed |
+| Read role, value, and state | Inferred | Structured attributes |
+| Wait for a UI change | Repeated captures | Explicit waits and auto-waiting actions |
+| Handle incomplete UI metadata | Vision/OCR | Accessibility first, screenshot/OCR fallback |
+| Reuse application knowledge | Prompt-dependent | Bundled, versioned skills |
+
+Accessibility information can itself be incomplete or misleading. Macbeth is a hybrid interface: it uses stronger structured primitives when macOS exposes them and keeps visual and system-level fallbacks available when it does not.
+
+## Security and limitations
+
+- Macbeth requires macOS 14 or newer and Node.js 20 or newer.
+- Accessibility permission is required for UI inspection and interaction. Screen Recording is required only for screenshots and window OCR.
+- Application accessibility quality varies. Custom-rendered canvases, games, and some creative tools may require menus, screenshots, OCR, keyboard input, or application-specific guidance.
+- Interface changes between application versions can break specialized workflows.
+- The interaction glow makes Macbeth activity visible, but it is not an approval system or a complete audit log.
+- Agents can make mistakes. Use human review for destructive, financial, publishing, or privacy-sensitive actions.
+
+Macbeth uses a local stdio MCP server and a Unix-domain socket; it does not open a TCP listener. Screenshots requested through MCP are written to a temporary directory and are not automatically deleted. Read the [security model](SECURITY.md) for data flow, permission revocation, local-process risks, and safer operating practices.
+
+## TypeScript API
 
 ```bash
 npm install macbeth
 ```
 
-API, locators, Electron notes, and test examples: [skills/DEVELOPING_MACBETH.md](skills/DEVELOPING_MACBETH.md).
+```ts
+import { connect } from "macbeth";
 
-## Permissions
+const app = await connect("TextEdit");
+await app.window("Untitled").textField().fill("Hello from Macbeth");
+await app.pressKey("s", ["cmd"]);
+```
 
-| Permission | When |
+See [Developing with Macbeth](skills/DEVELOPING_MACBETH.md) for locators, screenshots, Electron behavior, lifecycle, and tests.
+
+## Teach Macbeth an application
+
+A Macbeth skill is a `SKILL.md` file, optionally accompanied by runnable scripts, that teaches an agent an application's reliable workflows and pitfalls. Bundled skills cover Calendar, Contacts, Logic Pro, Mail, Maps, Messages, Music, Notes, Reminders, Safari, System Settings, and generic Electron applications.
+
+You can add a skill without changing the Swift daemon. Start with the [contribution guide](CONTRIBUTING.md#contributing-an-application-skill) and include a reproducible prompt, tested application version, expected result, and honest failure modes.
+
+## Documentation
+
+| Guide | Contents |
 |---|---|
-| **Accessibility** | Required for all UI automation. macOS prompts on first use, or grant in System Settings → Privacy & Security → Accessibility. |
-| **Screen Recording** | Screenshots/OCR only. If missing when requested, macbeth opens the correct Settings pane. |
-
-No login items or background services. The TypeScript client auto-spawns the Swift daemon and shuts it down on close; the daemon can stay warm between runs.
+| [MCP server](docs/mcp.md) | Installation, smoke test, tools, skills, and updates |
+| [TypeScript API](skills/DEVELOPING_MACBETH.md) | Client API, locators, Electron, and tests |
+| [Architecture](docs/architecture.md) | Daemon, protocol, fallbacks, and design notes |
+| [Security](SECURITY.md) | Trust boundaries, data handling, and permission revocation |
+| [Troubleshooting](TROUBLESHOOTING.md) | Diagnostics and common setup failures |
+| [Contributing](CONTRIBUTING.md) | Development workflow and application skills |
 
 ## Requirements
 
 - macOS 14 (Sonoma) or later
 - Node.js 20+
-- Swift 6.0+ only if building the daemon from source
-
-## Docs
-
-| Doc | Contents |
-|---|---|
-| [skills/DEVELOPING_MACBETH.md](skills/DEVELOPING_MACBETH.md) | Client API, locators, Electron, writing tests |
-| [docs/mcp.md](docs/mcp.md) | MCP tools, skills, updates |
-| [docs/architecture.md](docs/architecture.md) | How it works and design notes |
-| [docs/interaction-glow.md](docs/interaction-glow.md) | On-screen interaction indicator |
-| [docs/releasing.md](docs/releasing.md) | Signed/notarized releases |
-| [docs/keyboard-input-and-foregrounding.md](docs/keyboard-input-and-foregrounding.md) | Keyboard delivery and focus behavior |
-| [docs/ci-prototype.md](docs/ci-prototype.md) | Experimental macOS CI permissions prototype |
+- Swift 6.0+ only when building the daemon from source
 
 ## License
 

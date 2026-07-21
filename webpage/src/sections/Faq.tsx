@@ -6,15 +6,15 @@ import Reveal from "../components/Reveal";
 const FAQS = [
   {
     q: "Do I need to manage a background service?",
-    a: "No. The TypeScript client auto-spawns the Swift daemon (macbethd) as a subprocess and shuts it down on close. Simple scripts exit cleanly when the work is done, and the daemon stays warm in the background for fast subsequent runs.",
+    a: "No login item is installed. The TypeScript client starts or reuses the local Swift daemon; a managed client closes a daemon process it started with close(), while a reused daemon may stay warm for fast subsequent runs.",
   },
   {
-    q: "Can it drive Electron apps like Slack and VS Code?",
-    a: "Yes — with the same locator API as native apps. On connect, macbeth sets AXManualAccessibility to switch Chromium's accessibility tree on, then waits for web content to appear. click and fill have Electron-aware strategies (auto / ax / mouse and auto / ax / keyboard) that synthesize real input events when frameworks like React need them.",
+    q: "How does it handle Electron applications?",
+    a: "Macbeth enables Chromium's accessibility tree, waits for web content to appear, and uses Electron-aware click and fill strategies. Results still depend on the accessibility information and custom-rendered surfaces exposed by each application version.",
   },
   {
     q: "How do LLM agents use it?",
-    a: "macbeth includes an MCP server — add it to your Claude Code config with \"npx macbeth\" and the agent gets tools like connect_app, query_tree, click, fill, screenshot, and extract_text, plus bundled app skills for Calendar, Mail, Safari, System Settings, and more. An interaction glow shows exactly which window is being controlled.",
+    a: "Macbeth includes a stdio MCP server. Claude Code has a one-command setup, and other clients that can launch a stdio server can use the same npx entry point. The agent gets inspection, action, screenshot, OCR, system-integration, and skill tools.",
   },
   {
     q: "What happens when an element isn't there yet?",
@@ -22,7 +22,7 @@ const FAQS = [
   },
   {
     q: "Can I read text from apps with thin accessibility trees?",
-    a: "Yes. Screenshots use ScreenCaptureKit for high-fidelity window capture, and extract_text runs Vision-based OCR on a window or supplied PNG — both with live regression coverage in the test-harness suite.",
+    a: "Screenshots use ScreenCaptureKit for target-window capture, and extract_text runs local Vision OCR on a window or supplied PNG. Screen Recording permission is required for window capture.",
   },
   {
     q: "What does it cost, and what's the license?",
