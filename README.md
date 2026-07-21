@@ -25,6 +25,14 @@
 </p>
 
 <p align="center">
+  <img src="assets/macbeth-walkthrough.gif" alt="Simulated Macbeth walkthrough showing System Settings, Electron interaction, and screenshot OCR" width="800" />
+</p>
+
+<p align="center">
+  <sub>Simulated walkthrough of Macbeth's current MCP tool surface: System Settings, Electron interaction, and screenshot/OCR.</sub>
+</p>
+
+<p align="center">
   <a href="#quickstart">Quickstart</a> ·
   <a href="#across-your-mac">Examples</a> ·
   <a href="#why-macbeth">Why Macbeth?</a> ·
