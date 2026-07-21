@@ -6,13 +6,13 @@ import Reveal from "../components/Reveal";
 const FEATURES = [
   {
     icon: AppWindow,
-    title: "A common Mac interface",
-    body: "Query native AppKit and Electron accessibility trees through the same control layer.",
+    title: "Control the tools you work in",
+    body: "Use one control layer across native apps, Logic Pro, and difficult surfaces such as Unity.",
   },
   {
     icon: MousePointerClick,
-    title: "Playwright-style locators",
-    body: "Chainable queries with auto-waiting click, fill, and drag.",
+    title: "Use applications without APIs",
+    body: "Operate exposed Electron interfaces—including apps such as HEY—without a service API.",
   },
   {
     icon: Camera,

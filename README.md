@@ -2,22 +2,32 @@
   <img src="assets/macbeth-logo.svg" alt="Macbeth" width="300" />
 </p>
 
-<h1 align="center">Macbeth — Computer Use for macOS</h1>
+<h1 align="center">Macbeth — Open-source Computer Use for macOS</h1>
 
 <p align="center">
-  <strong>Let the agent you already use inspect and operate your Mac.</strong>
+  <strong>Give the agent you already use hands and eyes on your Mac.</strong>
 </p>
 
 <p align="center">
-  Macbeth is an open-source control layer for native AppKit and Electron applications.<br />
-  It gives MCP agents and TypeScript scripts structured UI trees, reliable actions, screenshots, OCR, menus, AppleScript, Shortcuts, and reusable app skills.
+  See and operate native AppKit and Electron applications through MCP or TypeScript.
 </p>
 
-<p align="center"><em>Think Playwright for your Mac: structured locators when available, visual fallbacks when necessary.</em></p>
+<p align="center">
+  Structured UI access when possible. Screenshots and OCR when necessary.<br />
+  <em>Think Playwright for your entire Mac.</em>
+</p>
+
+<p align="center">
+  <a href="https://www.npmjs.com/package/macbeth"><img src="https://img.shields.io/npm/v/macbeth?style=flat-square&color=61202F&labelColor=1a1520" alt="npm version" /></a>
+  <img src="https://img.shields.io/badge/license-MIT-8B3342?style=flat-square&labelColor=1a1520" alt="MIT license" />
+  <img src="https://img.shields.io/badge/macOS-14%2B-32111A?style=flat-square&logo=apple&logoColor=white&labelColor=1a1520" alt="macOS 14 or newer" />
+  <img src="https://img.shields.io/badge/MCP-server-8B5CF6?style=flat-square&labelColor=1a1520" alt="MCP server included" />
+</p>
 
 <p align="center">
   <a href="#quickstart">Quickstart</a> ·
-  <a href="#what-can-your-agent-do">Examples</a> ·
+  <a href="#across-your-mac">Examples</a> ·
+  <a href="#why-macbeth">Why Macbeth?</a> ·
   <a href="#typescript-api">TypeScript</a> ·
   <a href="#security-and-limitations">Security</a> ·
   <a href="#teach-macbeth-an-application">Skills</a>
@@ -46,30 +56,27 @@ Any MCP client that can launch a stdio server can use `npx -y macbeth`. See [MCP
 
 </details>
 
-> [!CAUTION]
-> Macbeth can read visible interface content and can click, type, run scripts, invoke Shortcuts, and operate menus. Connect it only to agents and MCP clients you trust, and require confirmation for consequential actions.
+## Across your Mac
 
-## What can your agent do?
-
-### Work in a professional application
+### Work inside Unity, Logic Pro, and other complex tools
 
 > “In Logic Pro, set the project tempo to 128 BPM and start playback.”
 
-The bundled [Logic Pro skill](skills/LogicPro/SKILL.md) documents its transport, tracks, tempo, mixer, menus, and known accessibility quirks.
+Macbeth combines structured controls, menus, keyboard input, screenshots, OCR, and application-specific guidance. Logic Pro has a bundled [dedicated skill](skills/LogicPro/SKILL.md); thin accessibility trees in applications such as Unity may require more fallback strategies.
 
-### Inspect and navigate macOS
+### Automate macOS itself
 
 > “Open System Settings, find the firewall controls, and report their current state without changing anything.”
 
 Macbeth can inspect named controls and values, select native menu items, and use keyboard input when a semantic action is unavailable.
 
-### Work with Electron interfaces
+### Use applications even when they have no API
 
-> “Inspect this Electron application's front window, find its main search field, and tell me which controls are available.”
+> “Open HEY, find the newest visible thread from the design team, and summarize it without sending or changing anything.”
 
-Macbeth enables Chromium's accessibility tree and applies Electron-aware click and fill strategies. The exact tree still varies by application and version; see the [Electron skill](skills/electron/SKILL.md).
+Macbeth can work through an Electron application's exposed interface even when its service does not offer the API your agent needs. HEY is an example of generic Electron control, not a dedicated Macbeth skill. The exact tree varies by application and version; see the [Electron skill](skills/electron/SKILL.md).
 
-### See beyond the accessibility tree
+### See what the accessibility tree misses
 
 > “Capture the frontmost Notes window and extract all visible text.”
 
@@ -78,6 +85,9 @@ ScreenCaptureKit screenshots and local Vision OCR provide a fallback for content
 ### Build repeatable scripts and tests
 
 The same engine is available as a TypeScript API with lazy locators, auto-waiting actions, explicit state waits, screenshots, and application connections.
+
+> [!IMPORTANT]
+> Macbeth can act inside applications on your behalf. Connect only trusted agents and require approval for consequential actions.
 
 ## Why Macbeth?
 
@@ -89,11 +99,11 @@ The same engine is available as a TypeScript API with lazy locators, auto-waitin
 
 ### Structured before pixels
 
-| Capability | Screenshot-only control | Macbeth |
+| Capability | Typical screenshot-driven agent | Macbeth |
 |---|---|---|
 | Find a labeled control | Visual inference | Accessibility query when exposed |
 | Read role, value, and state | Inferred | Structured attributes |
-| Wait for a UI change | Repeated captures | Explicit waits and auto-waiting actions |
+| Wait for a UI change | Usually observed through repeated captures | Explicit waits and auto-waiting actions |
 | Handle incomplete UI metadata | Vision/OCR | Accessibility first, screenshot/OCR fallback |
 | Reuse application knowledge | Prompt-dependent | Bundled, versioned skills |
 
