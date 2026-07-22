@@ -138,15 +138,16 @@ If it flips back to `DENIED` after a macbeth update, macOS may be keying the
 grant to a changed binary path — remove the stale Accessibility entry with the
 `−` button and re-add the current one.
 
-## Screen Recording denied (screenshots fail)
+## Screen Recording denied (screenshots or window OCR fail)
 
-Only the `screenshot` and image-based `extract_text` tools need this. Everything
-else works without it.
+Only the `screenshot` tool and window-based `extract_text` calls need this.
+OCR over image data supplied directly to `extract_text` does not. Everything
+else works without Screen Recording access.
 
 - Grant in **System Settings → Privacy & Security → Screen Recording**, then
   relaunch the host app.
-- macbeth opens the correct pane automatically the first time a screenshot is
-  requested without permission.
+- macbeth opens the correct pane automatically when a screenshot or window OCR
+  request encounters missing permission.
 
 ## `list_apps` works but `connect_app` can't find my app
 

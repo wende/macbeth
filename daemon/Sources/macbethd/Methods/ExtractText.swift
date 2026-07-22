@@ -35,7 +35,7 @@ func registerExtractText(
                 do {
                     content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
                 } catch {
-                    throw RPCError.permissionDenied("Screen Recording permission required")
+                    throw screenCaptureContentError(error)
                 }
 
                 let appWindows = content.windows.filter { $0.owningApplication?.processID == conn.pid }
