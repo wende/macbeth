@@ -22,10 +22,11 @@ jobs:
   release:
     name: Sign, notarize, and publish
     runs-on: macos-14
-    timeout-minutes: 30
+    timeout-minutes: 45
     environment: release
     env:
       MACBETH_CODESIGN_IDENTITY: "Developer ID Application: Krzysztof Wende (5N28UN29Z6)"
+      MCP_PUBLISHER_VERSION: "1.8.0"
       RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
 
     steps:
@@ -65,6 +66,11 @@ jobs:
           VERSION="$(node -p 'require("./client/package.json").version')"
           test "v$VERSION" = "$RELEASE_TAG"
 
+      - name: Validate client and MCP Registry metadata
+        run: |
+          npm --prefix client run build
+          npm --prefix client test
+
       - name: Import Developer ID certificate
         env:
           MACOS_CERTIFICATE_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
@@ -97,6 +103,44 @@ jobs:
           mkdir -p artifacts
           cd client
           npm pack --pack-destination ../artifacts
+
+      - name: Inspect npm package contents
+        run: |
+          PACKAGE_TARBALL="$(find artifacts -maxdepth 1 -name 'macbeth-*.tgz' -print -quit)"
+          test -n "$PACKAGE_TARBALL"
+
+          PACKAGE_CONTENTS="$RUNNER_TEMP/macbeth-npm-package-contents.txt"
+          tar -tzf "$PACKAGE_TARBALL" | tee "$PACKAGE_CONTENTS"
+
+          for required_path in \
+            package/LICENSE \
+            package/README.md \
+            package/package.json \
+            package/bin/macbeth.mjs \
+            package/bin/macbethd \
+            package/bin/macbeth-glow \
+            package/dist/mcp.js; do
+            grep -Fx "$required_path" "$PACKAGE_CONTENTS"
+          done
+
+          if grep -E '(^|/)(\.env($|\.)|\.npmrc$|\.DS_Store$|node_modules/|coverage/|screenshots?/|test-results/)' "$PACKAGE_CONTENTS"; then
+            echo "Unexpected private or development artifact in npm package" >&2
+            exit 1
+          fi
+
+          PACKED_PACKAGE_JSON="$RUNNER_TEMP/macbeth-packed-package.json"
+          tar -xOf "$PACKAGE_TARBALL" package/package.json > "$PACKED_PACKAGE_JSON"
+          node - "$PACKED_PACKAGE_JSON" <<'NODE'
+          const { readFileSync } = require("node:fs");
+          const packageJson = JSON.parse(readFileSync(process.argv[2], "utf8"));
+          if (packageJson.name !== "macbeth") throw new Error("Unexpected package name");
+          if (packageJson.mcpName !== "io.github.wende/macbeth") {
+            throw new Error("Missing or incorrect mcpName in packed package");
+          }
+          if (packageJson.version !== process.env.RELEASE_TAG.replace(/^v/, "")) {
+            throw new Error("Packed package version does not match release tag");
+          }
+          NODE
 
       - name: Verify Developer ID signatures
         run: |
@@ -142,4 +186,92 @@ jobs:
           fi
 
       - name: Publish npm package
-        run: npm publish ./artifacts/*.tgz --access public
+        run: |
+          VERSION="${RELEASE_TAG#v}"
+          if npm view "macbeth@$VERSION" version >/dev/null 2>&1; then
+            test "$(npm view "macbeth@$VERSION" mcpName)" = "io.github.wende/macbeth"
+            echo "macbeth@$VERSION is already published with the expected mcpName"
+          else
+            npm publish ./artifacts/*.tgz --access public
+          fi
+
+      - name: Wait for npm Registry verification metadata
+        run: |
+          VERSION="${RELEASE_TAG#v}"
+          for attempt in $(seq 1 30); do
+            PUBLISHED_VERSION="$(npm view "macbeth@$VERSION" version 2>/dev/null || true)"
+            PUBLISHED_MCP_NAME="$(npm view "macbeth@$VERSION" mcpName 2>/dev/null || true)"
+            if test "$PUBLISHED_VERSION" = "$VERSION" && \
+               test "$PUBLISHED_MCP_NAME" = "io.github.wende/macbeth"; then
+              echo "npm Registry exposes macbeth@$VERSION with the expected mcpName"
+              exit 0
+            fi
+            echo "Waiting for npm Registry propagation (attempt $attempt/30)"
+            sleep 10
+          done
+          echo "npm Registry did not expose the expected verification metadata" >&2
+          exit 1
+
+      - name: Install verified MCP Registry publisher
+        run: |
+          case "$(uname -m)" in
+            arm64) PUBLISHER_ARCH="arm64" ;;
+            x86_64) PUBLISHER_ARCH="amd64" ;;
+            *) echo "Unsupported runner architecture: $(uname -m)" >&2; exit 1 ;;
+          esac
+
+          PUBLISHER_ARCHIVE="mcp-publisher_darwin_${PUBLISHER_ARCH}.tar.gz"
+          PUBLISHER_BASE_URL="https://github.com/modelcontextprotocol/registry/releases/download/v${MCP_PUBLISHER_VERSION}"
+          curl -fsSLO "$PUBLISHER_BASE_URL/$PUBLISHER_ARCHIVE"
+          curl -fsSLO "$PUBLISHER_BASE_URL/registry_${MCP_PUBLISHER_VERSION}_checksums.txt"
+          awk -v asset="$PUBLISHER_ARCHIVE" '$2 == asset { print }' \
+            "registry_${MCP_PUBLISHER_VERSION}_checksums.txt" \
+            > mcp-publisher-checksum.txt
+          test "$(wc -l < mcp-publisher-checksum.txt | tr -d ' ')" = "1"
+          shasum -a 256 -c mcp-publisher-checksum.txt
+          tar -xzf "$PUBLISHER_ARCHIVE" mcp-publisher
+          ./mcp-publisher --help
+          ./mcp-publisher validate server.json
+
+      - name: Publish MCP Registry metadata
+        run: |
+          VERSION="${RELEASE_TAG#v}"
+          REGISTRY_RESPONSE="$RUNNER_TEMP/macbeth-mcp-registry-response.json"
+          REGISTRY_URL="https://registry.modelcontextprotocol.io/v0.1/servers/io.github.wende%2Fmacbeth/versions/$VERSION"
+          HTTP_STATUS="$(curl -sS -o "$REGISTRY_RESPONSE" -w '%{http_code}' "$REGISTRY_URL")"
+
+          if test "$HTTP_STATUS" = "404"; then
+            ./mcp-publisher login github-oidc
+            ./mcp-publisher publish server.json
+          elif test "$HTTP_STATUS" != "200"; then
+            echo "Unexpected MCP Registry response before publication: HTTP $HTTP_STATUS" >&2
+            cat "$REGISTRY_RESPONSE" >&2
+            exit 1
+          else
+            echo "MCP Registry version $VERSION already exists; verifying it"
+          fi
+
+          for attempt in $(seq 1 30); do
+            HTTP_STATUS="$(curl -sS -o "$REGISTRY_RESPONSE" -w '%{http_code}' "$REGISTRY_URL")"
+            if test "$HTTP_STATUS" = "200"; then
+              node - "$REGISTRY_RESPONSE" "$VERSION" <<'NODE'
+          const { readFileSync } = require("node:fs");
+          const response = JSON.parse(readFileSync(process.argv[2], "utf8"));
+          const version = process.argv[3];
+          const server = response.server ?? response;
+          const packageMetadata = server.packages?.[0];
+          if (server.name !== "io.github.wende/macbeth") throw new Error("Unexpected Registry name");
+          if (server.version !== version) throw new Error("Unexpected Registry version");
+          if (packageMetadata?.identifier !== "macbeth") throw new Error("Unexpected npm package");
+          if (packageMetadata?.version !== version) throw new Error("Unexpected npm package version");
+          if (packageMetadata?.transport?.type !== "stdio") throw new Error("Unexpected transport");
+          NODE
+              echo "Verified io.github.wende/macbeth version $VERSION in the MCP Registry"
+              exit 0
+            fi
+            echo "Waiting for MCP Registry publication (attempt $attempt/30)"
+            sleep 10
+          done
+          echo "MCP Registry did not return the published version" >&2
+          cat "$REGISTRY_RESPONSE" >&2
+          exit 1
