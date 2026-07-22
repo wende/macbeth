@@ -72,24 +72,24 @@ const SCENARIOS: Record<
     hint: "Electron · fill + click",
     icon: MessageSquare,
     run: async (api) => {
-      await api.say("Ping #engineering that the release is out.");
+      await api.say("Show a release note in the simulated #engineering channel.");
       await api.tool("connect_app", '"Slack"', "Connected — Electron app, web content ready", async () => {
         await api.glow(true);
       });
       await api.tool(
         "fill",
         '"Message #engineering", "…"',
-        "Filled 46 characters — real keystrokes",
+        "Message field filled",
         async () => {
           await api.moveTo("slack-input");
-          await api.type("slack-input", "macbeth v0.2.0 is out — MCP server included.");
+          await api.type("slack-input", "Macbeth is out — open-source Computer Use for macOS.");
         }
       );
-      await api.tool("click", '"Send"', "Clicked Send", async () => {
+      await api.tool("click", '"Send"', "Send selected in the simulated interface", async () => {
         await api.click("send");
         await api.sendSlack();
       });
-      await api.note("Sent to #engineering. The message is visible in the channel history.");
+      await api.note("Message shown in the simulated channel.");
     },
   },
   shot: {
@@ -109,7 +109,7 @@ const SCENARIOS: Record<
         await api.ocr();
       });
       await api.note(
-        'Found: "macbeth release checklist — notarize daemon binary, bump npm version to 0.2.0, update bundled app skills."'
+        'Found: "macbeth release checklist — notarize daemon binary, prepare npm release, update bundled app skills."'
       );
     },
   },
@@ -304,7 +304,7 @@ export default function Demo() {
         await sleep(700);
       },
       sendSlack: async () => {
-        setSent((prev) => [...prev, "macbeth v0.2.0 is out — MCP server included."]);
+        setSent((prev) => [...prev, "Macbeth is out — open-source Computer Use for macOS."]);
         setTypedSlack("");
         await sleep(500);
       },
@@ -384,13 +384,13 @@ export default function Demo() {
     <section id="demo" className="border-y border-[#ece6ee] bg-[#fbfafc]">
       <div className="section-shell">
         <Reveal className="mb-8 text-center">
-          <span className="eyebrow-pill mb-4">Live demo</span>
+          <span className="eyebrow-pill mb-4">Interactive walkthrough</span>
           <h2 className="mx-auto mb-3 max-w-[22ch] text-[clamp(24px,3.4vw,34px)] font-extrabold leading-[1.2] tracking-[-0.03em]">
-            Watch an agent drive your Mac
+            See the interaction model
           </h2>
           <p className="mx-auto max-w-[56ch] text-[15.5px] text-[#5a5460]">
-            Pick a scenario — Claude calls macbeth's MCP tools on the left, and the window on the
-            right shows every glow, keystroke, click, and capture as it happens.
+            This simulated interface illustrates Macbeth's tool sequence and interaction glow.
+            Pick a scenario to follow each inspection, action, capture, and result.
           </p>
         </Reveal>
 
@@ -456,15 +456,15 @@ export default function Demo() {
           </div>
 
           <p className="mt-5 text-center text-[12.5px] text-[#8b8296]">
-            Simulated on the real MCP tool surface — the burgundy outline, synthetic pointer, and
-            scan animation mirror what macbeth draws on your actual screen.{" "}
+            This walkthrough uses Macbeth's current MCP tool names and illustrates its glow,
+            pointer, and capture sequence.{" "}
             <a
-              href="https://github.com/wende/macbeth#readme"
+              href="https://github.com/wende/macbeth#quickstart"
               target="_blank"
-              rel="noreferrer"
+              rel="noopener noreferrer"
               className="font-medium text-[#61202f] underline decoration-[#d9c3ca] underline-offset-2 hover:decoration-[#61202f]"
             >
-              Run it yourself
+              Try the Finder smoke test
             </a>
           </p>
         </Reveal>

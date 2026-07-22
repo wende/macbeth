@@ -48,7 +48,7 @@ function printAgentFixBlock({ summary, problems = [], details }) {
   lines.push("coding agent (Claude Code, Cursor, …) to fix it:");
   lines.push(rule);
   lines.push(
-    "The macbeth MCP server (Playwright for macOS apps) isn't working."
+    "The Macbeth MCP server (open-source Computer Use for macOS) isn't working."
   );
   lines.push(
     "Diagnose and fix it, then verify with `npx macbeth doctor`. Tell me"
@@ -163,7 +163,8 @@ function runDoctor(DaemonManager) {
 
 function printHelp() {
   process.stdout.write(
-    `macbeth — Playwright for macOS native apps (Accessibility API)\n\n` +
+    `macbeth — open-source Computer Use for macOS\n` +
+      `See and operate Mac applications through MCP or TypeScript, including native and Electron interfaces.\n\n` +
       `Usage:\n` +
       `  macbeth               Start the MCP server (default; used by LLM agents)\n` +
       `  macbeth doctor        Check macOS Accessibility + Screen Recording permissions\n` +

@@ -9,6 +9,8 @@ DerivedData/
 # Node
 node_modules/
 dist/
+.vercel/
+/.env.local
 
 # macbeth
 *.sock

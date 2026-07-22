@@ -26,12 +26,11 @@ export default function Permissions() {
           <Reveal>
             <span className="eyebrow-pill mb-4">Permissions</span>
             <h2 className="mb-3 text-[clamp(24px,3.4vw,34px)] font-extrabold leading-[1.2] tracking-[-0.03em]">
-              Two permissions, zero background services
+              Local daemon, scoped permissions
             </h2>
             <p className="mb-6 text-[15.5px] leading-[1.65] text-[#5a5460]">
-              The daemon holds the permissions; the client auto-spawns it as a subprocess and shuts
-              it down on close. Nothing runs as a login item, and nothing you didn't ask for stays
-              resident.
+              The client starts or reuses a local Swift daemon. Nothing is installed as a login item,
+              and Screen Recording is needed only when a workflow requests capture or window OCR.
             </p>
             <div className="space-y-3.5">
               {PERMS.map((p) => (
@@ -68,11 +67,11 @@ export default function Permissions() {
               </ul>
               <div className="rounded-xl border border-[#ece6ee] bg-[#fbfafc] p-4">
                 <div className="mb-1.5 text-[12px] font-bold uppercase tracking-[0.1em] text-[#61202f]">
-                  Nothing left running
+                  Process lifecycle
                 </div>
                 <p className="text-[12.5px] leading-[1.6] text-[#5a5460]">
-                  Scripts exit cleanly when the work is done. The daemon idles in the background for
-                  fast follow-up runs — no login items, no menu-bar clutter, no surprise CPU usage.
+                  Simple scripts exit when their work is done, while the daemon may stay warm for fast
+                  follow-up runs. A managed client closes a daemon process that it started with close().
                 </p>
               </div>
             </div>

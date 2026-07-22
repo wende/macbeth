@@ -381,7 +381,7 @@ function SlackWindow(p: DesktopProps) {
 const NOTE_LINES = [
   "macbeth release checklist",
   "notarize daemon binary",
-  "bump npm version to 0.2.0",
+  "prepare npm release",
   "update bundled app skills",
 ];
 
