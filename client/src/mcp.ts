@@ -12,6 +12,7 @@ import { JsonRpcError } from "./rpc.js";
 import { saveScreenshotToTempFile } from "./screenshots.js";
 import { resolveElementTarget } from "./mcp-target.js";
 import { runWithActivity } from "./mcp-activity.js";
+import { readInstalledVersion } from "./update.js";
 import type { KeyStroke } from "./types.js";
 
 const MODULE_DIR = dirname(fileURLToPath(import.meta.url));
@@ -63,7 +64,7 @@ function formatError(prefix: string, err: unknown): string {
 }
 
 const server = new McpServer(
-  { name: "macbeth", version: "0.1.0" },
+  { name: "macbeth", version: readInstalledVersion(INSTALL_DIR) },
   { capabilities: { tools: {} } }
 );
 

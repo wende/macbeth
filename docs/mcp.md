@@ -32,7 +32,7 @@ Any MCP client that launches a stdio server takes the same command (`npx -y macb
 - **Cursor** → `~/.cursor/mcp.json`
 - **Other clients** → drop the `macbeth` entry into that client's `mcpServers` map.
 
-To pin a version instead of always taking the latest, use `npx -y macbeth@0.2.1` (or install globally with `npm i -g macbeth` and use `"command": "macbeth"`).
+To pin a version instead of always taking the latest, use `npx -y macbeth@0.2.2` (or install globally with `npm i -g macbeth` and use `"command": "macbeth"`).
 
 Grant **Accessibility** (and **Screen Recording** for screenshots/OCR). The client auto-spawns `macbethd`; no background service to install.
 

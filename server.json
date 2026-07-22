@@ -1,0 +1,32 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.wende/macbeth",
+  "title": "Macbeth",
+  "description": "Open-source computer use for macOS agents.",
+  "websiteUrl": "https://wende.github.io/macbeth/",
+  "icons": [
+    {
+      "src": "https://raw.githubusercontent.com/wende/macbeth/main/assets/macbeth-marketplace-icon.png",
+      "mimeType": "image/png",
+      "sizes": ["400x400"]
+    }
+  ],
+  "repository": {
+    "url": "https://github.com/wende/macbeth",
+    "source": "github",
+    "id": "1192861656"
+  },
+  "version": "0.2.2",
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "macbeth",
+      "version": "0.2.2",
+      "runtimeHint": "npx",
+      "transport": {
+        "type": "stdio"
+      }
+    }
+  ]
+}
