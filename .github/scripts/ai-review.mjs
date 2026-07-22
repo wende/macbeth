@@ -64,20 +64,32 @@ function parseStructuredReview(raw) {
   const withoutReasoning = raw.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
   const start = withoutReasoning.indexOf("{");
   const end = withoutReasoning.lastIndexOf("}");
-  if (start === -1 || end < start) fail("Structured review did not contain a JSON object.");
+  // Surface the model's actual response on parse/schema failures so the run
+  // log shows what came back, not just an opaque "did not contain JSON".
+  // Truncate to keep logs bounded; the full body is on the API provider's side.
+  const preview = (s) => s.length > 2000 ? `${s.slice(0, 2000)}\n…[truncated, ${s.length - 2000} more chars]` : s;
+  if (start === -1 || end < start) {
+    console.error(`[${PROVIDER_NAME}] Raw response:\n${preview(raw)}`);
+    fail("Structured review did not contain a JSON object.");
+  }
 
   let parsed;
   try {
     parsed = JSON.parse(withoutReasoning.slice(start, end + 1));
-  } catch {
-    fail("Structured review contained invalid JSON.");
+  } catch (e) {
+    console.error(`[${PROVIDER_NAME}] Raw response:\n${preview(raw)}`);
+    fail(`Structured review contained invalid JSON: ${e.message}`);
   }
 
   const validVerdicts = new Set(["approve", "request_changes", "comment"]);
   if (!validVerdicts.has(parsed?.verdict) || typeof parsed?.summary !== "string" || !Array.isArray(parsed?.comments)) {
+    console.error(`[${PROVIDER_NAME}] Raw response:\n${preview(raw)}`);
     fail("Structured review did not match the required verdict, summary, and comments schema.");
   }
-  if (parsed.comments.length > 10) fail("Structured review exceeded the 10-comment limit.");
+  if (parsed.comments.length > 10) {
+    console.error(`[${PROVIDER_NAME}] Raw response:\n${preview(raw)}`);
+    fail("Structured review exceeded the 10-comment limit.");
+  }
   return parsed;
 }
 
