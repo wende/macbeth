@@ -72,24 +72,24 @@ const SCENARIOS: Record<
     hint: "Electron · fill + click",
     icon: MessageSquare,
     run: async (api) => {
-      await api.say("Ping #engineering that the release is out.");
+      await api.say("Show a release note in the simulated #engineering channel.");
       await api.tool("connect_app", '"Slack"', "Connected — Electron app, web content ready", async () => {
         await api.glow(true);
       });
       await api.tool(
         "fill",
         '"Message #engineering", "…"',
-        "Filled 46 characters — real keystrokes",
+        "Message field filled",
         async () => {
           await api.moveTo("slack-input");
-          await api.type("slack-input", "macbeth v0.2.0 is out — MCP server included.");
+          await api.type("slack-input", "Macbeth is out — open-source Computer Use for macOS.");
         }
       );
-      await api.tool("click", '"Send"', "Clicked Send", async () => {
+      await api.tool("click", '"Send"', "Send selected in the simulated interface", async () => {
         await api.click("send");
         await api.sendSlack();
       });
-      await api.note("Sent to #engineering. The message is visible in the channel history.");
+      await api.note("Message shown in the simulated channel.");
     },
   },
   shot: {
@@ -109,7 +109,7 @@ const SCENARIOS: Record<
         await api.ocr();
       });
       await api.note(
-        'Found: "macbeth release checklist — notarize daemon binary, bump npm version to 0.2.0, update bundled app skills."'
+        'Found: "macbeth release checklist — notarize daemon binary, prepare npm release, update bundled app skills."'
       );
     },
   },
@@ -304,7 +304,7 @@ export default function Demo() {
         await sleep(700);
       },
       sendSlack: async () => {
-        setSent((prev) => [...prev, "macbeth v0.2.0 is out — MCP server included."]);
+        setSent((prev) => [...prev, "Macbeth is out — open-source Computer Use for macOS."]);
         setTypedSlack("");
         await sleep(500);
       },

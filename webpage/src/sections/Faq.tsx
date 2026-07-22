@@ -10,7 +10,7 @@ const FAQS = [
   },
   {
     q: "How does it handle Electron applications?",
-    a: "Macbeth enables Chromium's accessibility tree, waits for web content to appear, and uses Electron-aware click and fill strategies. Results still depend on the accessibility information and custom-rendered surfaces exposed by each application version.",
+    a: "Macbeth enables Chromium's accessibility tree and uses Electron-aware click and fill strategies. HEY uses this generic Electron path rather than a dedicated skill; results vary with the accessibility tree and application version.",
   },
   {
     q: "How do LLM agents use it?",

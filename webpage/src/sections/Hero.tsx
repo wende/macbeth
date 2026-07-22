@@ -3,11 +3,11 @@ import Logo from "../components/Logo";
 const FEATURES = [
   {
     title: "Complex Mac tools",
-    body: "Combine controls, menus, keyboard input, and visual fallbacks in Logic Pro and thin-tree surfaces such as Unity.",
+    body: "Combine structured controls with keyboard, menu, screenshot, and OCR fallbacks in Logic Pro and parts of Unity.",
   },
   {
     title: "Apps without APIs",
-    body: "Work through Electron interfaces such as HEY using generic control—not a dedicated service integration.",
+    body: "Use generic Electron support with apps such as HEY; results depend on the accessibility tree and version.",
   },
   {
     title: "Structured + visual",
@@ -37,7 +37,7 @@ export default function Hero() {
           Give the agent you already use hands and eyes on your Mac.
         </p>
         <p className="mx-auto mb-3 max-w-[52ch] text-[16px] leading-[1.55] text-[#5a5460]">
-          See and operate native AppKit and Electron applications through MCP or TypeScript.
+          See and operate Mac applications through MCP or TypeScript, including native and Electron interfaces.
         </p>
         <p className="mx-auto mb-5 max-w-[58ch] text-[14px] leading-[1.55] text-[#8b8296]">
           Structured UI access when possible. Screenshots and OCR when necessary. Think Playwright
@@ -45,7 +45,7 @@ export default function Hero() {
         </p>
 
         <div className="mb-6 flex flex-wrap items-center justify-center gap-2 text-[11px] font-semibold text-[#61202f]">
-          <a href="https://www.npmjs.com/package/macbeth" target="_blank" rel="noreferrer" className="rounded-full border border-[#d9c3ca] bg-white px-3 py-1">npm v0.2.1</a>
+          <a href="https://www.npmjs.com/package/macbeth" target="_blank" rel="noreferrer" className="rounded-full border border-[#d9c3ca] bg-white px-3 py-1">npm package</a>
           <span className="rounded-full border border-[#d9c3ca] bg-white px-3 py-1">MIT</span>
           <span className="rounded-full border border-[#d9c3ca] bg-white px-3 py-1">macOS 14+</span>
           <span className="rounded-full border border-[#d9c3ca] bg-white px-3 py-1">MCP server</span>

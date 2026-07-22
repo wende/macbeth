@@ -7,12 +7,12 @@ const FEATURES = [
   {
     icon: AppWindow,
     title: "Control the tools you work in",
-    body: "Use one control layer across native apps, Logic Pro, and difficult surfaces such as Unity.",
+    body: "Combine structured controls with keyboard, menu, screenshot, and OCR fallbacks in Logic Pro and parts of Unity.",
   },
   {
     icon: MousePointerClick,
     title: "Use applications without APIs",
-    body: "Operate exposed Electron interfaces—including apps such as HEY—without a service API.",
+    body: "Use generic Electron support with apps such as HEY; results depend on the accessibility tree and version.",
   },
   {
     icon: Camera,

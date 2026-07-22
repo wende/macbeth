@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  See and operate native AppKit and Electron applications through MCP or TypeScript.
+  See and operate Mac applications through MCP or TypeScript, including native and Electron interfaces.
 </p>
 
 <p align="center">
@@ -25,7 +25,7 @@
 </p>
 
 <p align="center">
-  <img src="assets/macbeth-computer-use-demo.gif" alt="Simulated Macbeth walkthrough showing System Settings, Electron interaction, and screenshot OCR" width="800" />
+  <img src="assets/macbeth-simulated-walkthrough.gif" alt="Simulated Macbeth walkthrough showing System Settings, Electron interaction, and screenshot OCR" width="800" />
 </p>
 
 <p align="center">
@@ -70,7 +70,7 @@ Any MCP client that can launch a stdio server can use `npx -y macbeth`. See [MCP
 
 > “In Logic Pro, set the project tempo to 128 BPM and start playback.”
 
-Macbeth combines structured controls, menus, keyboard input, screenshots, OCR, and application-specific guidance. Logic Pro has a bundled [dedicated skill](skills/LogicPro/SKILL.md); thin accessibility trees in applications such as Unity may require more fallback strategies.
+Macbeth combines structured controls, menus, keyboard input, screenshots, OCR, and application-specific guidance. Logic Pro has a [dedicated skill](skills/LogicPro/SKILL.md). Applications with thinner accessibility trees, including parts of Unity, can combine structured controls with keyboard, menu, screenshot, and OCR fallbacks.
 
 ### Automate macOS itself
 
@@ -82,7 +82,7 @@ Macbeth can inspect named controls and values, select native menu items, and use
 
 > “Open HEY, find the newest visible thread from the design team, and summarize it without sending or changing anything.”
 
-Macbeth can work through an Electron application's exposed interface even when its service does not offer the API your agent needs. HEY is an example of generic Electron control, not a dedicated Macbeth skill. The exact tree varies by application and version; see the [Electron skill](skills/electron/SKILL.md).
+Macbeth can work through exposed Electron interfaces even when the service does not provide the API your agent needs. HEY works through Macbeth's generic [Electron support](skills/electron/SKILL.md); results vary with the application's accessibility tree and version.
 
 ### See what the accessibility tree misses
 

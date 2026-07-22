@@ -1,7 +1,7 @@
 {
   "name": "macbeth",
   "version": "0.2.1",
-  "description": "Open-source computer use for macOS agents and TypeScript automation",
+  "description": "Open-source Computer Use for macOS. See and operate Mac applications through MCP or TypeScript, including native and Electron interfaces.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/wende/macbeth.git"

@@ -36,7 +36,7 @@ export default function Footer() {
           <div>
             <Logo showWordmark={false} className="mb-3 h-[30px] w-auto" />
             <p className="max-w-[30ch] text-[13px] leading-[1.6] text-[#5a5460]">
-              Open-source computer use for macOS agents and TypeScript automation.
+              Open-source Computer Use for macOS through MCP and TypeScript.
             </p>
           </div>
           <div className="grid grid-cols-2 gap-8 sm:grid-cols-3">
