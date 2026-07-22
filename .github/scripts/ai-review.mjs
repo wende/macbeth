@@ -478,10 +478,19 @@ if (reviseMode) {
 // --- Build the prompt ----------------------------------------------------
 
 const shortSha = HEAD_SHA.slice(0, 7);
-const newCommitsNote =
-  "If the new commits are trivial (docs, comments, formatting, minor tweaks) and " +
-  "introduce no issues, output exactly: No notable changes. Otherwise review them " +
-  "concisely, and note if a change appears to affect other parts of the PR.";
+// "No notable changes." is the escape hatch for non-structured incremental
+// reviews — the model emits it verbatim and the comment builder interprets
+// it. In structured mode the system prompt mandates JSON only, and the
+// correct "nothing to say" signal is {verdict:"approve", comments:[]}.
+// Injecting the legacy phrase here contradicts the structured contract and
+// makes parseStructuredReview fail on otherwise valid replies.
+const newCommitsNote = structuredOutput
+  ? "Otherwise review them concisely, and note if a change appears to " +
+    "affect other parts of the PR. If you find nothing actionable, return " +
+    `verdict "approve" with an empty comments array.`
+  : "If the new commits are trivial (docs, comments, formatting, minor tweaks) and " +
+    "introduce no issues, output exactly: No notable changes. Otherwise review them " +
+    "concisely, and note if a change appears to affect other parts of the PR.";
 
 let userContent;
 if (reviseMode) {
