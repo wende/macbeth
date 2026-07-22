@@ -1,27 +1,8 @@
-import AppKit
 import Foundation
 import ScreenCaptureKit
 import CoreGraphics
 import ImageIO
 import GlowProtocol
-
-/// Check if Screen Recording permission is likely granted.
-/// There's no direct API like AXIsProcessTrusted, so we attempt a lightweight capture.
-private func hasScreenRecordingPermission() async -> Bool {
-    do {
-        let _ = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
-        return true
-    } catch {
-        return false
-    }
-}
-
-/// Open System Settings to the Screen Recording privacy pane.
-private func openScreenRecordingSettings() {
-    if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
-        NSWorkspace.shared.open(url)
-    }
-}
 
 /// Register the screenshot RPC method.
 func registerScreenshot(
@@ -44,10 +25,7 @@ func registerScreenshot(
             do {
                 content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
             } catch {
-                // Permission denied — open settings and tell the user
-                openScreenRecordingSettings()
-                throw RPCError.permissionDenied(
-                    "Screen Recording permission required. Opening System Settings → Privacy & Security → Screen Recording. Grant access to macbethd (or your terminal app), then retry.")
+                throw screenCaptureContentError(error)
             }
 
             let appWindows = content.windows.filter { $0.owningApplication?.processID == conn.pid }
