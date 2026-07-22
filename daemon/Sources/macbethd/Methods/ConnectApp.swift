@@ -17,9 +17,10 @@ func registerConnectApp(
             let pid = obj["pid"]?.intValue
             let readyTimeoutMs = obj["readyTimeoutMs"]?.intValue
 
-            let connection = try await appManager.connect(
+            let result = try await appManager.connect(
                 name: name, pid: pid, readyTimeoutMs: readyTimeoutMs
             )
+            let connection = result.connection
             if let window = ElementGeometry.preferredWindow(of: connection.appElement.element),
                ElementGeometry.isFrontmostWindow(window),
                let frame = ElementGeometry.frame(of: window) {
@@ -31,7 +32,14 @@ func registerConnectApp(
                 "name": .string(connection.appName ?? "unknown"),
                 "pid": .number(Double(connection.pid)),
                 "bundleId": connection.bundleId.map { .string($0) } ?? .null,
+                "aliases": .array(connection.aliases.map { .string($0) }),
                 "runtime": .string(connection.runtime.rawValue),
+                "requestedName": result.resolution.requestedName.map { .string($0) } ?? .null,
+                "matchKind": .string(result.resolution.matchKind.rawValue),
+                "matchedValue": .string(result.resolution.matchedValue),
+                "manualAccessibility": .string(connection.manualAccessibilityStatus),
+                "webContentReadiness": connection.webContentReadiness
+                    .map { .string($0.rawValue) } ?? .null,
             ])
         }
     }

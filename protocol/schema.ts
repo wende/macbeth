@@ -42,10 +42,29 @@ export interface RunAppleScriptParams {
   language?: "AppleScript" | "JavaScript";
   /** Defaults to true because arbitrary scripts may control applications. */
   interactive?: boolean;
+  /** Hard daemon-side execution timeout in milliseconds. */
+  timeoutMs?: number;
 }
 
 export interface RunAppleScriptResult {
   output: string;
+}
+
+export interface ListMenuBarParams {
+  appHandle: string;
+}
+
+export interface ListMenuBarResult {
+  menu: string;
+}
+
+export interface SelectMenuItemParams {
+  appHandle: string;
+  menuPath: string[];
+}
+
+export interface SelectMenuItemResult {
+  selected: string;
 }
 
 export type AppRuntime = "native" | "electron" | "unknown";
@@ -54,6 +73,7 @@ export interface AppInfo {
   name: string;
   pid: number;
   bundleId: string | null;
+  aliases: string[];
   runtime: AppRuntime;
 }
 
@@ -71,7 +91,13 @@ export interface ConnectAppResult {
   name: string;
   pid: number;
   bundleId: string | null;
+  aliases: string[];
   runtime: AppRuntime;
+  requestedName: string | null;
+  matchKind: "pid" | "exact_name" | "declared_alias" | "bundle_identifier" | "partial_name" | "partial_alias" | "partial_bundle_identifier";
+  matchedValue: string;
+  manualAccessibility: string;
+  webContentReadiness: "ready" | "empty_web_area" | "no_web_area" | null;
 }
 
 // query_tree
@@ -84,6 +110,13 @@ export interface QueryTreeParams {
 
 export interface QueryTreeResult {
   tree: string | AXNodeJSON;
+  diagnostics: TreeDiagnostics;
+}
+
+export interface TreeDiagnostics {
+  runtime: AppRuntime;
+  webContent: "ready" | "empty_web_area" | "no_web_area";
+  warning?: string;
 }
 
 export interface AXNodeJSON {

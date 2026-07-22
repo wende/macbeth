@@ -74,7 +74,7 @@ npx macbeth update --check  # report only
 | `begin_activity` / `end_activity` | Bracket external computer-control work with the interaction glow |
 | `list_apps` | List running macOS apps |
 | `connect_app` | Connect to an app by name or PID |
-| `query_tree` | Accessibility tree as text or JSON |
+| `query_tree` | Accessibility tree as text or JSON, including menus and web-content readiness diagnostics |
 | `get_element` | Find an element by query or handle |
 | `dump_attributes` | Dump all AX attributes for a handle |
 | `read_form` | Read form-like controls from an app or subtree |
@@ -86,7 +86,7 @@ npx macbeth update --check  # report only
 | `screenshot` | Window capture with focus/scan/snap animation |
 | `extract_text` | OCR a window or supplied PNG |
 | `pin_handle` / `unpin_handle` | Control element-handle expiry |
-| `list_menu_bar` / `select_menu_item` | Inspect and select native menu items |
+| `list_menu_bar` / `select_menu_item` | Compactly inspect and select native menu items through AX; `query_tree` usually makes the list call unnecessary |
 | `run_applescript` | AppleScript or JXA (interactive or read-only) |
 | `list_shortcuts` / `run_shortcut` | Inspect and run Apple Shortcuts |
 | `list_skills` / `load_skill` / `run_skill_script` | Discover and run bundled app workflows |

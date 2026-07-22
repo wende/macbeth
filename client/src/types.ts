@@ -17,7 +17,28 @@ export interface AppInfo {
   name: string;
   pid: number;
   bundleId: string | null;
+  aliases: string[];
   runtime: AppRuntime;
+}
+
+export type AppMatchKind =
+  | "pid"
+  | "exact_name"
+  | "declared_alias"
+  | "bundle_identifier"
+  | "partial_name"
+  | "partial_alias"
+  | "partial_bundle_identifier";
+
+export interface TreeDiagnostics {
+  runtime: AppRuntime;
+  webContent: "ready" | "empty_web_area" | "no_web_area";
+  warning?: string;
+}
+
+export interface QueryTreeDetailedResult {
+  tree: string;
+  diagnostics: TreeDiagnostics;
 }
 
 export interface ConnectOptions {

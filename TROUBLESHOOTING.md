@@ -155,6 +155,9 @@ else works without it.
 - Try the exact name from `list_apps`, or pass the **PID** instead of a name.
 - Sandboxed helper processes sometimes register under a different name than the
   visible app — check the `list_apps` output for the real entry.
+- Macbeth reports declared bundle aliases and how a name resolved. For example, a
+  request for `Codex` may resolve to the running `ChatGPT` process through its declared
+  alias while retaining bundle ID `com.openai.codex`.
 
 ## `query_tree` returns only 3–5 nodes / `read_form` finds nothing
 
@@ -164,9 +167,11 @@ API; panel internals are invisible to AX.
 
 - **Electron/Chromium apps** (Slack, VS Code, Discord) need their AX tree
   switched on. macbeth does this on `connect_app` by setting
-  `AXManualAccessibility` and waiting for a web area to appear. If the tree is
-  still thin, the app may need more time — raise `connect_app`'s `readyTimeoutMs`
-  (default 3000).
+  `AXManualAccessibility` and waiting for a web area with exposed descendants. Branded
+  Electron apps are detected through bundle metadata even when their framework has
+  been renamed. If the tree is still thin, the app may need more time — raise
+  `connect_app`'s `readyTimeoutMs` (default 3000). `query_tree` reports
+  `degraded_accessibility` when the web area remains empty and suggests fallbacks.
 - **Unity and similar:** drive them via `list_menu_bar` / `select_menu_item`
   and read on-screen state with `extract_text` (OCR) and `screenshot`. See the
   [AX limitations](CLAUDE.md#ax-limitations-in-complex-apps-unity-electron-ides)
@@ -184,6 +189,16 @@ error tells you to re-run `query_tree` and use the fresh handle.
 Handles also expire after **5 minutes** of inactivity. For long-lived
 references, `pin_handle` exempts a handle from expiry (and `Locator.scope()`
 pins automatically).
+
+## Menu automation or AppleScript times out
+
+- `select_menu_item` and `list_menu_bar` use Accessibility directly and accept either a
+  fuzzy app name or PID. They do not require System Events or Automation permission.
+- `query_tree` already contains the menu hierarchy. Skip `list_menu_bar` when the needed
+  menu path is visible there.
+- Arbitrary `run_applescript` calls still use Apple Events, but run in a killable worker
+  with a hard timeout. `permission_denied` points to Privacy & Security → Automation;
+  `timeout` identifies either the configured deadline or OSA error -1712.
 
 ## The daemon crashed / socket errors
 

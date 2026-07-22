@@ -4,13 +4,37 @@ import Foundation
 
 /// Manages connections to running applications via their AXUIElement.
 actor AppConnectionManager {
+    enum MatchKind: String, Sendable {
+        case pid
+        case exactName = "exact_name"
+        case declaredAlias = "declared_alias"
+        case bundleIdentifier = "bundle_identifier"
+        case partialName = "partial_name"
+        case partialAlias = "partial_alias"
+        case partialBundleIdentifier = "partial_bundle_identifier"
+    }
+
+    struct Resolution: Sendable {
+        let requestedName: String?
+        let matchKind: MatchKind
+        let matchedValue: String
+    }
+
     struct Connection: Sendable {
         let pid: pid_t
         let appElement: SendableElement
         let bundleId: String?
         let appName: String?
+        let aliases: [String]
         let handleId: String
         let runtime: AppRuntime
+        let manualAccessibilityStatus: String
+        let webContentReadiness: WebContentReadiness?
+    }
+
+    struct ConnectResult: Sendable {
+        let connection: Connection
+        let resolution: Resolution
     }
 
     private var connections: [String: Connection] = [:]
@@ -60,23 +84,38 @@ actor AppConnectionManager {
     ///
     /// - Parameter readyTimeoutMs: For Electron apps, how long to wait for Chromium
     ///   to build its accessibility tree after enabling it (default 3000ms).
-    func connect(name: String?, pid: Int?, readyTimeoutMs: Int? = nil) async throws -> Connection {
-        let resolvedPid: pid_t
+    func connect(name: String?, pid: Int?, readyTimeoutMs: Int? = nil) async throws -> ConnectResult {
+        let runningApp: NSRunningApplication
+        let resolution: Resolution
 
         if let pid {
-            resolvedPid = pid_t(pid)
+            guard let app = NSRunningApplication(processIdentifier: pid_t(pid)) else {
+                throw RPCError.appNotFound("No running app with PID \(pid)")
+            }
+            runningApp = app
+            resolution = Resolution(
+                requestedName: nil,
+                matchKind: .pid,
+                matchedValue: String(pid)
+            )
         } else if let name {
-            guard let app = findApp(byName: name) else {
+            guard let match = findApp(byName: name) else {
                 throw RPCError.appNotFound("No running app matching \"\(name)\"")
             }
-            resolvedPid = app.processIdentifier
+            runningApp = match.app
+            resolution = Resolution(
+                requestedName: name,
+                matchKind: match.kind,
+                matchedValue: match.value
+            )
         } else {
             throw RPCError.invalidParams("Must provide 'name' or 'pid'")
         }
+        let resolvedPid = runningApp.processIdentifier
 
         // Check if already connected
         if let existing = connections.values.first(where: { $0.pid == resolvedPid }) {
-            return existing
+            return ConnectResult(connection: existing, resolution: resolution)
         }
 
         let appElement = AXUIElementCreateApplication(resolvedPid)
@@ -99,27 +138,34 @@ actor AppConnectionManager {
         // technology client is detected. Setting AXManualAccessibility tells it to build
         // the full tree for third-party AT tools. It's a no-op on apps that don't
         // recognise the attribute, so we also send it for `.unknown` runtimes.
+        var manualAccessibilityStatus = "not_attempted"
+        var webContentReadiness: WebContentReadiness?
         if runtime != .native {
-            enableManualAccessibility(appElement)
-            await waitForWebContent(
+            let manualResult = enableManualAccessibility(appElement)
+            manualAccessibilityStatus = manualResult == .success
+                ? "accepted"
+                : "rejected_\(manualResult.rawValue)"
+            webContentReadiness = await waitForWebContent(
                 SendableElement(appElement),
                 timeout: TimeInterval(readyTimeoutMs ?? 3000) / 1000.0
             )
         }
 
-        let runningApp = NSRunningApplication(processIdentifier: resolvedPid)
         let handleId = await handleTable.store(SendableElement(appElement), pid: resolvedPid)
 
         let connection = Connection(
             pid: resolvedPid,
             appElement: SendableElement(appElement),
-            bundleId: runningApp?.bundleIdentifier,
-            appName: runningApp?.localizedName,
+            bundleId: runningApp.bundleIdentifier,
+            appName: runningApp.localizedName,
+            aliases: appAliases(runningApp),
             handleId: handleId,
-            runtime: runtime
+            runtime: runtime,
+            manualAccessibilityStatus: manualAccessibilityStatus,
+            webContentReadiness: webContentReadiness
         )
         connections[handleId] = connection
-        return connection
+        return ConnectResult(connection: connection, resolution: resolution)
     }
 
     /// Get a connection by handle ID.
@@ -154,20 +200,47 @@ actor AppConnectionManager {
         }
     }
 
-    private nonisolated func findApp(byName name: String) -> NSRunningApplication? {
+    private struct AppMatch {
+        let app: NSRunningApplication
+        let kind: MatchKind
+        let value: String
+    }
+
+    private nonisolated func findApp(byName name: String) -> AppMatch? {
         let apps = NSWorkspace.shared.runningApplications
             .filter { $0.activationPolicy == .regular }
 
         let lowered = name.lowercased()
 
         if let exact = apps.first(where: { $0.localizedName?.lowercased() == lowered }) {
-            return exact
+            return AppMatch(app: exact, kind: .exactName, value: exact.localizedName ?? name)
+        }
+        for app in apps {
+            if let alias = appAliases(app).first(where: { $0.lowercased() == lowered }) {
+                return AppMatch(app: app, kind: .declaredAlias, value: alias)
+            }
+        }
+        if let bundle = apps.first(where: { $0.bundleIdentifier?.lowercased() == lowered }) {
+            return AppMatch(
+                app: bundle,
+                kind: .bundleIdentifier,
+                value: bundle.bundleIdentifier ?? name
+            )
         }
         if let partial = apps.first(where: { $0.localizedName?.lowercased().contains(lowered) == true }) {
-            return partial
+            return AppMatch(app: partial, kind: .partialName, value: partial.localizedName ?? name)
+        }
+        for app in apps {
+            if let alias = appAliases(app).first(where: { $0.lowercased().contains(lowered) }) {
+                return AppMatch(app: app, kind: .partialAlias, value: alias)
+            }
         }
         if let bundle = apps.first(where: { $0.bundleIdentifier?.lowercased().contains(lowered) == true }) {
-            return bundle
+            return AppMatch(
+                app: bundle,
+                kind: .partialBundleIdentifier,
+                value: bundle.bundleIdentifier ?? name
+            )
         }
         return nil
     }

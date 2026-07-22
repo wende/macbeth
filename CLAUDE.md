@@ -83,6 +83,11 @@ do NOT set `AXEnhancedUserInterface` — it causes window resize/reposition bugs
 `Connection.runtime` (native/electron/unknown) is computed once at connect and read by the
 action methods.
 
+Runtime detection recognises both stock Electron bundles and branded distributions that
+rename `Electron Framework.framework` but retain `ElectronAsarIntegrity` metadata. App
+resolution also reads `CFBundleAlternateNames`, so a declared product alias is reported
+explicitly rather than looking like an unexplained fuzzy bundle-id match.
+
 **Action strategies** (both default to `"auto"`, plumbed through `protocol/schema.ts`, the TS
 `Locator`, and the MCP tools):
 
@@ -110,7 +115,9 @@ returns a flat structure with 3-5 nodes, and `read_form` finds zero controls. Th
 is a host app limitation, not a macbeth bug.
 
 For these apps, the primary interaction model is:
-- **Menus**: `select_menu_item` / `list_menu_bar` (deterministic, fast)
+- **Menus**: `select_menu_item` uses AX directly (deterministic, bounded, no System
+  Events). `query_tree` already includes menus; use `list_menu_bar` only for a compact
+  menu-only view.
 - **OCR**: `extract_text` via Vision framework bridges the AX gap — extracts on-screen
   labels, values, and field names from screenshots
 - **Screenshots**: `screenshot` with optional `region` crop for visual confirmation
@@ -124,6 +131,9 @@ Xcode, TextEdit, etc.) where controls expose `AXValue`, `AXTitleUIElement`, and
 RPC errors use codes -32000 to -32009. AppleScript/JXA errors are classified by OSA
 error number: -1728 → `menuItemNotFound`, -1719 → `menuItemDisabled`, -600/-609 →
 `appBusy`. The MCP layer formats these as `[error_kind]: message` for agent readability.
+Scripts run in an isolated `osascript` process with a daemon-enforced deadline, so a
+blocked Apple Event is terminated instead of occupying the daemon until the generic RPC
+timeout. OSA -1743/-10004 maps to `permissionDenied`; -1712 maps to `timeout`.
 
 ### Handle lifecycle
 

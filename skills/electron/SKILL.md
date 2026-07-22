@@ -18,7 +18,9 @@ connect_app({ "name": "Slack" })
 ```
 
 On connect, macbeth enables Chromium's accessibility tree (`AXManualAccessibility`) and
-waits for the web content to build. `list_apps` reports these apps with `runtime: electron`.
+waits for the web content to expose descendants. Branded Electron distributions are
+recognised even when they rename the Electron framework. `list_apps` reports these apps
+with `runtime: electron` and includes declared aliases and bundle IDs.
 
 ### Expect a readiness delay
 
@@ -88,8 +90,10 @@ click({ "app": "Figma", "query": [{ "role": "web_area" }, { "role": "button", "t
 
 ## Gotchas
 
-1. **Empty first tree** — if `query_tree` returns just the window with no `web_area`, the
-   tree is still building. Wait ~500ms and retry, or reconnect with a larger `readyTimeoutMs`.
+1. **Empty first tree** — if `query_tree` returns just the window with no `web_area`, or a
+   `degraded_accessibility` warning says the web area has no descendants, the tree may
+   still be building. Wait ~500ms and retry, or reconnect with a larger `readyTimeoutMs`.
+   If it remains degraded, follow the returned screenshot/OCR/menu/keyboard fallback.
 2. **Stale handles** — Electron re-renders can invalidate element handles quickly. Prefer
    query-based locators (they re-resolve automatically) over holding raw `h_N` handles from
    `query_tree`. If an action fails with a "stale-element" error, re-run `query_tree`.
