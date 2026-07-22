@@ -461,7 +461,7 @@ export default function Demo() {
             <a
               href="https://github.com/wende/macbeth#quickstart"
               target="_blank"
-              rel="noreferrer"
+              rel="noopener noreferrer"
               className="font-medium text-[#61202f] underline decoration-[#d9c3ca] underline-offset-2 hover:decoration-[#61202f]"
             >
               Try the Finder smoke test

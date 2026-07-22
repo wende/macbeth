@@ -40,7 +40,7 @@ export default function Cta() {
             <a
               href="https://github.com/wende/macbeth"
               target="_blank"
-              rel="noreferrer"
+              rel="noopener noreferrer"
               className="flex items-center gap-2.5 rounded-xl border border-white/20 px-5 py-3 text-[14px] font-semibold text-white transition-colors hover:bg-white/10"
             >
               <Github size={16} />

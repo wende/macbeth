@@ -45,7 +45,7 @@ export default function Hero() {
         </p>
 
         <div className="mb-6 flex flex-wrap items-center justify-center gap-2 text-[11px] font-semibold text-[#61202f]">
-          <a href="https://www.npmjs.com/package/macbeth" target="_blank" rel="noreferrer" className="rounded-full border border-[#d9c3ca] bg-white px-3 py-1">npm package</a>
+          <a href="https://www.npmjs.com/package/macbeth" target="_blank" rel="noopener noreferrer" className="rounded-full border border-[#d9c3ca] bg-white px-3 py-1">npm package</a>
           <span className="rounded-full border border-[#d9c3ca] bg-white px-3 py-1">MIT</span>
           <span className="rounded-full border border-[#d9c3ca] bg-white px-3 py-1">macOS 14+</span>
           <span className="rounded-full border border-[#d9c3ca] bg-white px-3 py-1">MCP server</span>

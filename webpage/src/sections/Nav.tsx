@@ -47,7 +47,7 @@ export default function Nav() {
           <a
             href="https://github.com/wende/macbeth#quickstart"
             target="_blank"
-            rel="noreferrer"
+            rel="noopener noreferrer"
             className="hidden items-center gap-2 rounded-lg border border-[#ece6ee] bg-white px-3 py-1.5 font-mono text-[12px] text-[#1a1520] transition-colors hover:border-[#d9c3ca] hover:bg-[#fbfafc] sm:flex"
           >
             Agent quickstart
@@ -55,7 +55,7 @@ export default function Nav() {
           <a
             href="https://github.com/wende/macbeth"
             target="_blank"
-            rel="noreferrer"
+            rel="noopener noreferrer"
             className="flex items-center gap-2 rounded-lg bg-[#61202f] px-3.5 py-1.5 text-[13px] font-semibold text-white shadow-[0_6px_16px_-6px_rgba(97,32,47,0.5)] transition-all hover:bg-[#4d1926]"
           >
             <Github size={15} />
