@@ -1,4 +1,5 @@
 import ApplicationServices
+import AppKit
 import CoreGraphics
 import Foundation
 
@@ -12,8 +13,7 @@ func checkAccessibilityPermissions(prompt: Bool = false) -> Bool {
     return AXIsProcessTrustedWithOptions(options)
 }
 
-/// Check Screen Recording permission using CGPreflightScreenCaptureAccess.
-/// Does NOT trigger the interactive permission prompt.
+/// Check Screen Recording permission without triggering a prompt.
 func checkScreenRecordingPermission() -> Bool {
     return CGPreflightScreenCaptureAccess()
 }
@@ -66,4 +66,51 @@ func runPermissionsCheck() -> Never {
     // test — it just disables the screenshot RPC.
     if ax { exit(0) }
     exit(1)
+}
+
+/// Open System Settings to the Screen Recording privacy pane.
+@discardableResult
+func openScreenRecordingSettings() -> Bool {
+    guard let url = URL(
+        string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"
+    ) else {
+        return false
+    }
+    return NSWorkspace.shared.open(url)
+}
+
+/// Classify a ScreenCaptureKit content-enumeration failure. Permission failures
+/// receive actionable, on-demand guidance; unrelated failures retain the
+/// underlying system error instead of being mislabeled as permission problems.
+func screenCaptureContentError(_ error: Error) -> RPCError {
+    let permissionGranted = checkScreenRecordingPermission()
+    let settingsOpened = permissionGranted ? false : openScreenRecordingSettings()
+    return screenCaptureContentError(
+        error,
+        permissionGranted: permissionGranted,
+        settingsOpened: settingsOpened
+    )
+}
+
+/// Pure overload used by tests and by the environment-aware wrapper above.
+func screenCaptureContentError(
+    _ error: Error,
+    permissionGranted: Bool,
+    settingsOpened: Bool
+) -> RPCError {
+    if permissionGranted {
+        return .actionFailed(
+            "Failed to access capturable windows: \(error.localizedDescription)"
+        )
+    }
+
+    let settingsStep = settingsOpened
+        ? "System Settings was opened to Privacy & Security → Screen Recording."
+        : "Open System Settings → Privacy & Security → Screen Recording."
+    return .permissionDenied(
+        "Screen Recording permission is required for screenshots and window OCR. "
+            + "\(settingsStep) Grant access to the app that launched Macbeth "
+            + "(for terminal-based clients, Terminal or iTerm), fully quit and "
+            + "relaunch that app, then retry."
+    )
 }
