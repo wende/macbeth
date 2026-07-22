@@ -71,6 +71,27 @@ jobs:
           npm --prefix client run build
           npm --prefix client test
 
+      - name: Install verified MCP Registry publisher
+        run: |
+          case "$(uname -m)" in
+            arm64) PUBLISHER_ARCH="arm64" ;;
+            x86_64) PUBLISHER_ARCH="amd64" ;;
+            *) echo "Unsupported runner architecture: $(uname -m)" >&2; exit 1 ;;
+          esac
+
+          PUBLISHER_ARCHIVE="mcp-publisher_darwin_${PUBLISHER_ARCH}.tar.gz"
+          PUBLISHER_BASE_URL="https://github.com/modelcontextprotocol/registry/releases/download/v${MCP_PUBLISHER_VERSION}"
+          curl -fsSLO "$PUBLISHER_BASE_URL/$PUBLISHER_ARCHIVE"
+          curl -fsSLO "$PUBLISHER_BASE_URL/registry_${MCP_PUBLISHER_VERSION}_checksums.txt"
+          awk -v asset="$PUBLISHER_ARCHIVE" '$2 == asset { print }' \
+            "registry_${MCP_PUBLISHER_VERSION}_checksums.txt" \
+            > mcp-publisher-checksum.txt
+          test "$(wc -l < mcp-publisher-checksum.txt | tr -d ' ')" = "1"
+          shasum -a 256 -c mcp-publisher-checksum.txt
+          tar -xzf "$PUBLISHER_ARCHIVE" mcp-publisher
+          ./mcp-publisher --help
+          ./mcp-publisher validate server.json
+
       - name: Import Developer ID certificate
         env:
           MACOS_CERTIFICATE_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
@@ -212,26 +233,22 @@ jobs:
           echo "npm Registry did not expose the expected verification metadata" >&2
           exit 1
 
-      - name: Install verified MCP Registry publisher
+      - name: Verify Registry icon is reachable
         run: |
-          case "$(uname -m)" in
-            arm64) PUBLISHER_ARCH="arm64" ;;
-            x86_64) PUBLISHER_ARCH="amd64" ;;
-            *) echo "Unsupported runner architecture: $(uname -m)" >&2; exit 1 ;;
-          esac
-
-          PUBLISHER_ARCHIVE="mcp-publisher_darwin_${PUBLISHER_ARCH}.tar.gz"
-          PUBLISHER_BASE_URL="https://github.com/modelcontextprotocol/registry/releases/download/v${MCP_PUBLISHER_VERSION}"
-          curl -fsSLO "$PUBLISHER_BASE_URL/$PUBLISHER_ARCHIVE"
-          curl -fsSLO "$PUBLISHER_BASE_URL/registry_${MCP_PUBLISHER_VERSION}_checksums.txt"
-          awk -v asset="$PUBLISHER_ARCHIVE" '$2 == asset { print }' \
-            "registry_${MCP_PUBLISHER_VERSION}_checksums.txt" \
-            > mcp-publisher-checksum.txt
-          test "$(wc -l < mcp-publisher-checksum.txt | tr -d ' ')" = "1"
-          shasum -a 256 -c mcp-publisher-checksum.txt
-          tar -xzf "$PUBLISHER_ARCHIVE" mcp-publisher
-          ./mcp-publisher --help
-          ./mcp-publisher validate server.json
+          ICON_URL="$(node -p 'require("./server.json").icons[0].src')"
+          for attempt in $(seq 1 5); do
+            read -r HTTP_STATUS CONTENT_TYPE <<< "$(
+              curl -sSL -o /dev/null -w '%{http_code} %{content_type}' "$ICON_URL"
+            )"
+            if test "$HTTP_STATUS" = "200" && test "${CONTENT_TYPE%%;*}" = "image/png"; then
+              echo "Registry icon is served from $ICON_URL"
+              exit 0
+            fi
+            echo "Waiting for the icon on main (attempt $attempt/5): HTTP $HTTP_STATUS $CONTENT_TYPE"
+            sleep 10
+          done
+          echo "Registry icon $ICON_URL is not served as image/png" >&2
+          exit 1
 
       - name: Publish MCP Registry metadata
         run: |

@@ -3,7 +3,14 @@
   "name": "io.github.wende/macbeth",
   "title": "Macbeth",
   "description": "Open-source computer use for macOS agents.",
-  "websiteUrl": "https://github.com/wende/macbeth",
+  "websiteUrl": "https://wende.github.io/macbeth/",
+  "icons": [
+    {
+      "src": "https://raw.githubusercontent.com/wende/macbeth/main/assets/macbeth-marketplace-icon.png",
+      "mimeType": "image/png",
+      "sizes": ["400x400"]
+    }
+  ],
   "repository": {
     "url": "https://github.com/wende/macbeth",
     "source": "github",

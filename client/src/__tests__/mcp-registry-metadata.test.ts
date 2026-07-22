@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
@@ -17,6 +17,12 @@ interface ServerJson {
   title?: string;
   description: string;
   version: string;
+  websiteUrl?: string;
+  icons?: Array<{
+    src?: string;
+    mimeType?: string;
+    sizes?: string[];
+  }>;
   repository?: {
     url?: string;
     source?: string;
@@ -73,6 +79,23 @@ describe("Official MCP Registry metadata", () => {
     });
     expect(serverJson.remotes).toBeUndefined();
     expect(serverJson.packages?.[0].environmentVariables).toBeUndefined();
+  });
+
+  it("points directories at the branch icon and the documentation site", () => {
+    expect(serverJson.websiteUrl).toBe("https://wende.github.io/macbeth/");
+    expect(serverJson.icons).toHaveLength(1);
+    const icon = serverJson.icons?.[0];
+    // Tracks main so a version bump never has to touch this URL; the trade-off
+    // is that replacing the asset on main changes the icon for every release.
+    expect(icon?.src).toBe(
+      "https://raw.githubusercontent.com/wende/macbeth/main/assets/macbeth-marketplace-icon.png"
+    );
+    expect(icon?.mimeType).toBe("image/png");
+    expect(icon?.sizes).toEqual(["400x400"]);
+    expect(icon?.src?.length).toBeLessThanOrEqual(255);
+    expect(
+      existsSync(fileURLToPath(new URL("../../../assets/macbeth-marketplace-icon.png", import.meta.url)))
+    ).toBe(true);
   });
 
   it("matches the package's documented platform and license requirements", () => {
