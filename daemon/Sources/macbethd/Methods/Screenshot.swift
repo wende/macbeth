@@ -54,20 +54,25 @@ func registerScreenshot(
             config.showsCursor = false
 
             var image: CGImage
-            let showGlow = ElementGeometry.isFrontmostWindow(
+            // Outline/activity stay frontmost-only (honest chrome). The capture
+            // scan/snap always runs so demos and external recordings still show
+            // which window is being captured when a recorder holds frontmost.
+            let isFrontmost = ElementGeometry.isFrontmostWindow(
                 pid: conn.pid,
                 windowNumber: Int(targetWindow.windowID)
             )
-            if showGlow { await glow.activityStarted() }
+            if isFrontmost { await glow.activityStarted() }
             defer {
-                if showGlow { Task { await glow.activityEnded() } }
+                if isFrontmost { Task { await glow.activityEnded() } }
             }
             let windowID = ElementGeometry.windowIdentity(
                 pid: conn.pid, windowNumber: Int(targetWindow.windowID)
             )
-            let captureAnimation = showGlow
-                ? await glow.captureStarted(windowID: windowID, frame: targetWindow.frame)
-                : nil
+            let captureAnimation = await glow.captureStarted(
+                windowID: windowID,
+                frame: targetWindow.frame,
+                presentOutline: isFrontmost
+            )
             do {
                 // Keep the scanning phase alive for one complete top-to-bottom
                 // pass. The helper is excluded by the desktop-independent

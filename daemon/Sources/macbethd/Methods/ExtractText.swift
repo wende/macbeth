@@ -5,6 +5,10 @@ import CoreGraphics
 import Vision
 import GlowProtocol
 
+/// Longest image side (pixels) fed to Vision. Full Retina windows are far larger
+/// than UI OCR needs; capping keeps recognition under a few seconds.
+let ocrMaxDimension = 1600
+
 func registerExtractText(
     dispatcher: Dispatcher,
     appManager: AppConnectionManager,
@@ -45,19 +49,17 @@ func registerExtractText(
 
                 let filter = SCContentFilter(desktopIndependentWindow: targetWindow)
                 let config = SCStreamConfiguration()
-                // extract_text is the fallback bridge for AX-opaque apps (Unity,
-                // Electron IDEs), where the targets are small panel labels. Capture
-                // at the window's actual native pixel resolution so Vision has the
-                // most detail to work with. `pointPixelScale` is the backing scale
-                // factor of the display the window is on (2 on Retina, 1 on a
-                // standard external monitor); hardcoding 2x renders the window into
-                // only the top-left quarter of an oversized buffer on 1x displays.
+                // Capture at the window's native pixel size, then downscale for
+                // Vision below. Region crops stay in native pixels so coordinates
+                // match screenshots.
                 let pixelScale = CGFloat(filter.pointPixelScale)
                 config.width = max(1, Int((filter.contentRect.width * pixelScale).rounded()))
                 config.height = max(1, Int((filter.contentRect.height * pixelScale).rounded()))
                 config.showsCursor = false
 
                 var captured: CGImage
+                // OCR only needs the activity ring — the ~1s capture-scan presentation
+                // delay is for screenshot aesthetics and would dominate latency here.
                 let showGlow = ElementGeometry.isFrontmostWindow(
                     pid: conn.pid,
                     windowNumber: Int(targetWindow.windowID)
@@ -66,20 +68,9 @@ func registerExtractText(
                 defer {
                     if showGlow { Task { await glow.activityEnded() } }
                 }
-                let windowID = ElementGeometry.windowIdentity(
-                    pid: conn.pid, windowNumber: Int(targetWindow.windowID)
-                )
-                let captureAnimation = showGlow
-                    ? await glow.captureStarted(windowID: windowID, frame: targetWindow.frame)
-                    : nil
                 do {
-                    if captureAnimation != nil {
-                        try? await Task.sleep(for: .seconds(glowCapturePresentationDuration))
-                    }
                     captured = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
-                    await glow.captureFinished(id: captureAnimation, success: true)
                 } catch {
-                    await glow.captureFinished(id: captureAnimation, success: false)
                     throw RPCError.actionFailed("Screenshot capture failed: \(error.localizedDescription)")
                 }
 
@@ -126,23 +117,57 @@ struct TextItem {
     let bbox: CGRect
 }
 
+/// Downscale `image` so its longest side is at most `maxDimension`. Returns the
+/// original image when already small enough or when scaling fails.
+func imageForOCR(_ image: CGImage, maxDimension: Int = ocrMaxDimension) -> CGImage {
+    let longest = max(image.width, image.height)
+    guard longest > maxDimension, maxDimension > 0 else { return image }
+
+    let scale = CGFloat(maxDimension) / CGFloat(longest)
+    let width = max(1, Int((CGFloat(image.width) * scale).rounded()))
+    let height = max(1, Int((CGFloat(image.height) * scale).rounded()))
+
+    let colorSpace = image.colorSpace ?? CGColorSpaceCreateDeviceRGB()
+    let bitmapInfo = CGImageAlphaInfo.premultipliedLast.rawValue
+    guard let context = CGContext(
+        data: nil,
+        width: width,
+        height: height,
+        bitsPerComponent: 8,
+        bytesPerRow: 0,
+        space: colorSpace,
+        bitmapInfo: bitmapInfo
+    ) else {
+        return image
+    }
+    context.interpolationQuality = .high
+    context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+    return context.makeImage() ?? image
+}
+
 func recognizeText(in image: CGImage) async throws -> [TextItem] {
     // Vision rejects images whose dimensions are not both greater than two.
     // Such an image cannot contain useful text, so return the documented empty
     // OCR result instead of asking Vision to fail it.
     guard image.width > 2, image.height > 2 else { return [] }
 
+    // Feed Vision a capped-resolution copy. Bounding boxes from Vision are
+    // normalized 0…1, so we still map them into the *original* image's pixel
+    // space for stable coordinates vs screenshots.
+    let ocrImage = imageForOCR(image)
+
     // VNImageRequestHandler.perform is synchronous. A completion-handler request
     // wrapped in a checked continuation is unsafe here: on some Vision failures,
     // perform both invokes the completion handler and throws, which resumes the
     // continuation twice and crashes the entire daemon.
     let request = VNRecognizeTextRequest()
-    // This is a fallback path for apps AX cannot read, so favor accuracy: use
-    // Vision's accurate recognizer with language correction.
-    request.recognitionLevel = .accurate
-    request.usesLanguageCorrection = true
+    // Prefer latency over maximum accuracy. UI labels and panel text are clear
+    // enough for the fast recognizer; `.accurate` + language correction routinely
+    // multi-second (and cold-start can hit tens of seconds) on full windows.
+    request.recognitionLevel = .fast
+    request.usesLanguageCorrection = false
 
-    let handler = VNImageRequestHandler(cgImage: image, options: [:])
+    let handler = VNImageRequestHandler(cgImage: ocrImage, options: [:])
     do {
         try handler.perform([request])
     } catch {

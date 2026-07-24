@@ -6,6 +6,7 @@
  * 1. After the MCP tool returns, the fixture app must not be frontmost.
  * 2. While the fixture is backgrounded, macbeth-glow must not draw a target
  *    outline (outline is only for the system-wide focused frontmost window).
+ *    Screenshot may still show a capture scan/snap overlay; that is intentional.
  *
  * Some actions currently steal focus (keyboard synthesis, press_key, Electron
  * keyboard fill). Those cases are expected to fail until the daemon stops
@@ -51,9 +52,13 @@ type McpClient = {
 type McpTransport = { close: () => Promise<void> };
 
 type GlowOutlineSnapshot = {
+  /** Navigation outline windows (frontmost-only chrome). */
   outlines: number;
+  /** Capture scan/snap windows (allowed during background screenshots). */
+  captures: number;
   windows: Array<{
     owner: string;
+    kind?: string;
     pid: number;
     layer: number;
     width: number;
@@ -197,7 +202,7 @@ suite("MCP demo steps must not leave the fixture frontmost", () => {
     await waitForNoGlowOutline();
 
     let peakOutlines = 0;
-    let peakSnapshot: GlowOutlineSnapshot = { outlines: 0, windows: [] };
+    let peakSnapshot: GlowOutlineSnapshot = { outlines: 0, captures: 0, windows: [] };
     let sampling = true;
     const sample = () => {
       const snapshot = listGlowOutlines();

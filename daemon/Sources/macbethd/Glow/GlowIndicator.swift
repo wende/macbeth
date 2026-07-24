@@ -113,14 +113,25 @@ actor GlowIndicator {
         activityEnded()
     }
 
-    /// Start a window-local capture animation. Returns nil when the best-effort
+    /// Start a window-local capture scan/snap. Returns nil when the best-effort
     /// helper is unavailable so callers can capture immediately.
-    func captureStarted(windowID: String, frame: CGRect) -> String? {
+    ///
+    /// The scan is shown even when the target is backgrounded — recordings and
+    /// demos need to see which window is being captured while a recorder or
+    /// terminal holds frontmost. Pass `presentOutline: true` only when the
+    /// target is system-frontmost so background captures stay outline-quiet.
+    func captureStarted(
+        windowID: String,
+        frame: CGRect,
+        presentOutline: Bool = false
+    ) -> String? {
         guard !disabled else { return nil }
         ensureRunning()
         guard !disabled else { return nil }
 
-        windowFocused(id: windowID, frame: frame)
+        if presentOutline {
+            windowFocused(id: windowID, frame: frame)
+        }
         let id = UUID().uuidString
         let rect = captureRect(frame)
         send(.captureStarted(id: id, rect: rect))
