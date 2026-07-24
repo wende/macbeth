@@ -17,6 +17,7 @@ dist/
 client/bin/macbethd
 client/bin/macbeth-glow
 client/*.tgz
+graphify-out/
 
 # OS
 .DS_Store
