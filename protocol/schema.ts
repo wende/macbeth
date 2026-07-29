@@ -100,6 +100,32 @@ export interface ConnectAppResult {
   webContentReadiness: "ready" | "empty_web_area" | "no_web_area" | null;
 }
 
+// list_windows
+export interface ListWindowsParams {
+  appHandle: string;
+}
+
+export type WindowKind = "window" | "bookkeeping" | "menu_bar" | "overlay";
+
+export interface AppWindowInfo {
+  windowId: number;
+  ownerPid: number | null;
+  ownerName: string | null;
+  bundleId: string | null;
+  title: string | null;
+  frame: { x: number; y: number; width: number; height: number };
+  layer: number;
+  onScreen: boolean;
+  active: boolean;
+  capturable: boolean;
+  kind: WindowKind;
+  default: boolean;
+}
+
+export interface ListWindowsResult {
+  windows: AppWindowInfo[];
+}
+
 // query_tree
 export interface QueryTreeParams {
   appHandle: string;
@@ -231,7 +257,8 @@ export interface PressKeysParams {
 // screenshot
 export interface ScreenshotParams {
   appHandle: string;
-  windowHandle?: string;
+  /** WindowServer ID from list_windows. Omitting uses the default visible window. */
+  windowId?: number;
   region?: { x: number; y: number; width: number; height: number };
 }
 
@@ -272,6 +299,8 @@ export interface ReadFormResult {
 export interface ExtractTextParams {
   appHandle?: string;
   data?: string; // base64 PNG
+  /** WindowServer ID from list_windows. Omitting uses the default visible window. */
+  windowId?: number;
   region?: { x: number; y: number; width: number; height: number };
 }
 

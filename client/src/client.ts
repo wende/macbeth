@@ -18,6 +18,7 @@ import type {
   AppMatchKind,
   QueryTreeDetailedResult,
   TreeDiagnostics,
+  AppWindowInfo,
 } from "./types.js";
 
 /**
@@ -99,19 +100,29 @@ export class AppHandle extends Locator {
     };
   }
 
+  /** List WindowServer surfaces owned by the app or its helper processes. */
+  async listWindows(): Promise<AppWindowInfo[]> {
+    const result = await this.rpc.call<{ windows: AppWindowInfo[] }>("list_windows", {
+      appHandle: this.appHandle,
+    });
+    return result.windows;
+  }
+
   /** Capture a screenshot of the app window, optionally cropped to a region */
-  async screenshot(options?: { region?: { x: number; y: number; width: number; height: number } }): Promise<Buffer> {
+  async screenshot(options?: { windowId?: number; region?: { x: number; y: number; width: number; height: number } }): Promise<Buffer> {
     const result = await this.rpc.call<ScreenshotResult>("screenshot", {
       appHandle: this.appHandle,
+      ...(options?.windowId !== undefined ? { windowId: options.windowId } : {}),
       ...(options?.region ? { region: options.region } : {}),
     });
     return Buffer.from(result.data, "base64");
   }
 
   /** Capture a screenshot and return the raw RPC result (base64 + dimensions) */
-  async screenshotRaw(options?: { region?: { x: number; y: number; width: number; height: number } }): Promise<ScreenshotResult> {
+  async screenshotRaw(options?: { windowId?: number; region?: { x: number; y: number; width: number; height: number } }): Promise<ScreenshotResult> {
     return this.rpc.call<ScreenshotResult>("screenshot", {
       appHandle: this.appHandle,
+      ...(options?.windowId !== undefined ? { windowId: options.windowId } : {}),
       ...(options?.region ? { region: options.region } : {}),
     });
   }
@@ -341,6 +352,7 @@ export class MacbethClient {
   async extractText(params: {
     appHandle?: string;
     data?: string;
+    windowId?: number;
     region?: { x: number; y: number; width: number; height: number };
   }): Promise<{ items: Array<{ text: string; confidence: number; bbox: { x: number; y: number; w: number; h: number } }> }> {
     await this.ensureConnected();

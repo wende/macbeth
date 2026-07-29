@@ -22,12 +22,14 @@ describe("runScreenshotTool", () => {
       { connect, save },
       {
         app: "Finder",
+        windowId: 99,
         region: { x: 1, y: 2, width: 3, height: 4 },
       }
     );
 
     expect(connect).toHaveBeenCalledWith("Finder");
     expect(screenshotRaw).toHaveBeenCalledWith({
+      windowId: 99,
       region: { x: 1, y: 2, width: 3, height: 4 },
     });
     expect(save).toHaveBeenCalledWith({

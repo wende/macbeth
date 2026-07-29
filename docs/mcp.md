@@ -74,6 +74,7 @@ npx macbeth update --check  # report only
 | `begin_activity` / `end_activity` | Bracket external computer-control work with the interaction glow |
 | `list_apps` | List running macOS apps |
 | `connect_app` | Connect to an app by name or PID |
+| `list_windows` | List app and helper process windows across macOS Spaces without activating them |
 | `query_tree` | Accessibility tree as text or JSON, including menus and web-content readiness diagnostics |
 | `get_element` | Find an element by query or handle |
 | `dump_attributes` | Dump all AX attributes for a handle |
@@ -83,8 +84,8 @@ npx macbeth update --check  # report only
 | `wait_for` | Wait for existence, value, change, or enabled state |
 | `press_key` | Activate target app, send keyboard input |
 | `press_keys` | Activate target app, send a key sequence |
-| `screenshot` | Window capture with focus/scan/snap animation |
-| `extract_text` | OCR a window or supplied PNG |
+| `screenshot` | Capture the default visible window or a window selected by `list_windows` ID |
+| `extract_text` | OCR the default visible window, a selected window ID, or a supplied PNG |
 | `pin_handle` / `unpin_handle` | Control element-handle expiry |
 | `list_menu_bar` / `select_menu_item` | Compactly inspect and select native menu items through AX; `query_tree` usually makes the list call unnecessary |
 | `run_applescript` | AppleScript or JXA (interactive or read-only) |

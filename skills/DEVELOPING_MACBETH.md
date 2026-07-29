@@ -176,9 +176,19 @@ Keyboard delivery activates the target app. Background-safe text entry: use `fil
 ```ts
 const png = await app.screenshot(); // Buffer
 await fs.writeFile("capture.png", png);
+
+const windows = await app.listWindows();
+const settings = windows.find((window) => window.title === "Settings");
+if (settings?.capturable) {
+  const settingsPng = await app.screenshot({ windowId: settings.windowId });
+  await fs.writeFile("settings.png", settingsPng);
+}
 ```
 
-ScreenCaptureKit window capture. Screen Recording permission prompted on first use.
+`listWindows()` includes windows hosted by app helper processes and windows on
+other macOS Spaces. Listing is read-only and does not activate windows or switch
+Spaces. ScreenCaptureKit may return blank content for some off-Space app
+windows. Screen Recording permission is prompted on first capture.
 
 ## Listing apps
 

@@ -35,16 +35,24 @@ func registerExtractText(
                     throw RPCError.appNotFound("Invalid app handle: \(appHandle)")
                 }
 
+                let selectedWindowID = obj["windowId"]?.intValue
                 let content: SCShareableContent
                 do {
-                    content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+                    content = try await SCShareableContent.excludingDesktopWindows(
+                        false,
+                        onScreenWindowsOnly: selectedWindowID == nil
+                    )
                 } catch {
                     throw screenCaptureContentError(error)
                 }
 
-                let appWindows = content.windows.filter { $0.owningApplication?.processID == conn.pid }
-                guard let targetWindow = appWindows.first else {
-                    throw RPCError.elementNotFound("No visible windows for app")
+                let targetWindow: SCWindow
+                if let selectedWindowID {
+                    targetWindow = try resolveSelectedWindow(
+                        in: content, ownedBy: conn.pid, windowID: selectedWindowID)
+                } else {
+                    targetWindow = try resolveDefaultWindow(
+                        in: content, ownedBy: conn.pid)
                 }
 
                 let filter = SCContentFilter(desktopIndependentWindow: targetWindow)
@@ -61,7 +69,7 @@ func registerExtractText(
                 // OCR only needs the activity ring — the ~1s capture-scan presentation
                 // delay is for screenshot aesthetics and would dominate latency here.
                 let showGlow = ElementGeometry.isFrontmostWindow(
-                    pid: conn.pid,
+                    pid: targetWindow.owningApplication?.processID ?? conn.pid,
                     windowNumber: Int(targetWindow.windowID)
                 )
                 if showGlow { await glow.activityStarted() }

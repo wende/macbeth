@@ -41,6 +41,21 @@ export interface QueryTreeDetailedResult {
   diagnostics: TreeDiagnostics;
 }
 
+export interface AppWindowInfo {
+  windowId: number;
+  ownerPid: number | null;
+  ownerName: string | null;
+  bundleId: string | null;
+  title: string | null;
+  frame: { x: number; y: number; width: number; height: number };
+  layer: number;
+  onScreen: boolean;
+  active: boolean;
+  capturable: boolean;
+  kind: "window" | "bookkeeping" | "menu_bar" | "overlay";
+  default: boolean;
+}
+
 export interface ConnectOptions {
   socketPath?: string;
   daemonPath?: string;
