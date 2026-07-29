@@ -2,7 +2,7 @@ name: OpenHands PR Review
 
 on:
   pull_request:
-    types: [labeled, review_requested]
+    types: [opened, reopened, ready_for_review, synchronize]
 
 permissions:
   contents: read
@@ -17,9 +17,8 @@ jobs:
   review:
     name: OpenHands Review
     if: >-
-      github.event.label.name == 'openhands-review' ||
-      github.event.requested_reviewer.login == 'openhands-agent' ||
-      github.event.requested_reviewer.login == 'all-hands-bot'
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-24.04
     timeout-minutes: 35
 
