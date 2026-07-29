@@ -11,6 +11,15 @@ function mockRpc(): JsonRpcClient {
   } as unknown as JsonRpcClient;
 }
 
+function mockRpcWithResult(result: unknown): JsonRpcClient {
+  return {
+    call: vi.fn().mockResolvedValue(result),
+    connect: vi.fn(),
+    close: vi.fn(),
+    connected: true,
+  } as unknown as JsonRpcClient;
+}
+
 describe("AppHandle", () => {
   it("pressKey sends a single key press", async () => {
     const rpc = mockRpc();
@@ -61,5 +70,58 @@ describe("AppHandle", () => {
         { key: "return" },
       ],
     });
+  });
+
+  it("lists and selects menu items through daemon RPCs", async () => {
+    const listRpc = mockRpcWithResult({ menu: "File\n  Save" });
+    const listApp = new AppHandle(listRpc, "h_0", { name: "Finder", pid: 1, bundleId: null });
+    await expect(listApp.listMenuBar()).resolves.toBe("File\n  Save");
+    expect(listRpc.call).toHaveBeenCalledWith("list_menu_bar", { appHandle: "h_0" });
+
+    const selectRpc = mockRpcWithResult({ selected: "File > Save" });
+    const selectApp = new AppHandle(selectRpc, "h_0", { name: "Finder", pid: 1, bundleId: null });
+    await expect(selectApp.selectMenuItem(["File", "Save"])).resolves.toBe("File > Save");
+    expect(selectRpc.call).toHaveBeenCalledWith("select_menu_item", {
+      appHandle: "h_0",
+      menuPath: ["File", "Save"],
+    });
+  });
+
+  it("returns query tree diagnostics without changing the string API", async () => {
+    const rpc = mockRpcWithResult({
+      tree: "[web_area \"Codex\"] h:h_1\n",
+      diagnostics: {
+        runtime: "electron",
+        webContent: "empty_web_area",
+        warning: "Web content is not inspectable.",
+      },
+    });
+    const app = new AppHandle(rpc, "h_0", {
+      name: "ChatGPT",
+      pid: 1,
+      bundleId: "com.openai.codex",
+      runtime: "electron",
+    });
+
+    await expect(app.queryTree()).resolves.toContain("web_area");
+    await expect(app.queryTreeDetailed()).resolves.toMatchObject({
+      diagnostics: { webContent: "empty_web_area" },
+    });
+  });
+
+  it("defaults query tree diagnostics when the daemon omits them", async () => {
+    const rpc = mockRpcWithResult({ tree: "[window \"Demo\"]\n" });
+    const app = new AppHandle(rpc, "h_0", {
+      name: "Demo",
+      pid: 1,
+      bundleId: null,
+      runtime: "native",
+    });
+
+    await expect(app.queryTreeDetailed()).resolves.toEqual({
+      tree: "[window \"Demo\"]\n",
+      diagnostics: { runtime: "native", webContent: "no_web_area" },
+    });
+    expect(app.handle).toBe("h_0");
   });
 });

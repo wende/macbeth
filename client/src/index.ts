@@ -30,6 +30,7 @@ export type {
   AppConnectOptions,
   AppInfo,
   AppRuntime,
+  AppMatchKind,
   ClickStrategy,
   ClickOptions,
   FillStrategy,
@@ -39,6 +40,8 @@ export type {
   KeyStroke,
   QueryStep,
   AXNodeJSON,
+  TreeDiagnostics,
+  QueryTreeDetailedResult,
 } from "./types.js";
 export { run, runJson } from "./shell.js";
 export { runAppleScript } from "./applescript.js";

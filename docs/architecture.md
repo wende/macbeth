@@ -40,7 +40,7 @@ macbeth/
 - **Handles** — Opaque IDs (`h_0`, …) in a server-side table with 5-minute TTL. Locators re-resolve on `stale-element` (common after Electron re-renders). `pin_handle` / `Locator.scope()` for long-lived refs.
 - **Auto-wait** — Click/fill poll until the element appears or timeout (default 30s).
 - **Lazy locators** — Chains do no RPC until a terminal method.
-- **Electron** — Enable Chromium’s AX tree with `AXManualAccessibility` only (not `AXEnhancedUserInterface`, which resizes windows). Prefer AX actions; synthesize keystrokes or safe mouse clicks when frameworks need real events.
+- **Electron** — Detect stock and branded Electron bundles, enable Chromium’s AX tree with `AXManualAccessibility` only (not `AXEnhancedUserInterface`, which resizes windows), and report whether the web area exposes descendants. Prefer AX actions; synthesize keystrokes or safe mouse clicks when frameworks need real events.
 - **Daemon lifecycle** — Client spawns as subprocess; shuts down on `close()`. Auto-reconnect re-spawns on connection errors; app handles must be re-obtained after a restart.
 - **Zero external Swift deps** — Foundation, ApplicationServices, ScreenCaptureKit, CoreGraphics, Vision.
 - **Swift 6 strict concurrency** — Sendable-compliant; `AXUIElement` wrapped as `@unchecked Sendable`.
@@ -59,4 +59,4 @@ RPC errors use `-32000`–`-32009`. AppleScript/JXA: `-1728` → `menu_item_not_
 
 ## AX gaps
 
-Some hosts (Unity, certain Electron IDEs) expose only window + menu bar. Prefer menus (`select_menu_item`), OCR (`extract_text`), and screenshots for those apps. `read_form` works best on native apps with proper AX (`AXValue`, `AXTitleUIElement`, settable attributes).
+Some hosts (Unity, certain Electron IDEs) expose only window + menu bar. Prefer native AX menus (`select_menu_item`), OCR (`extract_text`), and screenshots for those apps. `query_tree` already contains the menu hierarchy; `list_menu_bar` is the compact menu-only view. `read_form` works best on native apps with proper AX (`AXValue`, `AXTitleUIElement`, settable attributes).

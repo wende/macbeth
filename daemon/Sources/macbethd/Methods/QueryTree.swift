@@ -34,11 +34,33 @@ func registerQueryTree(
                 includeInvisible: includeInvisible
             )
 
+            let webContent = inspectWebContent(appElement.element)
+            var diagnostics: [String: JSONValue] = [
+                "runtime": .string(conn.runtime.rawValue),
+                "webContent": .string(webContent.rawValue),
+            ]
+            if conn.runtime == .electron, webContent != .ready {
+                let detail = webContent == .emptyWebArea
+                    ? "The app exposes an AXWebArea but no inspectable descendants."
+                    : "The app does not currently expose an AXWebArea."
+                diagnostics["warning"] = .string(
+                    detail
+                    + " Retry after the view finishes loading; if it remains degraded, "
+                    + "use extract_text, screenshot, menus, or keyboard automation."
+                )
+            }
+
             if format == "json" {
-                return .object(["tree": serializeTreeAsJSON(tree)])
+                return .object([
+                    "tree": serializeTreeAsJSON(tree),
+                    "diagnostics": .object(diagnostics),
+                ])
             } else {
                 let text = serializeTreeAsText(tree)
-                return .object(["tree": .string(text)])
+                return .object([
+                    "tree": .string(text),
+                    "diagnostics": .object(diagnostics),
+                ])
             }
         }
     }

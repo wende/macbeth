@@ -1,7 +1,9 @@
-import Foundation
-import OSAKit
+@preconcurrency import Foundation
 
 /// Register the run_applescript RPC method.
+///
+/// Scripts run in a separate `/usr/bin/osascript` process so a deadline can stop
+/// Apple Events that are blocked on System Events, a permission dialog, or a hung app.
 func registerRunAppleScript(dispatcher: Dispatcher, glow: GlowIndicator) {
     Task {
         await dispatcher.register(method: "run_applescript") { params in
@@ -12,66 +14,231 @@ func registerRunAppleScript(dispatcher: Dispatcher, glow: GlowIndicator) {
 
             let languageParam = obj["language"]?.stringValue ?? "AppleScript"
             let isInteractive = obj["interactive"]?.boolValue ?? true
+            let timeoutMs = min(max(obj["timeoutMs"]?.intValue ?? 30_000, 100), 300_000)
 
-            // Callers can classify inspection-only scripts so they do not show
-            // an interaction indicator. Default stays interactive for backward
-            // compatibility because arbitrary AppleScript/JXA can drive input.
             if isInteractive { await glow.activityStarted() }
             defer {
                 if isInteractive { Task { await glow.activityEnded() } }
             }
 
-            let result: (String?, String?, Int?) = await MainActor.run {
-                let lang: OSALanguage?
-                switch languageParam.lowercased() {
-                case "javascript", "jxa":
-                    lang = OSALanguage(forName: "JavaScript")
-                default:
-                    lang = OSALanguage(forName: "AppleScript")
-                }
+            let started = ContinuousClock.now
+            let result = try await executeOSAScript(
+                source: source,
+                language: languageParam,
+                timeoutMs: timeoutMs
+            )
+            let elapsed = started.duration(to: .now)
+            let durationMs = Int(elapsed.components.seconds * 1_000)
+                + Int(elapsed.components.attoseconds / 1_000_000_000_000_000)
 
-                guard let lang else {
-                    return (nil, "Language not available: \(languageParam)", nil)
-                }
-
-                let script = OSAScript(source: source, language: lang)
-                var errorDict: NSDictionary?
-                let output = script.executeAndReturnError(&errorDict)
-
-                if let errorDict = errorDict {
-                    let message = (errorDict[NSAppleScript.errorMessage] as? String)
-                        ?? (errorDict["OSAScriptErrorMessageKey"] as? String)
-                        ?? "Script execution failed"
-                    let errorNumber = (errorDict[NSAppleScript.errorNumber] as? Int)
-                        ?? (errorDict["OSAScriptErrorNumberKey"] as? Int)
-                    return (nil, message, errorNumber)
-                }
-
-                return (output?.stringValue ?? "", nil, nil)
+            if result.timedOut {
+                throw RPCError.timeout(
+                    "OSA script execution timed out after \(timeoutMs)ms "
+                    + "(phase: execution, language: \(languageParam))"
+                )
+            }
+            if result.status != 0 {
+                throw classifyScriptError(
+                    message: result.error.isEmpty ? "Script execution failed" : result.error,
+                    errorNumber: osaErrorNumber(in: result.error),
+                    language: languageParam,
+                    durationMs: durationMs
+                )
             }
 
-            if let error = result.1 {
-                throw classifyScriptError(message: error, errorNumber: result.2)
-            }
-
-            return .object(["output": .string(result.0 ?? "")])
+            return .object(["output": .string(result.output)])
         }
     }
 }
 
-private func classifyScriptError(message: String, errorNumber: Int?) -> RPCError {
+private struct ScriptExecutionResult: Sendable {
+    let output: String
+    let error: String
+    let status: Int32
+    let timedOut: Bool
+}
+
+private final class ScriptProcessBox: @unchecked Sendable {
+    let process = Process()
+}
+
+/// One-shot completion signal for process exit, safe to fire before or after waiters attach.
+private final class ScriptExitSignal: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Void, Never>?
+    private var signaled = false
+
+    func signal() {
+        lock.lock()
+        defer { lock.unlock() }
+        signaled = true
+        continuation?.resume()
+        continuation = nil
+    }
+
+    func wait() async {
+        await withCheckedContinuation { cont in
+            lock.lock()
+            if signaled {
+                lock.unlock()
+                cont.resume()
+                return
+            }
+            continuation = cont
+            lock.unlock()
+        }
+    }
+}
+
+/// Wait until the osascript process exits or `deadline` elapses — no fixed polling interval.
+private func waitForScriptProcess(
+    exitSignal: ScriptExitSignal,
+    until deadline: ContinuousClock.Instant
+) async {
+    await withTaskGroup(of: Void.self) { group in
+        group.addTask {
+            await exitSignal.wait()
+        }
+        group.addTask {
+            try? await Task.sleep(until: deadline, clock: .continuous)
+        }
+        // First finisher wins: process exit or deadline. The loser is cancelled;
+        // if the deadline won, the caller terminates the child which signals exit
+        // and unblocks any parked termination continuation.
+        await group.next()
+        group.cancelAll()
+    }
+}
+
+private func executeOSAScript(
+    source: String,
+    language: String,
+    timeoutMs: Int
+) async throws -> ScriptExecutionResult {
+    let fileManager = FileManager.default
+    let directory = fileManager.temporaryDirectory
+        .appendingPathComponent("macbeth-osa-\(UUID().uuidString)", isDirectory: true)
+    try fileManager.createDirectory(
+        at: directory,
+        withIntermediateDirectories: true,
+        attributes: [.posixPermissions: 0o700]
+    )
+    defer { try? fileManager.removeItem(at: directory) }
+
+    let scriptURL = directory.appendingPathComponent("script.txt")
+    let outputURL = directory.appendingPathComponent("stdout.txt")
+    let errorURL = directory.appendingPathComponent("stderr.txt")
+    try Data(source.utf8).write(to: scriptURL, options: .atomic)
+    try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: scriptURL.path)
+    fileManager.createFile(atPath: outputURL.path, contents: nil)
+    fileManager.createFile(atPath: errorURL.path, contents: nil)
+
+    let outputHandle = try FileHandle(forWritingTo: outputURL)
+    let errorHandle = try FileHandle(forWritingTo: errorURL)
+    defer {
+        try? outputHandle.close()
+        try? errorHandle.close()
+    }
+
+    let box = ScriptProcessBox()
+    let exitSignal = ScriptExitSignal()
+    box.process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+    let languageArg = language.lowercased() == "javascript" || language.lowercased() == "jxa"
+        ? "JavaScript"
+        : "AppleScript"
+    box.process.arguments = ["-l", languageArg, scriptURL.path]
+    box.process.standardOutput = outputHandle
+    box.process.standardError = errorHandle
+    // Install before run() so a fast-exit child cannot miss the handler.
+    box.process.terminationHandler = { _ in
+        exitSignal.signal()
+    }
+
+    do {
+        try box.process.run()
+    } catch {
+        throw RPCError.scriptFailed(
+            "Could not launch /usr/bin/osascript: \(error.localizedDescription)",
+            data: .object([
+                "phase": .string("launch"),
+                "language": .string(languageArg),
+            ])
+        )
+    }
+
+    // Cover the race where the process exits between run() and handler delivery.
+    if !box.process.isRunning {
+        exitSignal.signal()
+    }
+
+    let deadline = ContinuousClock.now + .milliseconds(timeoutMs)
+    await waitForScriptProcess(exitSignal: exitSignal, until: deadline)
+
+    var timedOut = false
+    if box.process.isRunning {
+        timedOut = true
+        box.process.terminate()
+        try? await Task.sleep(for: .milliseconds(200))
+        if box.process.isRunning {
+            kill(box.process.processIdentifier, SIGKILL)
+        }
+    }
+    box.process.waitUntilExit()
+
+    try? outputHandle.synchronize()
+    try? errorHandle.synchronize()
+    let output = (try? String(contentsOf: outputURL, encoding: .utf8)) ?? ""
+    let error = (try? String(contentsOf: errorURL, encoding: .utf8)) ?? ""
+    return ScriptExecutionResult(
+        output: output.trimmingCharacters(in: .newlines),
+        error: error.trimmingCharacters(in: .whitespacesAndNewlines),
+        status: box.process.terminationStatus,
+        timedOut: timedOut
+    )
+}
+
+private func osaErrorNumber(in message: String) -> Int? {
+    guard let regex = try? NSRegularExpression(pattern: #"\((-?\d+)\)\s*$"#) else {
+        return nil
+    }
+    let range = NSRange(message.startIndex..<message.endIndex, in: message)
+    guard let match = regex.firstMatch(in: message, range: range),
+          let numberRange = Range(match.range(at: 1), in: message) else {
+        return nil
+    }
+    return Int(message[numberRange])
+}
+
+private func classifyScriptError(
+    message: String,
+    errorNumber: Int?,
+    language: String,
+    durationMs: Int
+) -> RPCError {
+    let data: JSONValue = .object([
+        "phase": .string("execution"),
+        "language": .string(language),
+        "durationMs": .number(Double(durationMs)),
+        "osaErrorNumber": errorNumber.map { .number(Double($0)) } ?? .null,
+    ])
     switch errorNumber {
+    case -1743, -10004:
+        return .permissionDenied(
+            "Apple Events automation was denied. Grant the host application access "
+            + "in System Settings → Privacy & Security → Automation. \(message)"
+        )
     case -1728:
         return .menuItemNotFound(message)
     case -1719:
         return .menuItemDisabled(message)
+    case -1712:
+        return .timeout(
+            "Apple Event timed out (OSA error -1712, phase: execution, "
+            + "language: \(language), duration: \(durationMs)ms): \(message)"
+        )
     case -600, -609:
         return .appBusy(message)
     default:
-        var data: [String: JSONValue] = [:]
-        if let num = errorNumber {
-            data["osaErrorNumber"] = .number(Double(num))
-        }
-        return .scriptFailed(message, data: data.isEmpty ? nil : .object(data))
+        return .scriptFailed(message, data: data)
     }
 }
