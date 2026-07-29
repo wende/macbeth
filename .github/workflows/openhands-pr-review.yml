@@ -30,7 +30,7 @@ jobs:
         uses: OpenHands/extensions/plugins/pr-review@9def413cc05fa8287ed236d846af85f977baea45
         with:
           extensions-version: 9def413cc05fa8287ed236d846af85f977baea45
-          openhands-sdk-package: openhands-sdk==1.9.1
+          openhands-sdk-package: openhands-sdk==1.36.1
           llm-model: openai/MiniMax-M3
           llm-base-url: https://api.minimax.io/v1
           llm-api-key: ${{ secrets.MINIMAX_API_KEY }}
