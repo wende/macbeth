@@ -62,6 +62,54 @@ private final class ScriptProcessBox: @unchecked Sendable {
     let process = Process()
 }
 
+/// One-shot completion signal for process exit, safe to fire before or after waiters attach.
+private final class ScriptExitSignal: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Void, Never>?
+    private var signaled = false
+
+    func signal() {
+        lock.lock()
+        defer { lock.unlock() }
+        signaled = true
+        continuation?.resume()
+        continuation = nil
+    }
+
+    func wait() async {
+        await withCheckedContinuation { cont in
+            lock.lock()
+            if signaled {
+                lock.unlock()
+                cont.resume()
+                return
+            }
+            continuation = cont
+            lock.unlock()
+        }
+    }
+}
+
+/// Wait until the osascript process exits or `deadline` elapses — no fixed polling interval.
+private func waitForScriptProcess(
+    exitSignal: ScriptExitSignal,
+    until deadline: ContinuousClock.Instant
+) async {
+    await withTaskGroup(of: Void.self) { group in
+        group.addTask {
+            await exitSignal.wait()
+        }
+        group.addTask {
+            try? await Task.sleep(until: deadline, clock: .continuous)
+        }
+        // First finisher wins: process exit or deadline. The loser is cancelled;
+        // if the deadline won, the caller terminates the child which signals exit
+        // and unblocks any parked termination continuation.
+        await group.next()
+        group.cancelAll()
+    }
+}
+
 private func executeOSAScript(
     source: String,
     language: String,
@@ -93,6 +141,7 @@ private func executeOSAScript(
     }
 
     let box = ScriptProcessBox()
+    let exitSignal = ScriptExitSignal()
     box.process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
     let languageArg = language.lowercased() == "javascript" || language.lowercased() == "jxa"
         ? "JavaScript"
@@ -100,6 +149,10 @@ private func executeOSAScript(
     box.process.arguments = ["-l", languageArg, scriptURL.path]
     box.process.standardOutput = outputHandle
     box.process.standardError = errorHandle
+    // Install before run() so a fast-exit child cannot miss the handler.
+    box.process.terminationHandler = { _ in
+        exitSignal.signal()
+    }
 
     do {
         try box.process.run()
@@ -113,10 +166,13 @@ private func executeOSAScript(
         )
     }
 
-    let deadline = ContinuousClock.now + .milliseconds(timeoutMs)
-    while box.process.isRunning && ContinuousClock.now < deadline {
-        try? await Task.sleep(for: .milliseconds(25))
+    // Cover the race where the process exits between run() and handler delivery.
+    if !box.process.isRunning {
+        exitSignal.signal()
     }
+
+    let deadline = ContinuousClock.now + .milliseconds(timeoutMs)
+    await waitForScriptProcess(exitSignal: exitSignal, until: deadline)
 
     var timedOut = false
     if box.process.isRunning {
