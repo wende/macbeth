@@ -28,9 +28,7 @@ func registerListWindows(
                 $0.owningApplication.map { ownerPIDs.contains($0.processID) } == true
             }
             let displayFrames = content.displays.map(\.frame)
-            let defaultID = content.windows.first {
-                $0.owningApplication?.processID == connection.pid && $0.isOnScreen
-            }?.windowID
+            let defaultID = findDefaultRootWindow(in: content, ownedBy: connection.pid)?.windowID
             let windows = owned.map {
                 windowJSON($0, displayFrames: displayFrames, isDefault: $0.windowID == defaultID)
             }

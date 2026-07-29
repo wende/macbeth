@@ -70,6 +70,40 @@ func capturableWindows(in content: SCShareableContent, ownedBy pid: pid_t) -> [S
     }
 }
 
+/// Choose the default capture target among root-PID candidates.
+/// Prefers on-screen capturable windows and never selects bookkeeping,
+/// menu-bar, or overlay surfaces. Shared by `list_windows` (`default` flag)
+/// and screenshot/OCR when no `windowId` is supplied.
+func selectDefaultWindowID(
+    from candidates: [(windowID: UInt32, isOnScreen: Bool, capturable: Bool)]
+) -> UInt32? {
+    let capturable = candidates.filter(\.capturable)
+    return capturable.first(where: \.isOnScreen)?.windowID
+        ?? capturable.first?.windowID
+}
+
+func findDefaultRootWindow(
+    in content: SCShareableContent,
+    ownedBy pid: pid_t
+) -> SCWindow? {
+    let displayFrames = content.displays.map(\.frame)
+    let candidates = content.windows.compactMap { window -> (SCWindow, UInt32, Bool, Bool)? in
+        guard window.owningApplication?.processID == pid else { return nil }
+        return (
+            window,
+            window.windowID,
+            window.isOnScreen,
+            isCapturableWindow(window, displayFrames: displayFrames)
+        )
+    }
+    guard let defaultID = selectDefaultWindowID(
+        from: candidates.map { ($0.1, $0.2, $0.3) }
+    ) else {
+        return nil
+    }
+    return candidates.first(where: { $0.1 == defaultID })?.0
+}
+
 /// Resolve an explicitly selected WindowServer window. Explicit selection
 /// includes descendant/helper processes because apps such as Steam host real
 /// windows in child processes.
@@ -87,14 +121,13 @@ func resolveSelectedWindow(
 }
 
 /// Preserve the pre-existing screenshot/OCR behavior when no window ID is
-/// supplied: use the first on-screen window owned by the connected root PID.
+/// supplied: use the first capturable on-screen window owned by the connected
+/// root PID (same rule as the `default` flag from `list_windows`).
 func resolveDefaultWindow(
     in content: SCShareableContent,
     ownedBy pid: pid_t
 ) throws -> SCWindow {
-    guard let window = content.windows.first(where: {
-        $0.owningApplication?.processID == pid
-    }) else {
+    guard let window = findDefaultRootWindow(in: content, ownedBy: pid) else {
         throw RPCError.elementNotFound(
             "No visible windows for app (PID: \(pid))")
     }
@@ -116,7 +149,7 @@ func windowJSON(
     let frame = window.frame
     return .object([
         "windowId": .number(Double(window.windowID)),
-        "ownerPid": .number(Double(window.owningApplication?.processID ?? 0)),
+        "ownerPid": window.owningApplication.map { .number(Double($0.processID)) } ?? .null,
         "ownerName": window.owningApplication.map { .string($0.applicationName) } ?? .null,
         "bundleId": window.owningApplication.map { .string($0.bundleIdentifier) } ?? .null,
         "title": window.title.flatMap { $0.isEmpty ? nil : $0 }.map(JSONValue.string) ?? .null,

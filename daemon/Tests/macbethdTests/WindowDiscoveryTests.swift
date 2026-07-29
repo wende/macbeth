@@ -41,3 +41,30 @@ import Testing
     #expect(!isDescendantProcess(400, of: 100, parentOf: { parents[$0] }))
     #expect(!isDescendantProcess(500, of: 100, parentOf: { parents[$0] }))
 }
+
+@Test func selectDefaultWindowIDPrefersOnScreenCapturableWindows() {
+    let candidates: [(windowID: UInt32, isOnScreen: Bool, capturable: Bool)] = [
+        (1, true, false),   // menu-bar / bookkeeping — ignored
+        (2, false, true),   // off-space capturable
+        (3, true, true),    // preferred default
+        (4, true, true),
+    ]
+    #expect(selectDefaultWindowID(from: candidates) == 3)
+}
+
+@Test func selectDefaultWindowIDFallsBackToOffScreenCapturable() {
+    let candidates: [(windowID: UInt32, isOnScreen: Bool, capturable: Bool)] = [
+        (10, true, false),
+        (11, false, true),
+        (12, false, true),
+    ]
+    #expect(selectDefaultWindowID(from: candidates) == 11)
+}
+
+@Test func selectDefaultWindowIDReturnsNilWhenNothingCapturable() {
+    let candidates: [(windowID: UInt32, isOnScreen: Bool, capturable: Bool)] = [
+        (1, true, false),
+        (2, false, false),
+    ]
+    #expect(selectDefaultWindowID(from: candidates) == nil)
+}
