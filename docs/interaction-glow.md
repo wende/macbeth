@@ -24,3 +24,30 @@ Environment variables (daemon) and `--no-glow`:
 | `MACBETH_GLOW_HELPER` | — | Explicit path to `macbeth-glow` (else next to `macbethd`). |
 
 All presentation layers are click-through and owned by the helper process.
+
+## README presentation demo
+
+For a short (~20–30s) screen recording that only shows external chrome (outline, pointer, form changes, capture scan/snap):
+
+```bash
+npm run demo:presentation
+# continuous fast presentation (no pacing pauses):
+npm run demo:presentation -- --fast
+
+# Run the same fixture/tool feature set while keeping your current app in front.
+# The summary reports every focus interruption and its observed duration:
+npm run demo:background
+# continuous version:
+npm run demo:background -- --fast
+```
+
+Uses the native and Electron test fixtures side-by-side. Hide the terminal before the countdown; stop capture after “Recording complete”. Full feature integration lives in `npm run demo:mcp`.
+The demo invokes ordinary Macbeth tools only; their automatic activity scopes
+buffer and hand off the glow without demo-specific glow-control calls.
+
+`demo:background` keeps the app that launched the command frontmost, explicitly
+re-backgrounds each fixture before every action, and runs the presentation
+feature set: connect, native and Electron fill/click, and screenshot. A
+read-only `NSWorkspace` observer records even brief focus steals that are
+restored before a tool returns. Interruptions are observations, not demo
+failures; tool errors still fail the command.
