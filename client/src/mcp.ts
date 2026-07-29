@@ -162,7 +162,7 @@ server.registerTool("connect_app", {
   return {
     content: [{
       type: "text",
-      text: `${requested}${app.name} (match: ${app.matchKind} via ${app.matchedValue}, pid: ${app.pid}, runtime: ${app.runtime}${bundle}${aliases}${accessibility}, handle: ${app["appHandle"]})`,
+      text: `${requested}${app.name} (match: ${app.matchKind} via ${app.matchedValue}, pid: ${app.pid}, runtime: ${app.runtime}${bundle}${aliases}${accessibility}, handle: ${app.handle})`,
     }],
   };
 });
@@ -178,7 +178,7 @@ server.registerTool("query_tree", {
 }, async ({ app, maxDepth, format, includeInvisible }) => {
   const handle = await client.connect(app);
   const result = await handle.queryTreeDetailed({ maxDepth, format, includeInvisible });
-  const warning = result.diagnostics.warning
+  const warning = result.diagnostics?.warning
     ? `Warning [degraded_accessibility]: ${result.diagnostics.warning}\n\n`
     : "";
   return { content: [{ type: "text", text: warning + result.tree }] };
@@ -245,7 +245,7 @@ server.registerTool("wait_for", {
 }, async ({ app, query, handleId, timeout, pollMs, condition }) => {
   const handle = await client.connect(app);
   const params: Record<string, unknown> = {
-    appHandle: (handle as any).appHandle,
+    appHandle: handle.handle,
     timeout: timeout ?? 30,
   };
   if (query) params.query = query;
@@ -341,7 +341,7 @@ server.registerTool("extract_text", {
     params.data = data;
   } else if (app) {
     const handle = await client.connect(app);
-    params.appHandle = (handle as any).appHandle;
+    params.appHandle = handle.handle;
     if (region) params.region = region;
   }
 
@@ -446,7 +446,7 @@ server.registerTool("select_menu_item", {
   description: "Select a native menu bar item by path (e.g. [\"Track\", \"New Audio Track\"]). Uses the Accessibility API directly, accepts a fuzzy app name or PID, and does not steal focus.",
   inputSchema: {
     app: appTargetSchema,
-    menuPath: z.array(z.string()).min(1).describe('Menu path from menu bar, e.g. ["File", "Save"] or ["Track", "New Audio Track"]'),
+    menuPath: z.array(z.string()).min(2).describe('Menu path from menu bar, e.g. ["File", "Save"] or ["Track", "New Audio Track"]'),
   },
 }, async ({ app, menuPath }) => {
   return withActivity(async () => {

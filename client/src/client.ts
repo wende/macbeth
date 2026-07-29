@@ -67,6 +67,11 @@ export class AppHandle extends Locator {
     this.webContentReadiness = info.webContentReadiness ?? null;
   }
 
+  /** Opaque app handle used by subsequent RPC calls. */
+  get handle(): string {
+    return this.appHandle;
+  }
+
   /** Get the AX tree as indented text or JSON */
   async queryTree(options?: TreeOptions): Promise<string> {
     return (await this.queryTreeDetailed(options)).tree;
@@ -76,7 +81,7 @@ export class AppHandle extends Locator {
   async queryTreeDetailed(options?: TreeOptions): Promise<QueryTreeDetailedResult> {
     const result = await this.rpc.call<{
       tree: string | object;
-      diagnostics: TreeDiagnostics;
+      diagnostics?: TreeDiagnostics;
     }>("query_tree", {
       appHandle: this.appHandle,
       maxDepth: options?.maxDepth ?? 5,
@@ -87,7 +92,10 @@ export class AppHandle extends Locator {
       tree: typeof result.tree === "string"
         ? result.tree
         : JSON.stringify(result.tree, null, 2),
-      diagnostics: result.diagnostics,
+      diagnostics: result.diagnostics ?? {
+        runtime: this.runtime,
+        webContent: this.webContentReadiness ?? "no_web_area",
+      },
     };
   }
 

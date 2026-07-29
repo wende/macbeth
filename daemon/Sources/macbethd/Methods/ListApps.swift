@@ -64,9 +64,22 @@ func detectRuntime(
         if FileManager.default.fileExists(atPath: electronFramework.path) {
             return .electron
         }
+
+        // Branded distributions rename Electron Framework.framework (e.g. "Codex
+        // Framework.framework") but still ship Chromium's Helper (Renderer) app
+        // beside a *Framework.framework bundle.
+        if hasBrandedElectronFrameworkLayout(bundleURL) {
+            return .electron
+        }
     }
 
     if infoDictionary?["ElectronAsarIntegrity"] != nil {
+        return .electron
+    }
+
+    // Electron also stamps ChromiumBaseVersion into Info.plist even when asar
+    // integrity metadata is absent (unpacked / custom packaging).
+    if infoDictionary?["ChromiumBaseVersion"] != nil {
         return .electron
     }
 
@@ -80,6 +93,19 @@ func detectRuntime(
 
     // Could detect other runtimes (Qt, Java, etc.) here in the future
     return .native
+}
+
+/// True when Contents/Frameworks looks like a renamed Electron/Chromium layout.
+func hasBrandedElectronFrameworkLayout(_ bundleURL: URL) -> Bool {
+    let frameworks = bundleURL.appendingPathComponent("Contents/Frameworks")
+    guard let names = try? FileManager.default.contentsOfDirectory(atPath: frameworks.path) else {
+        return false
+    }
+    let hasRendererHelper = names.contains { $0.contains("Helper (Renderer)") }
+    let hasFramework = names.contains {
+        $0.hasSuffix("Framework.framework") && $0 != "Electron Framework.framework"
+    }
+    return hasRendererHelper && hasFramework
 }
 
 /// Detect the runtime of the app owning a given PID.

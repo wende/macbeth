@@ -113,9 +113,36 @@ actor AppConnectionManager {
         }
         let resolvedPid = runningApp.processIdentifier
 
-        // Check if already connected
+        // Reuse an existing connection, but refresh Electron readiness. Callers that
+        // reconnect after a slow Chromium tree build must not keep seeing a stale
+        // empty_web_area from the first attempt. Only wait again when the caller
+        // explicitly passes readyTimeoutMs — default reuse is a single inspect.
         if let existing = connections.values.first(where: { $0.pid == resolvedPid }) {
-            return ConnectResult(connection: existing, resolution: resolution)
+            if existing.runtime == .native {
+                return ConnectResult(connection: existing, resolution: resolution)
+            }
+
+            let manualResult = enableManualAccessibility(existing.appElement.element)
+            let manualStatus = manualResult == .success
+                ? "accepted"
+                : "rejected_\(manualResult.rawValue)"
+            let readiness = await waitForWebContent(
+                existing.appElement,
+                timeout: TimeInterval(readyTimeoutMs ?? 0) / 1000.0
+            )
+            let refreshed = Connection(
+                pid: existing.pid,
+                appElement: existing.appElement,
+                bundleId: existing.bundleId,
+                appName: existing.appName,
+                aliases: existing.aliases,
+                handleId: existing.handleId,
+                runtime: existing.runtime,
+                manualAccessibilityStatus: manualStatus,
+                webContentReadiness: readiness
+            )
+            connections[existing.handleId] = refreshed
+            return ConnectResult(connection: refreshed, resolution: resolution)
         }
 
         let appElement = AXUIElementCreateApplication(resolvedPid)

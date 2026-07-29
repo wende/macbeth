@@ -135,9 +135,7 @@ private func resolveMenuItem(
     connection: AppConnectionManager.Connection
 ) throws -> AXUIElement {
     let topLevel = menuBarItems(menuBar)
-    guard let menuBarItem = topLevel.first(where: {
-        getStringAttribute($0, kAXTitleAttribute) == path[0]
-    }) else {
+    guard let menuBarItem = findTitledMenuElement(in: topLevel, requested: path[0]) else {
         throw menuNotFound(path: path, failedAt: path[0], siblings: topLevel, connection: connection)
     }
     guard var menu = childMenu(of: menuBarItem) else {
@@ -149,9 +147,7 @@ private func resolveMenuItem(
 
     for (index, component) in path.dropFirst().enumerated() {
         let siblings = menuItems(menu)
-        guard let item = siblings.first(where: {
-            getStringAttribute($0, kAXTitleAttribute) == component
-        }) else {
+        guard let item = findTitledMenuElement(in: siblings, requested: component) else {
             throw menuNotFound(
                 path: path,
                 failedAt: component,
@@ -173,6 +169,32 @@ private func resolveMenuItem(
     }
 
     throw RPCError.menuItemNotFound("Menu path did not resolve")
+}
+
+/// Prefer an exact raw title match, then a normalized case-insensitive one.
+/// Agents often send `...` while macOS menus use the typographic `…`.
+func findTitledMenuElement(in elements: [AXUIElement], requested: String) -> AXUIElement? {
+    if let exact = elements.first(where: {
+        getStringAttribute($0, kAXTitleAttribute) == requested
+    }) {
+        return exact
+    }
+    return elements.first(where: {
+        menuTitleMatches(getStringAttribute($0, kAXTitleAttribute), requested: requested)
+    })
+}
+
+func normalizeMenuTitle(_ title: String) -> String {
+    title
+        .replacingOccurrences(of: "...", with: "\u{2026}")
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+}
+
+func menuTitleMatches(_ actual: String?, requested: String) -> Bool {
+    guard let actual else { return false }
+    let left = normalizeMenuTitle(actual)
+    let right = normalizeMenuTitle(requested)
+    return left.caseInsensitiveCompare(right) == .orderedSame
 }
 
 private func menuNotFound(
