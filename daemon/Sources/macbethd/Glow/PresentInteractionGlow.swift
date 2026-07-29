@@ -10,23 +10,16 @@ import GlowProtocol
 /// foreground the app so HID events land. Background-only AX work should not
 /// call this.
 ///
-/// - Parameters:
-///   - scoped: Tracks whether this RPC already opened a glow activity scope so
-///     callers can `activityEnded` exactly once in a `defer`.
+/// The caller must already hold a glow activity scope (`activityStarted` /
+/// `activityEnded`). Use the `scoped:` overload to open one lazily instead.
 func presentInteractionGlow(
     glow: GlowIndicator,
     window: AXUIElement?,
     element: AXUIElement? = nil,
-    pointerAction: GlowPointerAction? = nil,
-    scoped: inout Bool
+    pointerAction: GlowPointerAction? = nil
 ) async {
     guard let window, let frame = ElementGeometry.frame(of: window) else {
         return
-    }
-
-    if !scoped {
-        await glow.activityStarted()
-        scoped = true
     }
 
     await glow.windowFocused(
@@ -40,4 +33,32 @@ func presentInteractionGlow(
        await glow.pointerMoved(to: point, action: pointerAction) {
         try? await Task.sleep(for: .milliseconds(470))
     }
+}
+
+/// Variant for RPCs that only open a glow activity scope if they end up
+/// presenting something.
+///
+/// - Parameters:
+///   - scoped: Tracks whether this RPC already opened a scope, so the caller can
+///     `activityEnded` exactly once in a `defer`.
+func presentInteractionGlow(
+    glow: GlowIndicator,
+    window: AXUIElement?,
+    element: AXUIElement? = nil,
+    pointerAction: GlowPointerAction? = nil,
+    scoped: inout Bool
+) async {
+    guard window.flatMap(ElementGeometry.frame(of:)) != nil else { return }
+
+    if !scoped {
+        await glow.activityStarted()
+        scoped = true
+    }
+
+    await presentInteractionGlow(
+        glow: glow,
+        window: window,
+        element: element,
+        pointerAction: pointerAction
+    )
 }

@@ -16,6 +16,11 @@ func registerClick(
                 throw RPCError.invalidParams("Missing 'appHandle'")
             }
 
+            // Start before target resolution so auto-wait is part of the same
+            // buffered visual operation as the eventual pointer/click.
+            await glow.activityStarted()
+            defer { Task { await glow.activityEnded() } }
+
             let strategy = ClickStrategy(obj["strategy"]?.stringValue)
             let waitForIdleMs = obj["waitForIdleMs"]?.numberValue ?? 0
             let timeout = obj["timeout"]?.numberValue ?? 5.0
@@ -30,10 +35,6 @@ func registerClick(
             // user is currently looking at. Background AX work remains quiet.
             let targetWindow = ElementGeometry.containingWindow(of: element.element)
             let showGlow = targetWindow.map(ElementGeometry.isFrontmostWindow) ?? false
-            if showGlow { await glow.activityStarted() }
-            defer {
-                if showGlow { Task { await glow.activityEnded() } }
-            }
             if showGlow, let window = targetWindow,
                let frame = ElementGeometry.frame(of: window) {
                 await glow.windowFocused(id: ElementGeometry.windowIdentity(of: window), frame: frame)

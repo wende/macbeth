@@ -17,6 +17,13 @@ func registerFill(
                 throw RPCError.invalidParams("Missing 'appHandle' or 'value'")
             }
 
+            // Scope the complete tool call, including auto-wait/AX resolution.
+            // Sequential actions can then re-arm the previous buffered outline
+            // before its debounce expires.
+            await glow.activityStarted()
+            defer { Task { await glow.activityEnded() } }
+            var glowPresented = false
+
             let strategy = FillStrategy(obj["strategy"]?.stringValue)
             let timeout = obj["timeout"]?.numberValue ?? 5.0
             let element = try await resolveTarget(
@@ -33,18 +40,14 @@ func registerFill(
             let targetWindow = ElementGeometry.containingWindow(of: element.element)
             // Glow only when the window is already frontmost (background AX stays quiet).
             // Keyboard synthesis below re-presents after activate when it must foreground.
-            var glowScoped = false
-            defer {
-                if glowScoped { Task { await glow.activityEnded() } }
-            }
             if targetWindow.map(ElementGeometry.isFrontmostWindow) == true {
                 await presentInteractionGlow(
                     glow: glow,
                     window: targetWindow,
                     element: element.element,
-                    pointerAction: .fill,
-                    scoped: &glowScoped
+                    pointerAction: .fill
                 )
+                glowPresented = true
             }
 
             // Check element role
@@ -90,13 +93,12 @@ func registerFill(
             // from the block above; re-presenting would replay the pointer approach to
             // a point it already occupies and pay the animation delay a second time.
             await appManager.activate(appHandle)
-            if !glowScoped {
+            if !glowPresented {
                 await presentInteractionGlow(
                     glow: glow,
                     window: targetWindow,
                     element: element.element,
-                    pointerAction: .fill,
-                    scoped: &glowScoped
+                    pointerAction: .fill
                 )
             }
             try await fillViaKeyboard(element.element, value: value, pid: pid)

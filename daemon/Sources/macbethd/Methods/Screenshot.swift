@@ -17,6 +17,11 @@ func registerScreenshot(
                 throw RPCError.invalidParams("Missing 'appHandle'")
             }
 
+            // Shareable-content discovery and window matching can take hundreds of
+            // milliseconds. Keep the preceding tool's glow alive while they run.
+            await glow.activityStarted()
+            defer { Task { await glow.activityEnded() } }
+
             guard let conn = await appManager.get(appHandle) else {
                 throw RPCError.appNotFound("Invalid app handle: \(appHandle)")
             }
@@ -61,10 +66,6 @@ func registerScreenshot(
                 pid: conn.pid,
                 windowNumber: Int(targetWindow.windowID)
             )
-            if isFrontmost { await glow.activityStarted() }
-            defer {
-                if isFrontmost { Task { await glow.activityEnded() } }
-            }
             let windowID = ElementGeometry.windowIdentity(
                 pid: conn.pid, windowNumber: Int(targetWindow.windowID)
             )
