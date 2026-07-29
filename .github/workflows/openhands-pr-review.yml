@@ -1,0 +1,42 @@
+name: OpenHands PR Review
+
+on:
+  pull_request:
+    types: [labeled, review_requested]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: openhands-pr-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    name: OpenHands Review
+    if: >-
+      github.event.label.name == 'openhands-review' ||
+      github.event.requested_reviewer.login == 'openhands-agent' ||
+      github.event.requested_reviewer.login == 'all-hands-bot'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+
+    steps:
+      - name: Review with OpenHands and MiniMax
+        # OpenHands extensions v0.11.0. Keep this SHA and extensions-version
+        # in sync so both the action and the code it executes are immutable.
+        uses: OpenHands/extensions/plugins/pr-review@9def413cc05fa8287ed236d846af85f977baea45
+        with:
+          extensions-version: 9def413cc05fa8287ed236d846af85f977baea45
+          openhands-sdk-package: openhands-sdk==1.9.1
+          llm-model: openai/MiniMax-M3
+          llm-base-url: https://api.minimax.io/v1
+          llm-api-key: ${{ secrets.MINIMAX_API_KEY }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          use-sub-agents: 'true'
+          load-public-skills: 'true'
+          collect-feedback: 'true'
+          require-evidence: 'false'
+          enable-uv-cache: 'false'
