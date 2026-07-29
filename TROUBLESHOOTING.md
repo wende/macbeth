@@ -20,7 +20,7 @@ This prints the resolved daemon path and the status of the two macOS
 permissions macbeth needs, then exits non-zero if Accessibility is denied:
 
 ```
-macbeth 0.2.2
+macbeth 0.2.3
 daemon: /path/to/macbeth/bin/macbethd
 
 macbethd permission preflight
