@@ -32,6 +32,38 @@ import Testing
     ) == .electron)
 }
 
+@Test func detectsBrandedElectronFromChromiumBaseVersionAlone() {
+    #expect(detectRuntime(
+        bundleURL: nil,
+        bundleIdentifier: "com.example.branded",
+        infoDictionary: [
+            "ChromiumBaseVersion": "150.0.7871.124",
+        ]
+    ) == .electron)
+}
+
+@Test func detectsBrandedElectronFromRenamedFrameworkLayout() throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("macbeth-runtime-\(UUID().uuidString)", isDirectory: true)
+    let frameworks = root.appendingPathComponent("Contents/Frameworks", isDirectory: true)
+    try FileManager.default.createDirectory(
+        at: frameworks.appendingPathComponent("Codex Framework.framework", isDirectory: true),
+        withIntermediateDirectories: true
+    )
+    try FileManager.default.createDirectory(
+        at: frameworks.appendingPathComponent("Codex Helper (Renderer).app", isDirectory: true),
+        withIntermediateDirectories: true
+    )
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    #expect(detectRuntime(
+        bundleURL: root,
+        bundleIdentifier: "com.openai.codex",
+        infoDictionary: [:]
+    ) == .electron)
+    #expect(hasBrandedElectronFrameworkLayout(root))
+}
+
 @Test func leavesUnmarkedNativeBundleNative() {
     #expect(detectRuntime(
         bundleURL: nil,

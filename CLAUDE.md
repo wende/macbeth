@@ -84,8 +84,9 @@ do NOT set `AXEnhancedUserInterface` — it causes window resize/reposition bugs
 action methods.
 
 Runtime detection recognises both stock Electron bundles and branded distributions that
-rename `Electron Framework.framework` but retain `ElectronAsarIntegrity` metadata. App
-resolution also reads `CFBundleAlternateNames`, so a declared product alias is reported
+rename `Electron Framework.framework` but retain `ElectronAsarIntegrity` metadata,
+`ChromiumBaseVersion`, or a Chromium `Helper (Renderer)` + `*Framework.framework` layout.
+App resolution also reads `CFBundleAlternateNames`, so a declared product alias is reported
 explicitly rather than looking like an unexplained fuzzy bundle-id match.
 
 **Action strategies** (both default to `"auto"`, plumbed through `protocol/schema.ts`, the TS

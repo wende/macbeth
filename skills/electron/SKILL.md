@@ -19,8 +19,12 @@ connect_app({ "name": "Slack" })
 
 On connect, macbeth enables Chromium's accessibility tree (`AXManualAccessibility`) and
 waits for the web content to expose descendants. Branded Electron distributions are
-recognised even when they rename the Electron framework. `list_apps` reports these apps
+recognised via `ElectronAsarIntegrity`, `ChromiumBaseVersion`, or a renamed
+`*Framework.framework` + `Helper (Renderer)` layout. `list_apps` reports these apps
 with `runtime: electron` and includes declared aliases and bundle IDs.
+
+Reconnecting the same app refreshes readiness without waiting again unless you pass
+`readyTimeoutMs` explicitly — useful after a first connect reported `empty_web_area`.
 
 ### Expect a readiness delay
 

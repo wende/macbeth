@@ -108,4 +108,20 @@ describe("AppHandle", () => {
       diagnostics: { webContent: "empty_web_area" },
     });
   });
+
+  it("defaults query tree diagnostics when the daemon omits them", async () => {
+    const rpc = mockRpcWithResult({ tree: "[window \"Demo\"]\n" });
+    const app = new AppHandle(rpc, "h_0", {
+      name: "Demo",
+      pid: 1,
+      bundleId: null,
+      runtime: "native",
+    });
+
+    await expect(app.queryTreeDetailed()).resolves.toEqual({
+      tree: "[window \"Demo\"]\n",
+      diagnostics: { runtime: "native", webContent: "no_web_area" },
+    });
+    expect(app.handle).toBe("h_0");
+  });
 });
