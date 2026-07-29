@@ -185,6 +185,18 @@ server.registerTool("query_tree", {
   return { content: [{ type: "text", text: warning + result.tree }] };
 });
 
+server.registerTool("list_windows", {
+  description: "List WindowServer surfaces owned by an app or its helper processes across macOS Spaces. Returns window IDs, titles, frames, visibility, and whether each surface is capturable. This is read-only and does not activate windows or switch Spaces.",
+  inputSchema: {
+    app: appTargetSchema,
+  },
+  annotations: { readOnlyHint: true },
+}, async ({ app }) => {
+  const handle = await client.connect(app);
+  const windows = await handle.listWindows();
+  return { content: [{ type: "text", text: JSON.stringify({ windows }, null, 2) }] };
+});
+
 server.registerTool("click", {
   description: "Click a UI element. Auto-waits for the element to appear. On Electron/web content, the default 'auto' strategy tries AXPress (and adjacent nodes) then falls back to a synthetic mouse click; override with 'mouse' for canvas-heavy UIs or 'ax' to force a press. Mouse clicks briefly activate the target window, then restore the previous app, window, and cursor.",
   inputSchema: {
@@ -296,9 +308,10 @@ server.registerTool("press_keys", {
 });
 
 server.registerTool("screenshot", {
-  description: "Capture a screenshot of an app window, optionally cropped to a region. Saves it to a temporary PNG file and returns the path.",
+  description: "Capture the default visible app window, or select a window returned by list_windows. Explicit selection does not activate the window or switch Spaces; some apps may provide blank content for off-Space windows.",
   inputSchema: {
     app: appTargetSchema,
+    windowId: z.number().int().nonnegative().optional().describe("Window ID returned by list_windows"),
     region: z.object({
       x: z.number().describe("X offset in points from the top-left of the window"),
       y: z.number().describe("Y offset in points from the top-left of the window"),
@@ -306,7 +319,7 @@ server.registerTool("screenshot", {
       height: z.number().describe("Height in points"),
     }).optional().describe("Optional region to crop (in window-relative points)"),
   },
-}, async ({ app, region }) => {
+}, async ({ app, windowId, region }) => {
   return runScreenshotTool(
     {
       connect: (target) => client.connect(target),
@@ -314,6 +327,7 @@ server.registerTool("screenshot", {
     },
     {
       app,
+      windowId,
       region: region ?? undefined,
     }
   );
@@ -324,6 +338,7 @@ server.registerTool("extract_text", {
   inputSchema: {
     app: appTargetSchema.optional().describe("App name or PID (captures a screenshot and runs OCR)"),
     data: z.string().optional().describe("Base64-encoded PNG image to OCR directly (alternative to app)"),
+    windowId: z.number().int().nonnegative().optional().describe("Window ID returned by list_windows"),
     region: z.object({
       x: z.number().describe("X offset in points"),
       y: z.number().describe("Y offset in points"),
@@ -332,17 +347,18 @@ server.registerTool("extract_text", {
     }).optional().describe("Optional region to restrict OCR (only with app, not data)"),
   },
   annotations: { readOnlyHint: true },
-}, async ({ app, data, region }) => {
+}, async ({ app, data, windowId, region }) => {
   if (!app && !data) {
     return { content: [{ type: "text", text: "Provide 'app' or 'data'" }], isError: true };
   }
 
-  const params: { appHandle?: string; data?: string; region?: typeof region } = {};
+  const params: { appHandle?: string; data?: string; windowId?: number; region?: typeof region } = {};
   if (data) {
     params.data = data;
   } else if (app) {
     const handle = await client.connect(app);
     params.appHandle = handle.handle;
+    if (windowId !== undefined) params.windowId = windowId;
     if (region) params.region = region;
   }
 

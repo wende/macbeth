@@ -29,6 +29,7 @@ export type {
   ConnectOptions,
   AppConnectOptions,
   AppInfo,
+  AppWindowInfo,
   AppRuntime,
   AppMatchKind,
   ClickStrategy,

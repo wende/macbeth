@@ -115,6 +115,7 @@ await dispatcher.register(method: "list_apps") { _ in
 }
 
 registerConnectApp(dispatcher: dispatcher, appManager: appManager, glow: glow)
+registerListWindows(dispatcher: dispatcher, appManager: appManager)
 registerQueryTree(dispatcher: dispatcher, appManager: appManager, handleTable: handleTable)
 registerGetElement(dispatcher: dispatcher, appManager: appManager, handleTable: handleTable)
 registerClick(dispatcher: dispatcher, appManager: appManager, handleTable: handleTable, glow: glow)
