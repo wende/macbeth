@@ -4,13 +4,11 @@
 // and posts the response back as a PR comment. Used by ai-pr-review.yml for
 // both Kimi (Moonshot) and GLM (z.ai), which both expose OpenAI-compatible APIs.
 //
-// Scope: on the first run (PR opened/reopened) it reviews the PR's own changes
-// (base...head, i.e. from the merge-base, so commits that landed on the base
-// branch after the PR forked don't leak in). On later pushes (synchronize) it
-// reviews only the new commits
-// (before..head) and lets the model reply "No notable changes" for trivial
-// updates, appending each incremental review as a dated section to the comment.
-// Force-pushes/rebases (before not an ancestor of head) fall back to a full review.
+// Scope: structured reviewers checkpoint the head SHA of their latest submitted
+// GitHub review and inspect checkpoint..head. A cancelled/failed run posts no
+// review, so the next run naturally includes its unreviewed changes. The first
+// run, or a rebase that makes the checkpoint unreachable, reviews base...head.
+// Non-structured reviewers retain the older push-based before..head behavior.
 //
 // Resolved points: on an incremental run with an existing comment ("revise
 // mode"), the model is handed its prior base review and returns only (1) a short
@@ -29,6 +27,13 @@
 
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import {
+  extractReviewHead,
+  latestCompletedReview,
+  pullReviewDisposition,
+  reviewHeadMarker,
+  selectDiffRange,
+} from "./ai-review-state.mjs";
 
 const {
   PROVIDER_NAME = "AI",
@@ -40,8 +45,8 @@ const {
   GITHUB_TOKEN,
   GITHUB_REPOSITORY,
   PR_NUMBER,
-  BASE_SHA,
-  HEAD_SHA,
+  BASE_SHA: EVENT_BASE_SHA = "",
+  HEAD_SHA: EVENT_HEAD_SHA = "",
   ACTION = "", // pull_request action: opened | synchronize | reopened | ...
   BEFORE_SHA = "", // prior head SHA (present on synchronize)
   MAX_DIFF_CHARS = "60000",
@@ -152,7 +157,7 @@ if (!API_KEY) {
 }
 if (!API_BASE || !MODEL) fail("API_BASE and MODEL are required.");
 if (!GITHUB_TOKEN || !GITHUB_REPOSITORY || !PR_NUMBER) fail("Missing GitHub context env vars.");
-if (!BASE_SHA || !HEAD_SHA) fail("Missing BASE_SHA or HEAD_SHA env vars.");
+if (!/^\d+$/.test(PR_NUMBER)) fail(`Invalid PR_NUMBER "${PR_NUMBER}".`);
 
 // Validate numeric env vars up front to avoid NaN propagating to the API.
 const maxDiffChars = parseIntSafe(MAX_DIFF_CHARS, 60000, "MAX_DIFF_CHARS");
@@ -161,6 +166,7 @@ const temperature =
   TEMPERATURE !== "" && Number.isFinite(parseFloat(TEMPERATURE))
     ? parseFloat(TEMPERATURE)
     : undefined;
+const structuredOutput = STRUCTURED_OUTPUT === "true";
 
 // Build the diff, excluding lockfiles and generated bundles.
 // Narrowed to specific lockfile names rather than a blanket *.lock glob so
@@ -173,84 +179,6 @@ const excludes = [
   ":(exclude)**/*.min.*",
   ":(exclude)**/_generated_*",
 ];
-
-// Decide scope: incremental (only new commits) on synchronize when BEFORE_SHA
-// is a real ancestor of HEAD; otherwise a full review of the PR's own changes.
-//
-// The range separator matters. For a full review we use three-dot
-// (BASE_SHA...HEAD_SHA), which diffs from the merge-base of the two commits —
-// only what this PR added since it branched off, matching GitHub's "Files
-// changed" tab. Two-dot (BASE_SHA..HEAD_SHA) would compare the base branch's
-// current tip against HEAD, so any commits that landed on the base branch after
-// the PR forked would show up as spurious reversals in the diff. For the
-// incremental case BEFORE_SHA is a verified ancestor of HEAD, so two-dot is
-// exact and keeps the "new commits only" intent explicit.
-let incremental = false;
-let rangeBase = BASE_SHA;
-let rangeSep = "..."; // three-dot: full review diffs from the merge-base
-if (
-  ACTION === "synchronize" &&
-  /^[0-9a-f]{40}$/.test(BEFORE_SHA) &&
-  !/^0+$/.test(BEFORE_SHA)
-) {
-  try {
-    // Non-zero exit (rebase/force-push, or object missing) throws → full review.
-    execFileSync("git", ["merge-base", "--is-ancestor", BEFORE_SHA, HEAD_SHA], {
-      stdio: "ignore",
-    });
-    rangeBase = BEFORE_SHA;
-    rangeSep = ".."; // two-dot: BEFORE_SHA is a verified ancestor of HEAD
-    incremental = true;
-  } catch {
-    incremental = false;
-  }
-}
-
-const diffRange = `${rangeBase}${rangeSep}${HEAD_SHA}`;
-
-let diff;
-try {
-  diff = execFileSync(
-    "git",
-    // diffRange is three-dot for a full review (diff from the merge-base, so the
-    // PR's own changes) and two-dot for an incremental review (BEFORE_SHA..HEAD).
-    ["diff", diffRange, "--", ".", ...excludes],
-    { encoding: "utf8", maxBuffer: 1024 * 1024 * 50 }
-  );
-} catch (e) {
-  fail(`git diff failed: ${e.message}`);
-}
-
-if (!diff.trim()) {
-  console.log(`[${PROVIDER_NAME}] Empty diff after exclusions; nothing to review.`);
-  process.exit(0);
-}
-
-let truncated = false;
-let diffStat = "";
-if (diff.length > maxDiffChars) {
-  // Truncate at the last newline within the limit so we never split a line
-  // mid-character or mid-hunk, which would produce a malformed diff.
-  let sliced = diff.slice(0, maxDiffChars);
-  const lastNewline = sliced.lastIndexOf("\n");
-  if (lastNewline > 0) sliced = sliced.slice(0, lastNewline);
-  diff = sliced;
-  truncated = true;
-  // Include a file-level summary so the model knows what was omitted.
-  try {
-    diffStat = execFileSync(
-      "git",
-      ["diff", diffRange, "--stat", "--", ".", ...excludes],
-      { encoding: "utf8", maxBuffer: 1024 * 1024 * 5 }
-    );
-  } catch {
-    diffStat = "";
-  }
-}
-
-const truncationNote = truncated
-  ? ` (Diff was truncated to fit the context limit. Below is a summary of all changed files for context, followed by the truncated diff.)\n\n**Changed files:**\n\`\`\`\n${diffStat.trim()}\n\`\`\``
-  : "";
 
 // --- Fetch helpers -------------------------------------------------------
 
@@ -293,10 +221,6 @@ async function fetchWithRetry(url, options, retries = MAX_RETRIES) {
 
 const [owner, repo] = GITHUB_REPOSITORY.split("/");
 const marker = `<!-- ai-review:${PROVIDER_NAME} -->`;
-const header = `${marker}\n## 🤖 ${PROVIDER_NAME} review — \`${MODEL}\``;
-const truncNote = truncated
-  ? "\n\n> ⚠️ The diff was truncated; some changes were not reviewed."
-  : "";
 
 // Unique HTML-comment sentinel separating the base review from each dated
 // update section, so model-generated "### Update " text can't corrupt splits.
@@ -308,6 +232,154 @@ const ghHeaders = {
   Accept: "application/vnd.github+json",
   "Content-Type": "application/json",
 };
+
+async function fetchCurrentPull() {
+  const res = await fetchWithRetry(
+    `${apiBase}/repos/${owner}/${repo}/pulls/${PR_NUMBER}`,
+    { headers: ghHeaders }
+  );
+  if (!res.ok) {
+    fail(`Failed to load current PR state: ${res.status} ${res.statusText}`);
+  }
+  return res.json();
+}
+
+// A submitted GitHub review is the durable completion record. Workflow runs
+// that time out or are cancelled before posting never appear here, so they
+// cannot accidentally advance the diff checkpoint.
+async function findLatestCompletedStructuredReview() {
+  const reviews = [];
+  let page = 1;
+  while (true) {
+    const res = await fetchWithRetry(
+      `${apiBase}/repos/${owner}/${repo}/pulls/${PR_NUMBER}/reviews?per_page=100&page=${page}`,
+      { headers: ghHeaders }
+    );
+    if (!res.ok) {
+      fail(`Failed to list prior PR reviews: ${res.status} ${res.statusText}`);
+    }
+    const batch = await res.json();
+    if (!Array.isArray(batch) || batch.length === 0) break;
+    reviews.push(...batch);
+    if (batch.length < 100) break;
+    page++;
+  }
+  return latestCompletedReview(reviews, marker);
+}
+
+// Event payloads are immutable when a run is retried. Always use live PR state
+// so rerunning an "opened as draft" event after ready_for_review does real work.
+const currentPull = await fetchCurrentPull();
+const disposition = pullReviewDisposition(currentPull);
+if (!disposition.review) {
+  console.log(`[${PROVIDER_NAME}] ${disposition.reason}; skipping review.`);
+  process.exit(0);
+}
+const BASE_SHA = EVENT_BASE_SHA || currentPull.base?.sha || "";
+const HEAD_SHA = EVENT_HEAD_SHA || currentPull.head?.sha || "";
+if (!BASE_SHA || !HEAD_SHA) fail("Missing BASE_SHA or HEAD_SHA.");
+if (EVENT_HEAD_SHA && currentPull.head?.sha && currentPull.head.sha !== HEAD_SHA) {
+  console.log(
+    `[${PROVIDER_NAME}] Run head ${HEAD_SHA.slice(0, 7)} is stale; current PR head is ` +
+    `${currentPull.head.sha.slice(0, 7)}. A newer run will review it.`
+  );
+  process.exit(0);
+}
+
+// Structured reviewers checkpoint at the head SHA of their latest submitted
+// review, not github.event.before. This makes a later run cover every change
+// since the last completed review even if intermediate runs were cancelled.
+// Legacy reviews did not embed a marker, so GitHub's review.commit_id is used.
+let checkpointCandidate = "";
+let previousStructuredReview = null;
+if (structuredOutput) {
+  previousStructuredReview = await findLatestCompletedStructuredReview();
+  checkpointCandidate = extractReviewHead(previousStructuredReview) || "";
+}
+const isAncestor = (ancestor, head) => {
+  try {
+    execFileSync("git", ["merge-base", "--is-ancestor", ancestor, head], {
+      stdio: "ignore",
+    });
+    return true;
+  } catch {
+    return false;
+  }
+};
+const {
+  incremental,
+  rangeBase,
+  rangeSep,
+  checkpointSha,
+  rejectedCheckpoint,
+} = selectDiffRange({
+  structured: structuredOutput,
+  baseSha: currentPull.base?.sha || BASE_SHA,
+  headSha: HEAD_SHA,
+  checkpointSha: checkpointCandidate,
+  action: ACTION,
+  beforeSha: BEFORE_SHA,
+  isAncestor,
+});
+if (checkpointSha) {
+  console.log(
+    `[${PROVIDER_NAME}] Reviewing all changes since completed review at ` +
+    `${checkpointSha.slice(0, 7)}.`
+  );
+} else if (rejectedCheckpoint) {
+  console.warn(
+    `[${PROVIDER_NAME}] Last reviewed head ${checkpointCandidate.slice(0, 7)} is not ` +
+    "an ancestor of the current head (rebase/force-push); reviewing the full PR."
+  );
+}
+
+const diffRange = `${rangeBase}${rangeSep}${HEAD_SHA}`;
+let diff;
+try {
+  diff = execFileSync("git", ["diff", diffRange, "--", ".", ...excludes], {
+    encoding: "utf8",
+    maxBuffer: 1024 * 1024 * 50,
+  });
+} catch (e) {
+  fail(`git diff failed: ${e.message}`);
+}
+
+if (!diff.trim()) {
+  const reason = checkpointSha === HEAD_SHA
+    ? `Head ${HEAD_SHA.slice(0, 7)} was already reviewed`
+    : "Empty diff after exclusions";
+  console.log(`[${PROVIDER_NAME}] ${reason}; nothing to review.`);
+  process.exit(0);
+}
+
+let truncated = false;
+let diffStat = "";
+if (diff.length > maxDiffChars) {
+  let sliced = diff.slice(0, maxDiffChars);
+  const lastNewline = sliced.lastIndexOf("\n");
+  if (lastNewline > 0) sliced = sliced.slice(0, lastNewline);
+  diff = sliced;
+  truncated = true;
+  try {
+    diffStat = execFileSync(
+      "git",
+      ["diff", diffRange, "--stat", "--", ".", ...excludes],
+      { encoding: "utf8", maxBuffer: 1024 * 1024 * 5 }
+    );
+  } catch {
+    diffStat = "";
+  }
+}
+
+const truncationNote = truncated
+  ? ` (Diff was truncated to fit the context limit. Below is a summary of all changed files for context, followed by the truncated diff.)\n\n**Changed files:**\n\`\`\`\n${diffStat.trim()}\n\`\`\``
+  : "";
+const header =
+  `${marker}\n${reviewHeadMarker(HEAD_SHA)}\n` +
+  `## 🤖 ${PROVIDER_NAME} review — \`${MODEL}\``;
+const truncNote = truncated
+  ? "\n\n> ⚠️ The diff was truncated; some changes were not reviewed."
+  : "";
 
 // Find an existing comment from this reviewer, paginating through all pages
 // so the marker is found even on PRs with >100 comments.
@@ -344,6 +416,10 @@ function stripHeader(fullBody) {
   const lines = fullBody.split("\n");
   let i = 0;
   if (lines[i] !== undefined && lines[i].trim() === marker) i++;
+  if (
+    lines[i] !== undefined &&
+    /^<!-- ai-review-head:[0-9a-f]{40} -->$/.test(lines[i].trim())
+  ) i++;
   if (lines[i] !== undefined && lines[i].startsWith("## ")) i++;
   while (i < lines.length && lines[i].trim() === "") i++;
   return lines.slice(i).join("\n");
@@ -452,8 +528,6 @@ function applyStrikes(base, snippets, sha) {
   return { base: lines.join("\n"), count };
 }
 
-const structuredOutput = STRUCTURED_OUTPUT === "true";
-
 // Structured reviews are posted as real PR reviews (not issue comments), so the
 // existing-comment lookup and revise machinery below are irrelevant to them.
 const existing = structuredOutput ? null : await findExistingComment();
@@ -511,12 +585,25 @@ if (reviseMode) {
     "\n```";
 } else {
   const scopeNote = incremental
-    ? "This is an UPDATE to a pull request you have already reviewed. Below is only " +
-      "the diff of the new commits pushed since your last review. Focus on these " +
-      `changes. ${newCommitsNote}`
+    ? structuredOutput
+      ? "This is an UPDATE to a pull request you previously reviewed. Review every " +
+        "change since the last COMPLETED review checkpoint—not merely the latest " +
+        "commit. The previous review is context only: use it to understand follow-up " +
+        "fixes, but report findings based on the accumulated diff below. " +
+        newCommitsNote
+      : "This is an UPDATE to a pull request you have already reviewed. Below is only " +
+        "the diff of the new commits pushed since your last review. Focus on these " +
+        `changes. ${newCommitsNote}`
     : "Review this pull request diff.";
+  const previousReviewContext =
+    structuredOutput && incremental && previousStructuredReview?.body
+      ? "\n\n=== PREVIOUS COMPLETED REVIEW (CONTEXT ONLY) ===\n" +
+        stripHeader(previousStructuredReview.body).slice(0, 12000) +
+        "\n\n=== ALL CHANGES SINCE THAT REVIEW ==="
+      : "";
   userContent =
-    `${scopeNote}${truncationNote}\n\n` + "```diff\n" + diff + "\n```";
+    `${scopeNote}${previousReviewContext}${truncationNote}\n\n` +
+    "```diff\n" + diff + "\n```";
 }
 
 // --- Call the OpenAI-compatible chat-completions endpoint -----------------
@@ -621,7 +708,9 @@ if (structuredOutput) {
       body: renderComment(c),
     }));
 
-  const scopeNote = incremental ? " · _incremental review of new commits_" : "";
+  const scopeNote = incremental
+    ? ` · _changes since completed review at ${checkpointSha.slice(0, 7)}_`
+    : "";
   const bodyBase = `${header}\n\n**Verdict:** ${label}${scopeNote}\n\n${summary}${truncNote}`;
   const findingsList = comments.length
     ? "\n\n### Findings\n\n" +

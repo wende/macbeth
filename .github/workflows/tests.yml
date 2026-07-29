@@ -26,6 +26,9 @@ jobs:
       - name: Run client tests
         run: npm --workspace client test
 
+      - name: Run AI review state tests
+        run: node --test .github/scripts/ai-review-state.test.mjs
+
   daemon:
     name: Daemon Tests
     runs-on: macos-14
