@@ -1,6 +1,9 @@
 name: OpenHands PR Review
 
 on:
+  # Review same-repository PRs automatically, including drafts. Every push
+  # emits `synchronize`, and the concurrency group cancels an obsolete run.
+  # Fork PRs are skipped because `pull_request` does not expose model secrets.
   pull_request:
     types: [opened, reopened, ready_for_review, synchronize]
 
