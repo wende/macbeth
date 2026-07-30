@@ -20,7 +20,10 @@ func emit(_ application: NSRunningApplication?) {
 }
 
 let workspace = NSWorkspace.shared
-let observer = workspace.notificationCenter.addObserver(
+// Retained for process lifetime; the parent demo SIGTERMs this process when
+// measurement ends, and the OS tears the observer down on exit.
+// RunLoop.main.run() never returns under normal use.
+_ = workspace.notificationCenter.addObserver(
     forName: NSWorkspace.didActivateApplicationNotification,
     object: nil,
     queue: .main
@@ -31,6 +34,4 @@ let observer = workspace.notificationCenter.addObserver(
 }
 
 emit(workspace.frontmostApplication)
-// Intentional: the parent demo SIGTERMs this process when measurement ends.
-// RunLoop.main.run() never returns; the OS tears down the observer on exit.
 RunLoop.main.run()
