@@ -23,6 +23,8 @@ jobs:
       github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-24.04
     timeout-minutes: 35
+    # Advisory only: model or third-party API failures must not block a PR.
+    continue-on-error: true
 
     steps:
       - name: Review with OpenHands and MiniMax
