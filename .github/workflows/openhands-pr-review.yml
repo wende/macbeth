@@ -1,0 +1,36 @@
+name: OpenHands PR Review
+
+on:
+  # Review same-repository PRs automatically, including drafts. Every push
+  # emits `synchronize`, and the concurrency group cancels an obsolete run.
+  # Fork PRs are skipped because `pull_request` does not expose model secrets.
+  pull_request:
+    types: [opened, reopened, ready_for_review, synchronize]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: openhands-pr-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    name: OpenHands Review
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    # Advisory only: model or third-party API failures must not block a PR.
+    continue-on-error: true
+
+    steps:
+      - name: Review with OpenHands and MiniMax
+        uses: wende/agentic-pr-review@7c6c9079dcd8c4779b4521d547d25b01b58a5e3c # v1.1.0
+        with:
+          llm-model: ${{ vars.AGENTIC_REVIEW_MODEL || 'openai/MiniMax-M3' }}
+          llm-base-url: ${{ vars.AGENTIC_REVIEW_BASE_URL || 'https://api.minimax.io/v1' }}
+          llm-api-key: ${{ secrets.MINIMAX_API_KEY }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}

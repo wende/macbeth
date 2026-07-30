@@ -26,17 +26,27 @@ func registerScreenshot(
                 throw RPCError.appNotFound("Invalid app handle: \(appHandle)")
             }
 
+            let selectedWindowID = obj["windowId"]?.intValue
             let content: SCShareableContent
             do {
-                content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+                // Preserve legacy selection for callers that omit windowId.
+                // Explicit selection needs the all-Spaces catalog returned by
+                // list_windows and never activates or moves the target window.
+                content = try await SCShareableContent.excludingDesktopWindows(
+                    false,
+                    onScreenWindowsOnly: selectedWindowID == nil
+                )
             } catch {
                 throw screenCaptureContentError(error)
             }
 
-            let appWindows = content.windows.filter { $0.owningApplication?.processID == conn.pid }
-
-            guard let targetWindow = appWindows.first else {
-                throw RPCError.elementNotFound("No visible windows for app (PID: \(conn.pid))")
+            let targetWindow: SCWindow
+            if let selectedWindowID {
+                targetWindow = try resolveSelectedWindow(
+                    in: content, ownedBy: conn.pid, windowID: selectedWindowID)
+            } else {
+                targetWindow = try resolveDefaultWindow(
+                    in: content, ownedBy: conn.pid)
             }
 
             // Capture is scoped to a single window owned by the *target* app.
@@ -62,12 +72,13 @@ func registerScreenshot(
             // Outline/activity stay frontmost-only (honest chrome). The capture
             // scan/snap always runs so demos and external recordings still show
             // which window is being captured when a recorder holds frontmost.
+            let ownerPID = targetWindow.owningApplication?.processID ?? conn.pid
             let isFrontmost = ElementGeometry.isFrontmostWindow(
-                pid: conn.pid,
+                pid: ownerPID,
                 windowNumber: Int(targetWindow.windowID)
             )
             let windowID = ElementGeometry.windowIdentity(
-                pid: conn.pid, windowNumber: Int(targetWindow.windowID)
+                pid: ownerPID, windowNumber: Int(targetWindow.windowID)
             )
             let captureAnimation = await glow.captureStarted(
                 windowID: windowID,

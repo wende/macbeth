@@ -31,8 +31,11 @@ private func makeConnection(pid: pid_t, handleId: String) -> AppConnectionManage
         appElement: SendableElement(AXUIElementCreateSystemWide()),
         bundleId: "com.example.app\(pid)",
         appName: "App \(pid)",
+        aliases: [],
         handleId: handleId,
-        runtime: .native
+        runtime: .native,
+        manualAccessibilityStatus: "not_attempted",
+        webContentReadiness: nil
     )
 }
 

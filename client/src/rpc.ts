@@ -74,14 +74,15 @@ export class JsonRpcClient {
 
   async call<T = unknown>(
     method: string,
-    params?: Record<string, unknown>
+    params?: Record<string, unknown>,
+    options?: { timeoutMs?: number },
   ): Promise<T> {
     try {
-      return await this.callOnce<T>(method, params);
+      return await this.callOnce<T>(method, params, options?.timeoutMs);
     } catch (err: unknown) {
       if (this.onReconnect && isConnectionError(err)) {
         await this.onReconnect();
-        return await this.callOnce<T>(method, params);
+        return await this.callOnce<T>(method, params, options?.timeoutMs);
       }
       throw err;
     }
@@ -89,7 +90,8 @@ export class JsonRpcClient {
 
   private async callOnce<T = unknown>(
     method: string,
-    params?: Record<string, unknown>
+    params?: Record<string, unknown>,
+    timeoutMs?: number,
   ): Promise<T> {
     if (!this.socket) {
       throw new Error("Not connected");
@@ -106,8 +108,9 @@ export class JsonRpcClient {
     return new Promise<T>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
-        reject(new Error(`Request timeout: ${method} (${this.requestTimeout}ms)`));
-      }, this.requestTimeout);
+        const effectiveTimeout = timeoutMs ?? this.requestTimeout;
+        reject(new Error(`Request timeout: ${method} (${effectiveTimeout}ms)`));
+      }, timeoutMs ?? this.requestTimeout);
 
       this.pending.set(id, {
         resolve: resolve as (value: unknown) => void,

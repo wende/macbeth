@@ -57,6 +57,8 @@ function formatError(prefix: string, err: unknown): string {
     if (err.data && typeof err.data === "object") {
       const d = err.data as Record<string, unknown>;
       if (d.osaErrorNumber != null) msg += ` (OSA error ${d.osaErrorNumber})`;
+      if (d.phase != null) msg += ` (phase: ${d.phase})`;
+      if (d.durationMs != null) msg += ` (duration: ${d.durationMs}ms)`;
     }
     return msg;
   }
@@ -104,7 +106,11 @@ server.registerTool("list_apps", {
 }, async () => {
   const apps = await client.listApps();
   const text = apps
-    .map((a) => `${a.name} (pid: ${a.pid}, ${a.runtime})`)
+    .map((a) => {
+      const bundle = a.bundleId ? `, bundle: ${a.bundleId}` : "";
+      const aliases = a.aliases?.length ? `, aliases: ${a.aliases.join(", ")}` : "";
+      return `${a.name} (pid: ${a.pid}, runtime: ${a.runtime}${bundle}${aliases})`;
+    })
     .join("\n");
   return { content: [{ type: "text", text }] };
 });
@@ -136,7 +142,7 @@ server.registerTool("end_activity", {
 });
 
 server.registerTool("connect_app", {
-  description: "Connect to a macOS app by name or PID. Returns an app handle for subsequent calls.",
+  description: "Connect to a macOS app by name, declared bundle alias, bundle identifier, or PID. Reports exactly how the target resolved and whether Chromium accessibility content became ready.",
   inputSchema: {
     name: z.string().optional().describe("App name (fuzzy match)"),
     pid: z.number().optional().describe("Process ID"),
@@ -148,16 +154,22 @@ server.registerTool("connect_app", {
     return { content: [{ type: "text", text: "Error: provide 'name' or 'pid'" }], isError: true };
   }
   const app = await client.connect(target, readyTimeoutMs === undefined ? undefined : { readyTimeoutMs });
+  const requested = typeof target === "string" ? `Requested “${target}” → ` : "";
+  const bundle = app.bundleId ? `, bundle: ${app.bundleId}` : "";
+  const aliases = app.aliases.length ? `, aliases: ${app.aliases.join(", ")}` : "";
+  const accessibility = app.runtime === "electron"
+    ? `, manualAccessibility: ${app.manualAccessibility}, webContent: ${app.webContentReadiness}`
+    : "";
   return {
     content: [{
       type: "text",
-      text: `Connected to ${app.name} (pid: ${app.pid}, runtime: ${app.runtime}, handle: ${app["appHandle"]})`,
+      text: `${requested}${app.name} (match: ${app.matchKind} via ${app.matchedValue}, pid: ${app.pid}, runtime: ${app.runtime}${bundle}${aliases}${accessibility}, handle: ${app.handle})`,
     }],
   };
 });
 
 server.registerTool("query_tree", {
-  description: "Get the accessibility tree of a connected app as indented text. Use this first to discover element roles, titles, and identifiers before building queries.",
+  description: "Get an app's accessibility tree, including its menu hierarchy. Use this first; it connects automatically, so a separate connect_app or list_menu_bar call is unnecessary. If Chromium web content is empty, the result explains available screenshot/OCR/menu/keyboard fallbacks.",
   inputSchema: {
     app: appTargetSchema,
     maxDepth: z.number().optional().default(5).describe("Maximum depth to traverse (default: 5)"),
@@ -166,8 +178,23 @@ server.registerTool("query_tree", {
   },
 }, async ({ app, maxDepth, format, includeInvisible }) => {
   const handle = await client.connect(app);
-  const tree = await handle.queryTree({ maxDepth, format, includeInvisible });
-  return { content: [{ type: "text", text: tree }] };
+  const result = await handle.queryTreeDetailed({ maxDepth, format, includeInvisible });
+  const warning = result.diagnostics?.warning
+    ? `Warning [degraded_accessibility]: ${result.diagnostics.warning}\n\n`
+    : "";
+  return { content: [{ type: "text", text: warning + result.tree }] };
+});
+
+server.registerTool("list_windows", {
+  description: "List WindowServer surfaces owned by an app or its helper processes across macOS Spaces. Returns window IDs, titles, frames, visibility, and whether each surface is capturable. This is read-only and does not activate windows or switch Spaces.",
+  inputSchema: {
+    app: appTargetSchema,
+  },
+  annotations: { readOnlyHint: true },
+}, async ({ app }) => {
+  const handle = await client.connect(app);
+  const windows = await handle.listWindows();
+  return { content: [{ type: "text", text: JSON.stringify({ windows }, null, 2) }] };
 });
 
 server.registerTool("click", {
@@ -231,7 +258,7 @@ server.registerTool("wait_for", {
 }, async ({ app, query, handleId, timeout, pollMs, condition }) => {
   const handle = await client.connect(app);
   const params: Record<string, unknown> = {
-    appHandle: (handle as any).appHandle,
+    appHandle: handle.handle,
     timeout: timeout ?? 30,
   };
   if (query) params.query = query;
@@ -281,9 +308,10 @@ server.registerTool("press_keys", {
 });
 
 server.registerTool("screenshot", {
-  description: "Capture a screenshot of an app window, optionally cropped to a region. Saves it to a temporary PNG file and returns the path.",
+  description: "Capture the default visible app window, or select a window returned by list_windows. Explicit selection does not activate the window or switch Spaces; some apps may provide blank content for off-Space windows.",
   inputSchema: {
     app: appTargetSchema,
+    windowId: z.number().int().nonnegative().optional().describe("Window ID returned by list_windows"),
     region: z.object({
       x: z.number().describe("X offset in points from the top-left of the window"),
       y: z.number().describe("Y offset in points from the top-left of the window"),
@@ -291,7 +319,7 @@ server.registerTool("screenshot", {
       height: z.number().describe("Height in points"),
     }).optional().describe("Optional region to crop (in window-relative points)"),
   },
-}, async ({ app, region }) => {
+}, async ({ app, windowId, region }) => {
   return runScreenshotTool(
     {
       connect: (target) => client.connect(target),
@@ -299,6 +327,7 @@ server.registerTool("screenshot", {
     },
     {
       app,
+      windowId,
       region: region ?? undefined,
     }
   );
@@ -309,6 +338,7 @@ server.registerTool("extract_text", {
   inputSchema: {
     app: appTargetSchema.optional().describe("App name or PID (captures a screenshot and runs OCR)"),
     data: z.string().optional().describe("Base64-encoded PNG image to OCR directly (alternative to app)"),
+    windowId: z.number().int().nonnegative().optional().describe("Window ID returned by list_windows"),
     region: z.object({
       x: z.number().describe("X offset in points"),
       y: z.number().describe("Y offset in points"),
@@ -317,17 +347,18 @@ server.registerTool("extract_text", {
     }).optional().describe("Optional region to restrict OCR (only with app, not data)"),
   },
   annotations: { readOnlyHint: true },
-}, async ({ app, data, region }) => {
+}, async ({ app, data, windowId, region }) => {
   if (!app && !data) {
     return { content: [{ type: "text", text: "Provide 'app' or 'data'" }], isError: true };
   }
 
-  const params: { appHandle?: string; data?: string; region?: typeof region } = {};
+  const params: { appHandle?: string; data?: string; windowId?: number; region?: typeof region } = {};
   if (data) {
     params.data = data;
   } else if (app) {
     const handle = await client.connect(app);
-    params.appHandle = (handle as any).appHandle;
+    params.appHandle = handle.handle;
+    if (windowId !== undefined) params.windowId = windowId;
     if (region) params.region = region;
   }
 
@@ -429,29 +460,21 @@ server.registerTool("read_form", {
 });
 
 server.registerTool("select_menu_item", {
-  description: "Select a menu bar item by path (e.g. [\"Track\", \"New Audio Track\"]). Uses System Events — no focus stealing, no intermediate clicks. Prefer this over click for menu bar actions.",
+  description: "Select a native menu bar item by path (e.g. [\"Track\", \"New Audio Track\"]). Uses the Accessibility API directly, accepts a fuzzy app name or PID, and does not steal focus.",
   inputSchema: {
-    app: z.string().describe("App name (must match the process name in System Events)"),
-    menuPath: z.array(z.string()).min(1).describe('Menu path from menu bar, e.g. ["File", "Save"] or ["Track", "New Audio Track"]'),
+    app: appTargetSchema,
+    menuPath: z.array(z.string()).min(2).describe('Menu path from menu bar, e.g. ["File", "Save"] or ["Track", "New Audio Track"]'),
   },
 }, async ({ app, menuPath }) => {
   return withActivity(async () => {
-    const [topMenu, ...items] = menuPath;
-    if (items.length === 0) {
+    if (menuPath.length < 2) {
       return { content: [{ type: "text" as const, text: "menuPath must have at least 2 elements (menu bar item + menu item)" }], isError: true };
     }
 
-    // Build the AppleScript chain: menu item "X" of menu 1 of menu bar item "Y" of menu bar 1
-    let chain = `menu bar item "${topMenu}" of menu bar 1`;
-    for (const item of items) {
-      chain = `menu item "${item}" of menu 1 of ${chain}`;
-    }
-
-    const source = `tell application "System Events"\ntell process "${app}"\nclick ${chain}\nend tell\nend tell`;
-
     try {
-      await client.runAppleScript(source);
-      return { content: [{ type: "text" as const, text: `Selected: ${menuPath.join(" > ")}` }] };
+      const handle = await client.connect(app);
+      const selected = await handle.selectMenuItem(menuPath);
+      return { content: [{ type: "text" as const, text: `Selected: ${selected}` }] };
     } catch (err: unknown) {
       return { content: [{ type: "text" as const, text: formatError("Menu action failed", err) }], isError: true };
     }
@@ -459,45 +482,15 @@ server.registerTool("select_menu_item", {
 });
 
 server.registerTool("list_menu_bar", {
-  description: "List the full menu bar hierarchy of an app — all menus, items, and submenus — without opening any menus. Use this to discover exact menu item names for select_menu_item.",
+  description: "Return a menu-only Accessibility view. query_tree already includes menus, so use this only when that menu section was omitted, truncated, or a compact menu-only result is needed.",
   inputSchema: {
-    app: z.string().describe("App process name"),
+    app: appTargetSchema,
   },
   annotations: { readOnlyHint: true },
-}, async ({ app: appName }) => {
-  const escaped = appName.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-  // Bulk-fetch .name() and .enabled() per menu to minimize Apple Event round-trips
-  const script = `
-const se = Application("System Events");
-const proc = se.processes.byName("${escaped}");
-const menuBar = proc.menuBars[0];
-function walkMenu(menu, depth) {
-  if (depth > 3) return "";
-  let result = "";
-  const indent = "  ".repeat(depth);
-  let names, enableds;
-  try { names = menu.menuItems.name(); enableds = menu.menuItems.enabled(); } catch(e) { return ""; }
-  for (let i = 0; i < names.length; i++) {
-    if (!names[i]) { result += indent + "---\\n"; continue; }
-    result += indent + names[i] + (enableds[i] ? "" : " [disabled]") + "\\n";
-    try {
-      const subs = menu.menuItems[i].menus();
-      if (subs.length > 0) result += walkMenu(subs[0], depth + 1);
-    } catch(e) {}
-  }
-  return result;
-}
-let output = "";
-const barNames = menuBar.menuBarItems.name();
-for (let i = 0; i < barNames.length; i++) {
-  if (barNames[i] === "Apple") continue;
-  output += barNames[i] + "\\n";
-  try { output += walkMenu(menuBar.menuBarItems[i].menus[0], 1); } catch(e) {}
-}
-output;`;
-
+}, async ({ app }) => {
   try {
-    const output = await client.runAppleScript(script, "JavaScript", { interactive: false });
+    const handle = await client.connect(app);
+    const output = await handle.listMenuBar();
     return { content: [{ type: "text", text: output || "No menu items found." }] };
   } catch (err: unknown) {
     return { content: [{ type: "text", text: formatError("Failed to list menu bar", err) }], isError: true };
@@ -510,18 +503,16 @@ server.registerTool("run_applescript", {
     source: z.string().describe("Script source code"),
     language: z.enum(["AppleScript", "JavaScript"]).optional().default("AppleScript").describe("Script language (default: AppleScript)"),
     interaction: z.enum(["interactive", "read_only"]).optional().default("interactive").describe("Whether the script can control apps/input or only inspect state"),
-    timeout: z.number().optional().default(30).describe("Timeout in seconds (default: 30)"),
+    timeout: z.number().positive().max(300).optional().default(30).describe("Hard timeout in seconds (default: 30, max: 300)"),
   },
 }, async ({ source, language, interaction, timeout }) => {
   const execute = async () => {
     const timeoutMs = (timeout ?? 30) * 1000;
     try {
-      const output = await Promise.race([
-        client.runAppleScript(source, language, { interactive: interaction !== "read_only" }),
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error(`Script timed out after ${timeout ?? 30}s`)), timeoutMs)
-        ),
-      ]);
+      const output = await client.runAppleScript(source, language, {
+        interactive: interaction !== "read_only",
+        timeoutMs,
+      });
       return { content: [{ type: "text" as const, text: output || "(no output)" }] };
     } catch (err: unknown) {
       return { content: [{ type: "text" as const, text: formatError("Script failed", err) }], isError: true };

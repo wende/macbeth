@@ -115,6 +115,7 @@ await dispatcher.register(method: "list_apps") { _ in
 }
 
 registerConnectApp(dispatcher: dispatcher, appManager: appManager, glow: glow)
+registerListWindows(dispatcher: dispatcher, appManager: appManager)
 registerQueryTree(dispatcher: dispatcher, appManager: appManager, handleTable: handleTable)
 registerGetElement(dispatcher: dispatcher, appManager: appManager, handleTable: handleTable)
 registerClick(dispatcher: dispatcher, appManager: appManager, handleTable: handleTable, glow: glow)
@@ -124,6 +125,7 @@ registerPressKeys(dispatcher: dispatcher, appManager: appManager, glow: glow)
 registerWaitFor(dispatcher: dispatcher, appManager: appManager, handleTable: handleTable)
 registerScreenshot(dispatcher: dispatcher, appManager: appManager, glow: glow)
 registerRunAppleScript(dispatcher: dispatcher, glow: glow)
+registerMenuBarMethods(dispatcher: dispatcher, appManager: appManager)
 registerReadForm(dispatcher: dispatcher, appManager: appManager, handleTable: handleTable)
 registerExtractText(dispatcher: dispatcher, appManager: appManager, handleTable: handleTable, glow: glow)
 registerGlowActivity(dispatcher: dispatcher, glow: glow)

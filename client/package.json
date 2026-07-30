@@ -1,6 +1,6 @@
 {
   "name": "macbeth",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "mcpName": "io.github.wende/macbeth",
   "description": "Open-source Computer Use for macOS. See and operate Mac applications through MCP or TypeScript, including native and Electron interfaces.",
   "keywords": [

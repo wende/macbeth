@@ -42,10 +42,29 @@ export interface RunAppleScriptParams {
   language?: "AppleScript" | "JavaScript";
   /** Defaults to true because arbitrary scripts may control applications. */
   interactive?: boolean;
+  /** Hard daemon-side execution timeout in milliseconds. */
+  timeoutMs?: number;
 }
 
 export interface RunAppleScriptResult {
   output: string;
+}
+
+export interface ListMenuBarParams {
+  appHandle: string;
+}
+
+export interface ListMenuBarResult {
+  menu: string;
+}
+
+export interface SelectMenuItemParams {
+  appHandle: string;
+  menuPath: string[];
+}
+
+export interface SelectMenuItemResult {
+  selected: string;
 }
 
 export type AppRuntime = "native" | "electron" | "unknown";
@@ -54,6 +73,7 @@ export interface AppInfo {
   name: string;
   pid: number;
   bundleId: string | null;
+  aliases: string[];
   runtime: AppRuntime;
 }
 
@@ -71,7 +91,39 @@ export interface ConnectAppResult {
   name: string;
   pid: number;
   bundleId: string | null;
+  aliases: string[];
   runtime: AppRuntime;
+  requestedName: string | null;
+  matchKind: "pid" | "exact_name" | "declared_alias" | "bundle_identifier" | "partial_name" | "partial_alias" | "partial_bundle_identifier";
+  matchedValue: string;
+  manualAccessibility: string;
+  webContentReadiness: "ready" | "empty_web_area" | "no_web_area" | null;
+}
+
+// list_windows
+export interface ListWindowsParams {
+  appHandle: string;
+}
+
+export type WindowKind = "window" | "bookkeeping" | "menu_bar" | "overlay";
+
+export interface AppWindowInfo {
+  windowId: number;
+  ownerPid: number | null;
+  ownerName: string | null;
+  bundleId: string | null;
+  title: string | null;
+  frame: { x: number; y: number; width: number; height: number };
+  layer: number;
+  onScreen: boolean;
+  active: boolean;
+  capturable: boolean;
+  kind: WindowKind;
+  default: boolean;
+}
+
+export interface ListWindowsResult {
+  windows: AppWindowInfo[];
 }
 
 // query_tree
@@ -84,6 +136,13 @@ export interface QueryTreeParams {
 
 export interface QueryTreeResult {
   tree: string | AXNodeJSON;
+  diagnostics: TreeDiagnostics;
+}
+
+export interface TreeDiagnostics {
+  runtime: AppRuntime;
+  webContent: "ready" | "empty_web_area" | "no_web_area";
+  warning?: string;
 }
 
 export interface AXNodeJSON {
@@ -198,7 +257,8 @@ export interface PressKeysParams {
 // screenshot
 export interface ScreenshotParams {
   appHandle: string;
-  windowHandle?: string;
+  /** WindowServer ID from list_windows. Omitting uses the default visible window. */
+  windowId?: number;
   region?: { x: number; y: number; width: number; height: number };
 }
 
@@ -239,6 +299,8 @@ export interface ReadFormResult {
 export interface ExtractTextParams {
   appHandle?: string;
   data?: string; // base64 PNG
+  /** WindowServer ID from list_windows. Omitting uses the default visible window. */
+  windowId?: number;
   region?: { x: number; y: number; width: number; height: number };
 }
 

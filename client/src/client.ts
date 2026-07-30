@@ -15,6 +15,10 @@ import type {
   ClickStrategy,
   FillStrategy,
   FormField,
+  AppMatchKind,
+  QueryTreeDetailedResult,
+  TreeDiagnostics,
+  AppWindowInfo,
 } from "./types.js";
 
 /**
@@ -26,47 +30,99 @@ export class AppHandle extends Locator {
   readonly name: string;
   readonly pid: number;
   readonly bundleId: string | null;
+  readonly aliases: string[];
   readonly runtime: AppRuntime;
+  readonly requestedName: string | null;
+  readonly matchKind: AppMatchKind;
+  readonly matchedValue: string;
+  readonly manualAccessibility: string;
+  readonly webContentReadiness: TreeDiagnostics["webContent"] | null;
 
   constructor(
     rpc: JsonRpcClient,
     appHandle: string,
-    info: { name: string; pid: number; bundleId: string | null; runtime?: AppRuntime },
+    info: {
+      name: string;
+      pid: number;
+      bundleId: string | null;
+      aliases?: string[];
+      runtime?: AppRuntime;
+      requestedName?: string | null;
+      matchKind?: AppMatchKind;
+      matchedValue?: string;
+      manualAccessibility?: string;
+      webContentReadiness?: TreeDiagnostics["webContent"] | null;
+    },
     options?: { timeout?: number }
   ) {
     super(rpc, appHandle, [], options);
     this.name = info.name;
     this.pid = info.pid;
     this.bundleId = info.bundleId;
+    this.aliases = info.aliases ?? [];
     this.runtime = info.runtime ?? "unknown";
+    this.requestedName = info.requestedName ?? null;
+    this.matchKind = info.matchKind ?? "pid";
+    this.matchedValue = info.matchedValue ?? String(info.pid);
+    this.manualAccessibility = info.manualAccessibility ?? "unknown";
+    this.webContentReadiness = info.webContentReadiness ?? null;
+  }
+
+  /** Opaque app handle used by subsequent RPC calls. */
+  get handle(): string {
+    return this.appHandle;
   }
 
   /** Get the AX tree as indented text or JSON */
   async queryTree(options?: TreeOptions): Promise<string> {
-    const result = await this.rpc.call<{ tree: string }>("query_tree", {
+    return (await this.queryTreeDetailed(options)).tree;
+  }
+
+  /** Get the AX tree together with runtime/readiness diagnostics. */
+  async queryTreeDetailed(options?: TreeOptions): Promise<QueryTreeDetailedResult> {
+    const result = await this.rpc.call<{
+      tree: string | object;
+      diagnostics?: TreeDiagnostics;
+    }>("query_tree", {
       appHandle: this.appHandle,
       maxDepth: options?.maxDepth ?? 5,
       format: options?.format ?? "text",
       includeInvisible: options?.includeInvisible ?? false,
     });
-    return typeof result.tree === "string"
-      ? result.tree
-      : JSON.stringify(result.tree, null, 2);
+    return {
+      tree: typeof result.tree === "string"
+        ? result.tree
+        : JSON.stringify(result.tree, null, 2),
+      diagnostics: result.diagnostics ?? {
+        runtime: this.runtime,
+        webContent: this.webContentReadiness ?? "no_web_area",
+      },
+    };
+  }
+
+  /** List WindowServer surfaces owned by the app or its helper processes. */
+  async listWindows(): Promise<AppWindowInfo[]> {
+    const result = await this.rpc.call<{ windows: AppWindowInfo[] }>("list_windows", {
+      appHandle: this.appHandle,
+    });
+    return result.windows;
   }
 
   /** Capture a screenshot of the app window, optionally cropped to a region */
-  async screenshot(options?: { region?: { x: number; y: number; width: number; height: number } }): Promise<Buffer> {
+  async screenshot(options?: { windowId?: number; region?: { x: number; y: number; width: number; height: number } }): Promise<Buffer> {
     const result = await this.rpc.call<ScreenshotResult>("screenshot", {
       appHandle: this.appHandle,
+      ...(options?.windowId !== undefined ? { windowId: options.windowId } : {}),
       ...(options?.region ? { region: options.region } : {}),
     });
     return Buffer.from(result.data, "base64");
   }
 
   /** Capture a screenshot and return the raw RPC result (base64 + dimensions) */
-  async screenshotRaw(options?: { region?: { x: number; y: number; width: number; height: number } }): Promise<ScreenshotResult> {
+  async screenshotRaw(options?: { windowId?: number; region?: { x: number; y: number; width: number; height: number } }): Promise<ScreenshotResult> {
     return this.rpc.call<ScreenshotResult>("screenshot", {
       appHandle: this.appHandle,
+      ...(options?.windowId !== undefined ? { windowId: options.windowId } : {}),
       ...(options?.region ? { region: options.region } : {}),
     });
   }
@@ -78,6 +134,23 @@ export class AppHandle extends Locator {
       ...options,
     });
     return result.fields;
+  }
+
+  /** List the native menu bar hierarchy through Accessibility. */
+  async listMenuBar(): Promise<string> {
+    const result = await this.rpc.call<{ menu: string }>("list_menu_bar", {
+      appHandle: this.appHandle,
+    });
+    return result.menu;
+  }
+
+  /** Select a native menu item through Accessibility. */
+  async selectMenuItem(menuPath: string[]): Promise<string> {
+    const result = await this.rpc.call<{ selected: string }>("select_menu_item", {
+      appHandle: this.appHandle,
+      menuPath,
+    });
+    return result.selected;
   }
 
   /** Send a keyboard input */
@@ -206,29 +279,43 @@ export class MacbethClient {
       name: string;
       pid: number;
       bundleId: string | null;
+      aliases?: string[];
       runtime?: AppRuntime;
+      requestedName?: string | null;
+      matchKind?: AppMatchKind;
+      matchedValue?: string;
+      manualAccessibility?: string;
+      webContentReadiness?: TreeDiagnostics["webContent"] | null;
     }>("connect_app", params);
 
     return new AppHandle(this.rpc, result.appHandle, {
       name: result.name,
       pid: result.pid,
       bundleId: result.bundleId,
+      aliases: result.aliases,
       runtime: result.runtime,
+      requestedName: result.requestedName,
+      matchKind: result.matchKind,
+      matchedValue: result.matchedValue,
+      manualAccessibility: result.manualAccessibility,
+      webContentReadiness: result.webContentReadiness,
     }, { timeout: this.options.timeout });
   }
 
-  /** Run AppleScript or JXA via the daemon (uses OSAKit, no osascript spawn) */
+  /** Run AppleScript or JXA in a deadline-enforced daemon worker process. */
   async runAppleScript(
     source: string,
     language?: "AppleScript" | "JavaScript",
-    options?: { interactive?: boolean },
+    options?: { interactive?: boolean; timeoutMs?: number },
   ): Promise<string> {
     await this.ensureConnected();
+    const timeoutMs = Math.min(Math.max(options?.timeoutMs ?? 30_000, 100), 300_000);
     const result = await this.rpc.call<{ output: string }>("run_applescript", {
       source,
       ...(language ? { language } : {}),
       interactive: options?.interactive ?? true,
-    });
+      timeoutMs,
+    }, { timeoutMs: timeoutMs + 2_000 });
     return result.output;
   }
 
@@ -265,6 +352,7 @@ export class MacbethClient {
   async extractText(params: {
     appHandle?: string;
     data?: string;
+    windowId?: number;
     region?: { x: number; y: number; width: number; height: number };
   }): Promise<{ items: Array<{ text: string; confidence: number; bbox: { x: number; y: number; w: number; h: number } }> }> {
     await this.ensureConnected();

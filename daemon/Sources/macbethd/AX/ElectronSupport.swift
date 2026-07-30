@@ -10,7 +10,7 @@ private let kAXManualAccessibility = "AXManualAccessibility"
 /// We deliberately do NOT set `AXEnhancedUserInterface` — in Electron apps it triggers
 /// window resize/reposition bugs. `AXManualAccessibility` is the documented, side-effect-free
 /// switch for turning on the web-content tree.
-func enableManualAccessibility(_ appElement: AXUIElement) {
+func enableManualAccessibility(_ appElement: AXUIElement) -> AXError {
     let result = AXUIElementSetAttributeValue(
         appElement, kAXManualAccessibility as CFString, kCFBooleanTrue
     )
@@ -21,6 +21,13 @@ func enableManualAccessibility(_ appElement: AXUIElement) {
     } else {
         vlog("AXManualAccessibility enabled")
     }
+    return result
+}
+
+enum WebContentReadiness: String, Sendable {
+    case ready
+    case emptyWebArea = "empty_web_area"
+    case noWebArea = "no_web_area"
 }
 
 /// Poll the app's tree until an `AXWebArea` appears (Chromium finished building the tree)
@@ -29,30 +36,38 @@ func enableManualAccessibility(_ appElement: AXUIElement) {
 ///
 /// Takes a `SendableElement` so it can be awaited across the actor boundary in `connect`
 /// without tripping Swift 6 strict-concurrency checks on the non-Sendable `AXUIElement`.
-func waitForWebContent(_ app: SendableElement, timeout: TimeInterval) async {
-    guard timeout > 0 else { return }
+func waitForWebContent(_ app: SendableElement, timeout: TimeInterval) async -> WebContentReadiness {
+    guard timeout > 0 else { return inspectWebContent(app.element) }
     let deadline = Date().addingTimeInterval(timeout)
 
     while Date() < deadline {
-        if containsWebArea(app.element) {
-            vlog("Electron web content ready (AXWebArea found)")
-            return
+        let state = inspectWebContent(app.element)
+        if state == .ready {
+            vlog("Electron web content ready (AXWebArea descendants found)")
+            return state
         }
         do {
             try await Task.sleep(for: .milliseconds(100))
         } catch {
-            return
+            return state
         }
     }
 
-    vlog("Electron web content not ready after \(timeout)s — proceeding without AXWebArea (front window may have none)")
+    let state = inspectWebContent(app.element)
+    vlog("Electron web content not ready after \(timeout)s (\(state.rawValue)) — proceeding with degraded AX output")
+    return state
 }
 
-/// Cheap, shallow search for an `AXWebArea` anywhere within the app's windows.
+/// Cheap, shallow inspection for an `AXWebArea` anywhere within the app's windows.
 /// Bounded in both depth and total nodes visited so it stays fast on large trees.
-private func containsWebArea(_ appElement: AXUIElement, maxDepth: Int = 8, maxVisit: Int = 400) -> Bool {
+func inspectWebContent(
+    _ appElement: AXUIElement,
+    maxDepth: Int = 8,
+    maxVisit: Int = 400
+) -> WebContentReadiness {
     var queue: [(AXUIElement, Int)] = [(appElement, 0)]
     var visited = 0
+    var foundWebArea = false
 
     while !queue.isEmpty && visited < maxVisit {
         let (element, depth) = queue.removeFirst()
@@ -62,7 +77,10 @@ private func containsWebArea(_ appElement: AXUIElement, maxDepth: Int = 8, maxVi
             var roleRef: CFTypeRef?
             if AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &roleRef) == .success,
                (roleRef as? String) == (kAXWebAreaRole as String) {
-                return true
+                foundWebArea = true
+                if !getChildren(element).isEmpty {
+                    return .ready
+                }
             }
         }
 
@@ -76,7 +94,7 @@ private func containsWebArea(_ appElement: AXUIElement, maxDepth: Int = 8, maxVi
         }
     }
 
-    return false
+    return foundWebArea ? .emptyWebArea : .noWebArea
 }
 
 private let kAXWebAreaRole = "AXWebArea"

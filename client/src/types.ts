@@ -17,7 +17,43 @@ export interface AppInfo {
   name: string;
   pid: number;
   bundleId: string | null;
+  aliases: string[];
   runtime: AppRuntime;
+}
+
+export type AppMatchKind =
+  | "pid"
+  | "exact_name"
+  | "declared_alias"
+  | "bundle_identifier"
+  | "partial_name"
+  | "partial_alias"
+  | "partial_bundle_identifier";
+
+export interface TreeDiagnostics {
+  runtime: AppRuntime;
+  webContent: "ready" | "empty_web_area" | "no_web_area";
+  warning?: string;
+}
+
+export interface QueryTreeDetailedResult {
+  tree: string;
+  diagnostics: TreeDiagnostics;
+}
+
+export interface AppWindowInfo {
+  windowId: number;
+  ownerPid: number | null;
+  ownerName: string | null;
+  bundleId: string | null;
+  title: string | null;
+  frame: { x: number; y: number; width: number; height: number };
+  layer: number;
+  onScreen: boolean;
+  active: boolean;
+  capturable: boolean;
+  kind: "window" | "bookkeeping" | "menu_bar" | "overlay";
+  default: boolean;
 }
 
 export interface ConnectOptions {

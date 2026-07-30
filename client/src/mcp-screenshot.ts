@@ -9,7 +9,7 @@ type ScreenshotRegion = {
 };
 
 interface ScreenshotHandle {
-  screenshotRaw(options?: { region?: ScreenshotRegion }): Promise<ScreenshotResult>;
+  screenshotRaw(options?: { windowId?: number; region?: ScreenshotRegion }): Promise<ScreenshotResult>;
 }
 
 interface ScreenshotDeps {
@@ -19,11 +19,14 @@ interface ScreenshotDeps {
 
 export async function runScreenshotTool(
   deps: ScreenshotDeps,
-  params: { app: string | number; region?: ScreenshotRegion }
+  params: { app: string | number; windowId?: number; region?: ScreenshotRegion }
 ) {
   const handle = await deps.connect(params.app);
   const saved = await deps.save(
-    await handle.screenshotRaw({ region: params.region ?? undefined })
+    await handle.screenshotRaw({
+      windowId: params.windowId,
+      region: params.region ?? undefined,
+    })
   );
 
   return {

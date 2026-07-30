@@ -32,7 +32,7 @@ Any MCP client that launches a stdio server takes the same command (`npx -y macb
 - **Cursor** → `~/.cursor/mcp.json`
 - **Other clients** → drop the `macbeth` entry into that client's `mcpServers` map.
 
-To pin a version instead of always taking the latest, use `npx -y macbeth@0.2.2` (or install globally with `npm i -g macbeth` and use `"command": "macbeth"`).
+To pin a version instead of always taking the latest, use `npx -y macbeth@0.2.3` (or install globally with `npm i -g macbeth` and use `"command": "macbeth"`).
 
 Grant **Accessibility** (and **Screen Recording** for screenshots/OCR). The client auto-spawns `macbethd`; no background service to install.
 
@@ -74,7 +74,8 @@ npx macbeth update --check  # report only
 | `begin_activity` / `end_activity` | Bracket external computer-control work with the interaction glow |
 | `list_apps` | List running macOS apps |
 | `connect_app` | Connect to an app by name or PID |
-| `query_tree` | Accessibility tree as text or JSON |
+| `list_windows` | List app and helper process windows across macOS Spaces without activating them |
+| `query_tree` | Accessibility tree as text or JSON, including menus and web-content readiness diagnostics |
 | `get_element` | Find an element by query or handle |
 | `dump_attributes` | Dump all AX attributes for a handle |
 | `read_form` | Read form-like controls from an app or subtree |
@@ -83,10 +84,10 @@ npx macbeth update --check  # report only
 | `wait_for` | Wait for existence, value, change, or enabled state |
 | `press_key` | Activate target app, send keyboard input |
 | `press_keys` | Activate target app, send a key sequence |
-| `screenshot` | Window capture with focus/scan/snap animation |
-| `extract_text` | OCR a window or supplied PNG |
+| `screenshot` | Capture the default visible window or a window selected by `list_windows` ID |
+| `extract_text` | OCR the default visible window, a selected window ID, or a supplied PNG |
 | `pin_handle` / `unpin_handle` | Control element-handle expiry |
-| `list_menu_bar` / `select_menu_item` | Inspect and select native menu items |
+| `list_menu_bar` / `select_menu_item` | Compactly inspect and select native menu items through AX; `query_tree` usually makes the list call unnecessary |
 | `run_applescript` | AppleScript or JXA (interactive or read-only) |
 | `list_shortcuts` / `run_shortcut` | Inspect and run Apple Shortcuts |
 | `list_skills` / `load_skill` / `run_skill_script` | Discover and run bundled app workflows |
