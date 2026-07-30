@@ -12,40 +12,6 @@ manifest as the source of truth, then inspect full files, callers, tests, and
 related protocol definitions in the checked-out repository whenever that
 context could change a finding.
 
-## Follow-up reviews
-
-Every submitted review body from this reviewer must begin with this exact
-hidden marker so a later run can identify it in the review history:
-
-`<!-- macbeth-openhands-review -->`
-
-When a previous completed review containing that marker exists, treat the most
-recent one as the review checkpoint while still examining the complete current
-PR:
-
-1. Re-check every actionable finding from that review and its associated
-   threads against the current HEAD.
-2. Classify each as **resolved**, **still present**, or **obsolete** because the
-   affected code no longer exists. Do not infer resolution merely from a
-   resolved or outdated GitHub thread; verify the current code.
-3. Check whether any attempted correction introduced a regression or incomplete
-   fix. Treat that as a new finding and explain its relationship to the earlier
-   one.
-4. Find genuinely new issues in all current PR changes, including interactions
-   between new commits and older changes in the same PR.
-
-After the hidden marker, begin the top-level review body with a concise
-`Previous review follow-up` section. List resolved, still-present, and obsolete
-findings, or state that the previous review had no actionable findings. Follow
-it with a `New findings` section. If this is the first marked review, say so
-briefly and omit the classification.
-
-Do not post a duplicate inline comment for an unchanged, still-present finding;
-reference it in the follow-up summary instead. Post inline comments for new
-findings, materially changed failure modes, or incomplete fixes that need new
-evidence. Read other reviewers' comments too, and do not duplicate their
-still-relevant findings.
-
 Prioritize actionable defects over style preferences:
 
 - Cross-check the TypeScript client, Swift daemon, and any shared wire protocol

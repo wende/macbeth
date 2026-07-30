@@ -28,17 +28,9 @@ jobs:
 
     steps:
       - name: Review with OpenHands and MiniMax
-        # OpenHands extensions v0.11.0. Keep this SHA and extensions-version
-        # in sync so both the action and the code it executes are immutable.
-        uses: OpenHands/extensions/plugins/pr-review@9def413cc05fa8287ed236d846af85f977baea45
+        uses: wende/agentic-pr-review@6ba7070f132f17bcb97efd487d601bb9cb5d6a21
         with:
-          extensions-version: 9def413cc05fa8287ed236d846af85f977baea45
-          llm-model: openai/MiniMax-M3
-          llm-base-url: https://api.minimax.io/v1
+          llm-model: ${{ vars.AGENTIC_REVIEW_MODEL || 'openai/MiniMax-M3' }}
+          llm-base-url: ${{ vars.AGENTIC_REVIEW_BASE_URL || 'https://api.minimax.io/v1' }}
           llm-api-key: ${{ secrets.MINIMAX_API_KEY }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          use-sub-agents: 'true'
-          load-public-skills: 'true'
-          collect-feedback: 'true'
-          require-evidence: 'false'
-          enable-uv-cache: 'false'
