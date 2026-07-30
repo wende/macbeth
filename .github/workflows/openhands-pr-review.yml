@@ -28,7 +28,7 @@ jobs:
 
     steps:
       - name: Review with OpenHands and MiniMax
-        uses: wende/agentic-pr-review@6ba7070f132f17bcb97efd487d601bb9cb5d6a21
+        uses: wende/agentic-pr-review@1f5bd01be92de79719259e7ff96d01764ce0aa52 # v1.0.0
         with:
           llm-model: ${{ vars.AGENTIC_REVIEW_MODEL || 'openai/MiniMax-M3' }}
           llm-base-url: ${{ vars.AGENTIC_REVIEW_BASE_URL || 'https://api.minimax.io/v1' }}
