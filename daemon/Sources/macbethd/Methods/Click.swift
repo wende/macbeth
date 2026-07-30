@@ -18,6 +18,11 @@ func registerClick(
 
             // Start before target resolution so auto-wait is part of the same
             // buffered visual operation as the eventual pointer/click.
+            //
+            // Unconditional: even background-AX-only clicks (showGlow == false)
+            // open a scope so OverlayController can re-arm a preceding outline
+            // instead of letting it fade during resolve. User-visible chrome is
+            // still gated on showGlow below.
             await glow.activityStarted()
             defer { Task { await glow.activityEnded() } }
 

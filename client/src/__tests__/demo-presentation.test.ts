@@ -15,4 +15,12 @@ describe("presentation demo contract", () => {
   it("launches the native fixture in its presentation viewport", () => {
     expect(demoSource).toContain("--args --presentation");
   });
+
+  it("covers the presentation fixture and tool feature set", () => {
+    // Match callTool("…") string form — not bare fill( — same style as demo-background.
+    expect(demoSource).toContain('callTool("fill"');
+    expect(demoSource).toContain('callTool("click"');
+    expect(demoSource).toContain('callTool("screenshot"');
+    expect(demoSource).toContain("Electron Demo");
+  });
 });

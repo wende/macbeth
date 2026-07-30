@@ -113,6 +113,12 @@ final class OverlayController: NSObject {
         // An active scope is a continuity promise. Keep the current outline as a
         // visual buffer during an app hand-off; focusWindow will atomically reveal
         // the new frontmost outline before retiring this one.
+        //
+        // Trade-off: if the *user* Cmd+Tabs to an uncontrolled app mid-tool, the
+        // old outline stays until activityEnded, then arms the normal buffered
+        // fade (~debounceMs). That brief stale chrome is preferred over blanking
+        // between sequential tool-driven hand-offs. See
+        // endingActivityAfterUnfinishedAppSwitchSchedulesBufferedOutlineFade.
         guard !activityActive else { return }
         dismissOutlinesNotBelongingToFrontmostApp()
     }

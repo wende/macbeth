@@ -31,5 +31,6 @@ let observer = workspace.notificationCenter.addObserver(
 }
 
 emit(workspace.frontmostApplication)
+// Intentional: the parent demo SIGTERMs this process when measurement ends.
+// RunLoop.main.run() never returns; the OS tears down the observer on exit.
 RunLoop.main.run()
-workspace.notificationCenter.removeObserver(observer)
