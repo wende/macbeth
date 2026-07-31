@@ -36,6 +36,9 @@ describe("AppHandle", () => {
       capturable: true,
       kind: "window",
       default: true,
+      role: "AXWindow",
+      subrole: "AXStandardWindow",
+      minimized: false,
     }];
     vi.mocked(rpc.call).mockResolvedValueOnce({ windows });
     const app = new AppHandle(rpc, "h_0", {
@@ -47,6 +50,22 @@ describe("AppHandle", () => {
     await expect(app.listWindows()).resolves.toEqual(windows);
     expect(rpc.call).toHaveBeenCalledWith("list_windows", {
       appHandle: "h_0",
+    });
+  });
+
+  it("requests every surface only when asked", async () => {
+    const rpc = mockRpcWithResult({ windows: [] });
+    const app = new AppHandle(rpc, "h_0", {
+      name: "Finder",
+      pid: 1,
+      bundleId: "com.apple.finder",
+    });
+
+    await app.listWindows({ includeAllSurfaces: true });
+
+    expect(rpc.call).toHaveBeenCalledWith("list_windows", {
+      appHandle: "h_0",
+      includeAllSurfaces: true,
     });
   });
 

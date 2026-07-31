@@ -45,6 +45,7 @@ export type {
   AppConnectOptions,
   AppInfo,
   AppWindowInfo,
+  ListWindowsOptions,
   AppRuntime,
   AppMatchKind,
   AppAccessibility,

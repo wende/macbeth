@@ -78,7 +78,7 @@ npx macbeth update --check  # report only
 | `begin_activity` / `end_activity` | Bracket external computer-control work with the interaction glow |
 | `list_apps` | List running macOS apps, split into Accessibility-connectable and running-but-not-connectable (with the AX code and what to do instead) |
 | `connect_app` | Optional preflight — verify Accessibility reachability, see how a fuzzy name resolved, or warm an Electron tree. Returns an app handle you can pass as `app` to any other tool |
-| `list_windows` | List app and helper process windows across macOS Spaces without activating them |
+| `list_windows` | List open windows across macOS Spaces without activating them; `app` is optional, so one call answers "is app X open?" |
 | `query_tree` | Accessibility tree as text or JSON, including menus and web-content readiness diagnostics |
 | `get_element` | Find an element by query or handle |
 | `dump_attributes` | Dump all AX attributes for a handle |
@@ -95,6 +95,51 @@ npx macbeth update --check  # report only
 | `run_applescript` | AppleScript or JXA (interactive or read-only), with a per-call `timeout` in seconds (default 30, max 300) |
 | `list_shortcuts` / `run_shortcut` | Inspect and run Apple Shortcuts |
 | `list_skills` / `load_skill` / `run_skill_script` | Discover and run bundled app workflows |
+
+## Listing windows
+
+`list_windows` reads the WindowServer catalog, so it answers "is app X open, and
+what is it showing?" without connecting to an app or walking an accessibility
+tree:
+
+```jsonc
+// every app that owns a window
+{ "name": "list_windows", "arguments": {} }
+// one app and its helper processes
+{ "name": "list_windows", "arguments": { "app": "Unity" } }
+```
+
+Each entry carries `windowId`, `title`, `ownerName` / `ownerPid` / `bundleId`,
+`frame`, `layer`, `onScreen`, `active`, `minimized`, AX `role` / `subrole`,
+`kind`, `capturable`, and `default` (the window `screenshot` and `extract_text`
+capture for that owner when no `windowId` is given). `role`, `subrole`, and
+`minimized` are `null` when the app exposes no AX window for the surface — for
+example when Accessibility permission has not been granted.
+
+By default only real windows are returned. Pass `includeAllSurfaces: true` to
+also see menu-bar strips, overlays, and the tiny bookkeeping surfaces some apps
+register (`kind` explains which is which — useful when a window you expected to
+capture is missing).
+
+**`windowId` is not an element handle.** It is a WindowServer ID issued by
+macOS: it has no 5-minute TTL, is unaffected by `pin_handle` / `unpin_handle`,
+and survives daemon restarts. It stays valid until the window closes; a reopened
+window gets a new ID. Element handles from `query_tree` / `get_element` (`h_0`,
+`h_1`, …) are the ones that expire.
+
+## Running scripts
+
+`run_applescript` takes the script in **`source`** (not `script` or `code`), and
+`language` is exactly `"AppleScript"` or `"JavaScript"` — JXA is `"JavaScript"`:
+
+```jsonc
+{ "source": "tell application \"Finder\" to get name of every window" }
+{ "source": "Application('Finder').windows().map(w => w.name()).join(', ')",
+  "language": "JavaScript" }
+```
+
+`interaction` is `"interactive"` (default — the script may control apps and
+input) or `"read_only"`, and `timeout` is in seconds.
 
 ## Timeouts and server health
 

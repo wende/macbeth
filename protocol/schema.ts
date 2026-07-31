@@ -38,7 +38,18 @@ export interface EndActivityResult {
 
 // run_applescript
 export interface RunAppleScriptParams {
+  /**
+   * Script source. The parameter is `source` — not `script`, `code`, or `body`.
+   *
+   * AppleScript: `tell application "Finder" to get name of every window`
+   * JavaScript (JXA): `Application("Finder").windows().map(w => w.name())`
+   */
   source: string;
+  /**
+   * Exactly `"AppleScript"` or `"JavaScript"` — JXA is `"JavaScript"`. The
+   * daemon also accepts the lowercase spellings and `"jxa"`, but the MCP tool
+   * enum exposes only the two canonical values.
+   */
   language?: "AppleScript" | "JavaScript";
   /** Defaults to true because arbitrary scripts may control applications. */
   interactive?: boolean;
@@ -128,12 +139,20 @@ export interface ConnectAppResult {
 
 // list_windows
 export interface ListWindowsParams {
-  appHandle: string;
+  /** Scope the listing to one connected app and its helper processes.
+   *  Omit to list windows for every app that owns one. */
+  appHandle?: string;
+  /** Include menu-bar strips, overlays, and bookkeeping sentinels
+   *  (`kind !== "window"`). Default false. */
+  includeAllSurfaces?: boolean;
 }
 
 export type WindowKind = "window" | "bookkeeping" | "menu_bar" | "overlay";
 
 export interface AppWindowInfo {
+  /** WindowServer window ID. Not an AX element handle: it is issued by macOS,
+   *  is unaffected by handle TTL or `pin_handle`, and stays valid until the
+   *  window closes (a reopened window gets a new ID). */
   windowId: number;
   ownerPid: number | null;
   ownerName: string | null;
@@ -145,7 +164,17 @@ export interface AppWindowInfo {
   active: boolean;
   capturable: boolean;
   kind: WindowKind;
+  /** The window `screenshot`/`extract_text` capture for this owner when no
+   *  `windowId` is given. */
   default: boolean;
+  /** AX role (e.g. "AXWindow"), null when the app exposes no AX window for
+   *  this surface or accessibility permission is missing. */
+  role: string | null;
+  /** AX subrole (e.g. "AXStandardWindow", "AXDialog"), null when unavailable. */
+  subrole: string | null;
+  /** Minimized into the Dock. Null (not false) when AX metadata is unavailable —
+   *  WindowServer still reports a frame for minimized windows. */
+  minimized: boolean | null;
 }
 
 export interface ListWindowsResult {

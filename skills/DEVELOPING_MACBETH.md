@@ -192,6 +192,34 @@ other macOS Spaces. Listing is read-only and does not activate windows or switch
 Spaces. ScreenCaptureKit may return blank content for some off-Space app
 windows. Screen Recording permission is prompted on first capture.
 
+## Listing windows
+
+```ts
+const client = new MacbethClient();
+
+// Every app that owns a window — no connect, no AX tree walk.
+const all = await client.listWindows();
+const unityIsOpen = all.some((window) => window.ownerName === "Unity");
+
+// One app and its helper processes.
+const unity = await client.connect("Unity");
+const unityWindows = await unity.listWindows();
+
+// Menu-bar strips, overlays, and bookkeeping surfaces are filtered out by
+// default; ask for them when diagnosing a window you cannot capture.
+const everySurface = await client.listWindows({ includeAllSurfaces: true });
+```
+
+Each entry: `windowId`, `title`, `ownerName` / `ownerPid` / `bundleId`, `frame`,
+`layer`, `onScreen`, `active`, `minimized`, `role`, `subrole`, `kind`,
+`capturable`, `default`. `role`, `subrole`, and `minimized` come from the
+accessibility API and are `null` when the app exposes no AX window for the
+surface.
+
+`windowId` is a WindowServer ID, not an element handle: it has no 5-minute TTL,
+`pin_handle` does not apply, and it stays valid until the window closes (a
+reopened window gets a new ID). Only `h_N` element handles expire.
+
 ## Listing apps
 
 ```ts

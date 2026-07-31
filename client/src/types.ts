@@ -61,6 +61,9 @@ export interface QueryTreeDetailedResult {
 }
 
 export interface AppWindowInfo {
+  /** WindowServer window ID. Not an AX element handle: it is issued by macOS,
+   *  is unaffected by handle TTL or `pin_handle`, and stays valid until the
+   *  window closes (a reopened window gets a new ID). */
   windowId: number;
   ownerPid: number | null;
   ownerName: string | null;
@@ -72,7 +75,20 @@ export interface AppWindowInfo {
   active: boolean;
   capturable: boolean;
   kind: "window" | "bookkeeping" | "menu_bar" | "overlay";
+  /** The window a screenshot captures for this owner when no `windowId` is given. */
   default: boolean;
+  /** AX role, or null when the app exposes no AX window for this surface. */
+  role: string | null;
+  /** AX subrole (e.g. "AXStandardWindow", "AXDialog"), or null when unavailable. */
+  subrole: string | null;
+  /** Minimized into the Dock; null when AX metadata is unavailable. */
+  minimized: boolean | null;
+}
+
+export interface ListWindowsOptions {
+  /** Include menu-bar strips, overlays, and bookkeeping surfaces
+   *  (`kind !== "window"`). Default false. */
+  includeAllSurfaces?: boolean;
 }
 
 export interface ConnectOptions {

@@ -26,6 +26,7 @@ import type {
   QueryTreeDetailedResult,
   TreeDiagnostics,
   AppWindowInfo,
+  ListWindowsOptions,
 } from "./types.js";
 
 /**
@@ -107,10 +108,12 @@ export class AppHandle extends Locator {
     };
   }
 
-  /** List WindowServer surfaces owned by the app or its helper processes. */
-  async listWindows(): Promise<AppWindowInfo[]> {
+  /** List WindowServer surfaces owned by the app or its helper processes.
+   *  Returns real windows only unless `includeAllSurfaces` is set. */
+  async listWindows(options?: ListWindowsOptions): Promise<AppWindowInfo[]> {
     const result = await this.rpc.call<{ windows: AppWindowInfo[] }>("list_windows", {
       appHandle: this.appHandle,
+      ...(options?.includeAllSurfaces ? { includeAllSurfaces: true } : {}),
     });
     return result.windows;
   }
@@ -268,6 +271,20 @@ export class MacbethClient {
     await this.ensureConnected();
     const result = await this.rpc.call<{ apps: AppInfo[] }>("list_apps");
     return result.apps;
+  }
+
+  /** List WindowServer surfaces across every app that owns a window.
+   *
+   *  Answers "is app X open, and what is it showing?" without connecting to an
+   *  app or walking an accessibility tree. Returns real windows only unless
+   *  `includeAllSurfaces` is set. */
+  async listWindows(options?: ListWindowsOptions): Promise<AppWindowInfo[]> {
+    await this.ensureConnected();
+    const result = await this.rpc.call<{ windows: AppWindowInfo[] }>(
+      "list_windows",
+      options?.includeAllSurfaces ? { includeAllSurfaces: true } : {}
+    );
+    return result.windows;
   }
 
   /** Connect to a running app by name, PID, or an app handle from a previous connect.
