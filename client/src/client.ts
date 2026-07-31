@@ -2,6 +2,12 @@ import { DaemonManager } from "./daemon.js";
 import { JsonRpcClient } from "./rpc.js";
 import { Locator } from "./elements.js";
 import { appConnectParams, type AppTarget } from "./app-target.js";
+import type { HealthSnapshot } from "./health.js";
+import {
+  clampScriptTimeoutMs,
+  scriptRequestTimeoutMs,
+  SCRIPT_TIMEOUT,
+} from "./timeouts.js";
 import type {
   ConnectOptions,
   AppConnectOptions,
@@ -250,6 +256,12 @@ export class MacbethClient {
     this.initialized = true;
   }
 
+  /** Health of the daemon connection itself. Failed or timed-out operations do
+   *  not degrade it — only an unusable transport does. */
+  get health(): HealthSnapshot {
+    return this.rpc.health;
+  }
+
   /** List running macOS apps, each annotated with whether it is currently reachable
    *  through the Accessibility API. */
   async listApps(): Promise<AppInfo[]> {
@@ -309,20 +321,26 @@ export class MacbethClient {
     }, { timeout: this.options.timeout });
   }
 
-  /** Run AppleScript or JXA in a deadline-enforced daemon worker process. */
+  /** Run AppleScript or JXA in a deadline-enforced daemon worker process.
+   *
+   *  `timeoutMs` is clamped to
+   *  [{@link SCRIPT_TIMEOUT}.minMs, {@link SCRIPT_TIMEOUT}.maxMs] (default 30s).
+   *  Overrunning the deadline rejects with a typed timeout (`JsonRpcError`,
+   *  code -32001) for this call only: the daemon connection stays usable and
+   *  unrelated calls are unaffected. */
   async runAppleScript(
     source: string,
     language?: "AppleScript" | "JavaScript",
     options?: { interactive?: boolean; timeoutMs?: number },
   ): Promise<string> {
     await this.ensureConnected();
-    const timeoutMs = Math.min(Math.max(options?.timeoutMs ?? 30_000, 100), 300_000);
+    const timeoutMs = clampScriptTimeoutMs(options?.timeoutMs);
     const result = await this.rpc.call<{ output: string }>("run_applescript", {
       source,
       ...(language ? { language } : {}),
       interactive: options?.interactive ?? true,
       timeoutMs,
-    }, { timeoutMs: timeoutMs + 2_000 });
+    }, { timeoutMs: scriptRequestTimeoutMs(timeoutMs) });
     return result.output;
   }
 

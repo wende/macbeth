@@ -7,12 +7,13 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { MacbethClient } from "./client.js";
+import { isOperationTimeout, JsonRpcError, RPC_ERROR_NAMES } from "./errors.js";
 import { runScreenshotTool } from "./mcp-screenshot.js";
-import { JsonRpcError } from "./rpc.js";
 import { saveScreenshotToTempFile } from "./screenshots.js";
 import { resolveElementTarget } from "./mcp-target.js";
 import { formatAppList } from "./app-target.js";
 import { runWithActivity } from "./mcp-activity.js";
+import { SCRIPT_TIMEOUT, scriptTimeoutFromSeconds } from "./timeouts.js";
 import { readInstalledVersion } from "./update.js";
 import type { KeyStroke } from "./types.js";
 
@@ -38,22 +39,9 @@ function withActivity<T>(operation: () => Promise<T>): Promise<T> {
   });
 }
 
-const ERROR_NAMES: Record<number, string> = {
-  [-32000]: "element_not_found",
-  [-32001]: "timeout",
-  [-32002]: "permission_denied",
-  [-32003]: "app_not_found",
-  [-32004]: "action_failed",
-  [-32005]: "menu_item_not_found",
-  [-32006]: "menu_item_disabled",
-  [-32007]: "app_busy",
-  [-32008]: "script_failed",
-  [-32009]: "ax_lookup_failed",
-};
-
 function formatError(prefix: string, err: unknown): string {
   if (err instanceof JsonRpcError) {
-    const kind = ERROR_NAMES[err.code] ?? `error_${err.code}`;
+    const kind = RPC_ERROR_NAMES[err.code] ?? `error_${err.code}`;
     let msg = `${prefix} [${kind}]: ${err.message}`;
     if (err.data && typeof err.data === "object") {
       const d = err.data as Record<string, unknown>;
@@ -64,6 +52,20 @@ function formatError(prefix: string, err: unknown): string {
     return msg;
   }
   return `${prefix}: ${err instanceof Error ? err.message : String(err)}`;
+}
+
+/**
+ * Format a script failure. A timeout is scoped to the call that hit it: say so
+ * explicitly and point at the knob, so the agent raises `timeout` instead of
+ * treating the whole server as broken and retrying blindly.
+ */
+function formatScriptError(err: unknown, timeoutSeconds: number): string {
+  const base = formatError("Script failed", err);
+  if (!isOperationTimeout(err)) return base;
+  return `${base}\nThe script exceeded its ${timeoutSeconds}s budget and was stopped. `
+    + "Only this call failed — the Macbeth server and every other tool are unaffected. "
+    + `Re-run with a larger 'timeout' (up to ${SCRIPT_TIMEOUT.maxMs / 1_000}s) if the work `
+    + "legitimately takes longer.";
 }
 
 const server = new McpServer(
@@ -503,16 +505,29 @@ server.registerTool("list_menu_bar", {
 });
 
 server.registerTool("run_applescript", {
-  description: "Run an AppleScript or JavaScript for Automation (JXA) script. Returns the script's output as text.",
+  description:
+    "Run an AppleScript or JavaScript for Automation (JXA) script. Returns the script's output as text. "
+    + "Set 'timeout' for work that legitimately runs long (e.g. enumerating many apps); the default is 30 seconds. "
+    + "A script that overruns its timeout is stopped and reported as a timeout for that call alone — the server stays "
+    + "healthy and other tools keep working.",
   inputSchema: {
     source: z.string().describe("Script source code"),
     language: z.enum(["AppleScript", "JavaScript"]).optional().default("AppleScript").describe("Script language (default: AppleScript)"),
     interaction: z.enum(["interactive", "read_only"]).optional().default("interactive").describe("Whether the script can control apps/input or only inspect state"),
-    timeout: z.number().positive().max(300).optional().default(30).describe("Hard timeout in seconds (default: 30, max: 300)"),
+    timeout: z.number()
+      .min(SCRIPT_TIMEOUT.minMs / 1_000)
+      .max(SCRIPT_TIMEOUT.maxMs / 1_000)
+      .optional()
+      .default(SCRIPT_TIMEOUT.defaultMs / 1_000)
+      .describe(
+        `Hard timeout in seconds for this call (default: ${SCRIPT_TIMEOUT.defaultMs / 1_000}, `
+        + `max: ${SCRIPT_TIMEOUT.maxMs / 1_000}). The daemon enforces it in a separate process and `
+        + "clamps out-of-range values."
+      ),
   },
 }, async ({ source, language, interaction, timeout }) => {
   const execute = async () => {
-    const timeoutMs = (timeout ?? 30) * 1000;
+    const timeoutMs = scriptTimeoutFromSeconds(timeout);
     try {
       const output = await client.runAppleScript(source, language, {
         interactive: interaction !== "read_only",
@@ -520,7 +535,10 @@ server.registerTool("run_applescript", {
       });
       return { content: [{ type: "text" as const, text: output || "(no output)" }] };
     } catch (err: unknown) {
-      return { content: [{ type: "text" as const, text: formatError("Script failed", err) }], isError: true };
+      return {
+        content: [{ type: "text" as const, text: formatScriptError(err, timeoutMs / 1_000) }],
+        isError: true,
+      };
     }
   };
   return interaction === "read_only" ? execute() : withActivity(execute);

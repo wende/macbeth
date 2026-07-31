@@ -14,7 +14,7 @@ func registerRunAppleScript(dispatcher: Dispatcher, glow: GlowIndicator) {
 
             let languageParam = obj["language"]?.stringValue ?? "AppleScript"
             let isInteractive = obj["interactive"]?.boolValue ?? true
-            let timeoutMs = min(max(obj["timeoutMs"]?.intValue ?? 30_000, 100), 300_000)
+            let timeoutMs = ScriptTimeout.clamp(obj["timeoutMs"]?.intValue)
 
             if isInteractive { await glow.activityStarted() }
             defer {
@@ -27,14 +27,15 @@ func registerRunAppleScript(dispatcher: Dispatcher, glow: GlowIndicator) {
                 language: languageParam,
                 timeoutMs: timeoutMs
             )
-            let elapsed = started.duration(to: .now)
+            let elapsed = started.duration(to: ContinuousClock.now)
             let durationMs = Int(elapsed.components.seconds * 1_000)
                 + Int(elapsed.components.attoseconds / 1_000_000_000_000_000)
 
             if result.timedOut {
                 throw RPCError.timeout(
-                    "OSA script execution timed out after \(timeoutMs)ms "
-                    + "(phase: execution, language: \(languageParam))"
+                    "OSA script execution timed out after \(timeoutMs)ms and was stopped "
+                    + "(phase: execution, language: \(languageParam)). Only this call failed; "
+                    + "pass a larger timeoutMs (max \(ScriptTimeout.maxMs)ms) for longer work."
                 )
             }
             if result.status != 0 {
@@ -60,54 +61,6 @@ private struct ScriptExecutionResult: Sendable {
 
 private final class ScriptProcessBox: @unchecked Sendable {
     let process = Process()
-}
-
-/// One-shot completion signal for process exit, safe to fire before or after waiters attach.
-private final class ScriptExitSignal: @unchecked Sendable {
-    private let lock = NSLock()
-    private var continuation: CheckedContinuation<Void, Never>?
-    private var signaled = false
-
-    func signal() {
-        lock.lock()
-        defer { lock.unlock() }
-        signaled = true
-        continuation?.resume()
-        continuation = nil
-    }
-
-    func wait() async {
-        await withCheckedContinuation { cont in
-            lock.lock()
-            if signaled {
-                lock.unlock()
-                cont.resume()
-                return
-            }
-            continuation = cont
-            lock.unlock()
-        }
-    }
-}
-
-/// Wait until the osascript process exits or `deadline` elapses — no fixed polling interval.
-private func waitForScriptProcess(
-    exitSignal: ScriptExitSignal,
-    until deadline: ContinuousClock.Instant
-) async {
-    await withTaskGroup(of: Void.self) { group in
-        group.addTask {
-            await exitSignal.wait()
-        }
-        group.addTask {
-            try? await Task.sleep(until: deadline, clock: .continuous)
-        }
-        // First finisher wins: process exit or deadline. The loser is cancelled;
-        // if the deadline won, the caller terminates the child which signals exit
-        // and unblocks any parked termination continuation.
-        await group.next()
-        group.cancelAll()
-    }
 }
 
 private func executeOSAScript(
@@ -172,27 +125,38 @@ private func executeOSAScript(
     }
 
     let deadline = ContinuousClock.now + .milliseconds(timeoutMs)
-    await waitForScriptProcess(exitSignal: exitSignal, until: deadline)
+    let exitedInTime = await waitForScriptProcess(exitSignal: exitSignal, until: deadline)
 
     var timedOut = false
-    if box.process.isRunning {
+    if !exitedInTime, box.process.isRunning {
         timedOut = true
+        // Escalate on bounded waits rather than blocking on waitUntilExit(): a
+        // script wedged in an Apple Event must not hold this request — or a
+        // thread — open past its deadline.
         box.process.terminate()
-        try? await Task.sleep(for: .milliseconds(200))
-        if box.process.isRunning {
+        let stopped = await waitForScriptProcess(
+            exitSignal: exitSignal,
+            until: ContinuousClock.now + .milliseconds(ScriptTimeout.terminateGraceMs)
+        )
+        if !stopped, box.process.isRunning {
             kill(box.process.processIdentifier, SIGKILL)
+            await waitForScriptProcess(
+                exitSignal: exitSignal,
+                until: ContinuousClock.now + .milliseconds(ScriptTimeout.reapGraceMs)
+            )
         }
     }
-    box.process.waitUntilExit()
 
     try? outputHandle.synchronize()
     try? errorHandle.synchronize()
     let output = (try? String(contentsOf: outputURL, encoding: .utf8)) ?? ""
     let error = (try? String(contentsOf: errorURL, encoding: .utf8)) ?? ""
+    // terminationStatus is only defined once the child has actually exited.
+    let reaped = !box.process.isRunning
     return ScriptExecutionResult(
         output: output.trimmingCharacters(in: .newlines),
         error: error.trimmingCharacters(in: .whitespacesAndNewlines),
-        status: box.process.terminationStatus,
+        status: reaped ? box.process.terminationStatus : -1,
         timedOut: timedOut
     )
 }
