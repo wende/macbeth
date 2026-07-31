@@ -1,8 +1,21 @@
 #!/usr/bin/env node
 
-// Recording-friendly integration demo. Node subprocesses are permitted only
-// during bootstrap. Once the MCP transport is connected, every Macbeth/app
-// operation goes through MCP protocol calls or MCP tools.
+// README presentation demo — visual chrome only.
+//
+// Shows what an external screen recording can see: window outline glow,
+// synthetic pointer travel, form changes, and screenshot scan/snap.
+// Fixtures only (Macbeth TestApp + Electron testapp). No invisible feature
+// matrix (wait_for / query_tree / strategy variants / OCR).
+//
+// Recording recipe:
+//   1. Clean desktop; hide this terminal (or move it off the capture crop).
+//   2. Start a display-region recording that frames both fixture windows.
+//   3. npm run demo:presentation
+//   4. Stop after the “Recording complete — stop capture” line.
+//   5. Export ~800×476 (or 16:9) GIF for the README when ready.
+//
+// Node subprocesses are permitted only during bootstrap. After MCP connects,
+// every app operation goes through MCP tools.
 
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
@@ -16,11 +29,23 @@ const ELECTRON_BUNDLE = join(ELECTRON_APP, "node_modules/electron/dist/Electron.
 const MCP_ENTRY = join(ROOT, "client/bin/macbeth.mjs");
 const BUILD_TMP = join(ROOT, ".tmp");
 const SWIFT_MODULE_CACHE = join(BUILD_TMP, "swift-module-cache");
-const DEMO_RUNTIME = join(BUILD_TMP, "mcp-demo-runtime");
+const DEMO_RUNTIME = join(BUILD_TMP, "mcp-presentation-runtime");
+
+// Stage: two windows side-by-side for an 800×476-style crop.
+const NATIVE_POSITION = "{40, 70}";
+const NATIVE_SIZE = "{560, 640}";
+const ELECTRON_POSITION = "{620, 70}";
+const ELECTRON_SIZE = "{480, 560}";
 
 const args = parseArgs(process.argv.slice(2));
-const delayMs = args.fast ? 0 : args.delayMs ?? 750;
-const sectionDelayMs = args.fast ? 0 : Math.max(1200, delayMs * 2);
+/** Pause after each on-screen beat (pointer settles, form updates). */
+const beatMs = args.fast ? 0 : args.delayMs ?? 900;
+/** Brief hold between pointer targets within a multi-action beat. */
+const holdMs = args.fast ? 0 : Math.round(beatMs * 0.5);
+/** Hold when switching frontmost app. */
+const sectionHoldMs = args.fast ? 0 : Math.max(700, Math.round(beatMs * 0.8));
+/** Final hold so the capture snap and filled state read on camera. */
+const outroHoldMs = args.fast ? 0 : 2_200;
 
 const outcomes = [];
 const artifacts = [];
@@ -38,7 +63,6 @@ const baselineElectronPids = new Set();
 
 const APP_NATIVE = "Macbeth TestApp";
 const q = (role, identifier, extra = {}) => [{ role, identifier, ...extra }];
-const statusQuery = q("text", "status-label");
 
 function parseArgs(argv) {
   const parsed = {};
@@ -57,11 +81,14 @@ function parseArgs(argv) {
 }
 
 function usage() {
-  console.log(`Usage: npm run demo:mcp -- [options]
+  console.log(`Usage: npm run demo:presentation -- [options]
+
+README-length (~20–30s) visual demo: glow, synthetic pointer, fills/clicks,
+and screenshot scan/snap. Fixtures only. Keep the terminal off the capture crop.
 
 Options:
-  --delay-ms <ms>  Pause between MCP operations (default: 750)
-  --fast           Disable presentation pauses
+  --delay-ms <ms>  Pause after each beat (default: 900)
+  --fast           Continuous presentation with no pacing pauses
   --help           Show this help`);
 }
 
@@ -111,35 +138,22 @@ function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
+/** Silent MCP call — no console noise during the recording window. */
 async function callTool(name, toolArgs = {}, options = {}) {
-  const prefix = options.quiet ? "" : `    MCP → ${name}`;
-  if (prefix) console.log(prefix);
   const result = await client.callTool({ name, arguments: toolArgs });
   const text = textOf(result);
   if (result.isError) throw new Error(text || `${name} returned an MCP error`);
-  if (!options.quiet && text) {
-    const firstLine = text.split("\n")[0];
-    console.log(`          ${firstLine.slice(0, 120)}${firstLine.length > 120 ? "…" : ""}`);
-  }
-  if (!options.noDelay && delayMs > 0) await sleep(delayMs);
+  if (!options.noDelay && beatMs > 0) await sleep(beatMs);
   return result;
 }
 
-async function step(name, action, options = {}) {
-  if (options.dependsOn?.some((dependency) => dependency?.status !== "pass")) {
-    const result = { name, status: "skip", durationMs: 0, detail: "dependency failed" };
-    outcomes.push(result);
-    console.log(`  ↷ ${name} (skipped)`);
-    return result;
-  }
-
+async function beat(name, action) {
   const stepStarted = Date.now();
   console.log(`  • ${name}`);
   try {
     const value = await action();
     const result = { name, status: "pass", durationMs: Date.now() - stepStarted, value };
     outcomes.push(result);
-    console.log(`  ✓ ${name} (${result.durationMs}ms)`);
     return result;
   } catch (error) {
     const result = {
@@ -154,17 +168,12 @@ async function step(name, action, options = {}) {
   }
 }
 
-async function section(title) {
-  if (sectionDelayMs > 0) await sleep(sectionDelayMs);
-  console.log(`\n━━ ${title} ━━`);
-}
-
 async function pollTool(name, toolArgs, predicate, timeoutMs = 15_000) {
   const deadline = Date.now() + timeoutMs;
   let lastText = "";
   while (Date.now() < deadline) {
     try {
-      const result = await callTool(name, toolArgs, { quiet: true, noDelay: true });
+      const result = await callTool(name, toolArgs, { noDelay: true });
       lastText = textOf(result);
       if (predicate(lastText, result)) return result;
     } catch (error) {
@@ -201,13 +210,14 @@ function runningOwnedFixturePids(appListText) {
   return ownedFixturePids().filter((pid) => new RegExp(`\\(pid: ${pid},`).test(appListText));
 }
 
-async function positionFixtureWindow(pid, position, { frontmost = false } = {}) {
+async function layoutFixtureWindow(pid, position, size, { frontmost = false } = {}) {
   await pollTool(
     "run_applescript",
     {
       source: `tell application "System Events"
         tell (first application process whose unix id is ${pid})
           set position of window 1 to ${position}
+          set size of window 1 to ${size}
           ${frontmost ? "set frontmost to true" : ""}
         end tell
         return "ready"
@@ -218,8 +228,18 @@ async function positionFixtureWindow(pid, position, { frontmost = false } = {}) 
   );
 }
 
+async function setFrontmost(pid) {
+  await callTool("run_applescript", {
+    source: `tell application "System Events"
+      set frontmost of first application process whose unix id is ${pid} to true
+      return "ready"
+    end tell`,
+  }, { noDelay: true });
+  if (sectionHoldMs > 0) await sleep(sectionHoldMs);
+}
+
 async function captureInitialState() {
-  const apps = textOf(await callTool("list_apps", {}, { quiet: true, noDelay: true }));
+  const apps = textOf(await callTool("list_apps", {}, { noDelay: true }));
   for (const pid of pidsForListedName(apps, APP_NATIVE)) baselineNativePids.add(pid);
   for (const pid of pidsForListedName(apps, "Electron")) baselineElectronPids.add(pid);
 
@@ -228,16 +248,9 @@ async function captureInitialState() {
     source: `tell application "System Events"
       return unix id of first application process whose frontmost is true
     end tell`,
-  }, { quiet: true, noDelay: true }));
+  }, { noDelay: true }));
   const parsedPid = Number(frontmost.trim());
   if (Number.isFinite(parsedPid)) originalFrontmostPid = parsedPid;
-}
-
-async function concurrentWait(waitArgs, trigger) {
-  const waitPromise = callTool("wait_for", waitArgs, { noDelay: true });
-  await sleep(300);
-  await trigger();
-  return waitPromise;
 }
 
 async function prepare() {
@@ -262,7 +275,7 @@ async function connectMcp() {
     import("@modelcontextprotocol/sdk/client/index.js"),
     import("@modelcontextprotocol/sdk/client/stdio.js"),
   ]);
-  client = new Client({ name: "macbeth-feature-demo", version: "1.0.0" });
+  client = new Client({ name: "macbeth-presentation-demo", version: "1.0.0" });
   transport = new StdioClientTransport({
     command: process.execPath,
     args: [MCP_ENTRY],
@@ -277,10 +290,14 @@ async function connectMcp() {
   mcpConnected = true;
 }
 
-async function launchApps() {
+/**
+ * Launch and stage both fixtures without connect_app.
+ * Connecting is part of the recorded storyboard so the outline appears on camera.
+ */
+async function stageApps() {
   await callTool("run_applescript", {
-    source: `do shell script "/usr/bin/open -g -n " & quoted form of "${NATIVE_BUNDLE}"`,
-  });
+    source: `do shell script "/usr/bin/open -g -n " & quoted form of "${NATIVE_BUNDLE}" & " --args --presentation"`,
+  }, { noDelay: true });
   await pollTool("list_apps", {}, (text) => {
     const launchedPid = pidsForListedName(text, APP_NATIVE)
       .find((pid) => !baselineNativePids.has(pid));
@@ -291,7 +308,7 @@ async function launchApps() {
 
   await callTool("run_applescript", {
     source: `do shell script "/usr/bin/open -g -n -a " & quoted form of "${ELECTRON_BUNDLE}" & " --args " & quoted form of "${ELECTRON_APP}"`,
-  });
+  }, { noDelay: true });
   await pollTool("list_apps", {}, (text) => {
     const launchedPid = pidsForListedName(text, "Electron")
       .find((pid) => !baselineElectronPids.has(pid));
@@ -299,239 +316,94 @@ async function launchApps() {
     electronPid = launchedPid;
     return true;
   });
-  // Position both windows before the first connect_app. Connecting emits the
-  // target outline, so doing it earlier would leave a stale outline at the
-  // fixture's pre-layout frame.
-  // Process discovery happens before a newly launched app necessarily exposes
-  // its first AX window. Poll the actual positioning operation so a transient
-  // missing window is treated as app startup, not as a demo failure. Position
-  // the native app last so it remains frontmost for the first native action.
-  await positionFixtureWindow(electronPid, "{680, 70}");
-  await positionFixtureWindow(nativePid, "{40, 70}", { frontmost: true });
 
-  const electronConnection = await pollTool(
-    "connect_app",
-    { pid: electronPid, readyTimeoutMs: 8_000 },
-    isConnectAppSuccess,
-    20_000
-  );
-  electronPid = pidFromConnect(electronConnection);
-  const nativeConnection = await pollTool(
-    "connect_app",
-    { pid: nativePid },
-    isConnectAppSuccess
-  );
-  nativePid = pidFromConnect(nativeConnection);
+  // Layout before connect so the first outline sits on the final frame.
+  // Native last + frontmost so both windows are idle and ready for the crop.
+  await layoutFixtureWindow(electronPid, ELECTRON_POSITION, ELECTRON_SIZE);
+  await layoutFixtureWindow(nativePid, NATIVE_POSITION, NATIVE_SIZE, { frontmost: true });
+  if (holdMs > 0) await sleep(Math.max(holdMs, 400));
 }
 
-async function runDemo() {
-  await section("Native actions and input strategies");
-  await step("Auto and forced AX fills plus slider fill", async () => {
-    await callTool("fill", { app: nativePid, query: q("text_field", "name-input"), value: "Lady Macbeth" });
+async function runPresentation() {
+  // Beat 1 — outline appears on connect (native frontmost).
+  await beat("Outline native window", async () => {
+    const nativeConnection = await pollTool(
+      "connect_app",
+      { pid: nativePid },
+      isConnectAppSuccess
+    );
+    nativePid = pidFromConnect(nativeConnection);
+    // Electron connect while native stays frontmost: no competing outline.
+    const electronConnection = await pollTool(
+      "connect_app",
+      { pid: electronPid, readyTimeoutMs: 8_000 },
+      isConnectAppSuccess,
+      20_000
+    );
+    electronPid = pidFromConnect(electronConnection);
+    if (beatMs > 0) await sleep(beatMs);
+  });
+
+  // Beat 2 — pointer + fills on native form.
+  await beat("Fill native name and email", async () => {
+    await callTool("fill", {
+      app: nativePid,
+      query: q("text_field", "name-input"),
+      value: "Lady Macbeth",
+    }, { noDelay: true });
+    if (holdMs > 0) await sleep(holdMs);
     await callTool("fill", {
       app: nativePid,
       query: q("text_field", "email-input"),
       value: "lady@dunsinane.example",
-      strategy: "ax",
-    });
-    await callTool("fill", { app: nativePid, query: q("slider", "volume-slider"), value: "72" });
-    const slider = jsonOf(await callTool("get_element", {
-      app: nativePid,
-      query: q("slider", "volume-slider"),
-    }, { quiet: true, noDelay: true }));
-    assert(Number(slider.value) === 72, `Slider value is ${slider.value}, expected 72`);
+    }, { noDelay: true });
+    if (beatMs > 0) await sleep(beatMs);
   });
 
-  await step("Forced AX, auto, and handle-targeted clicks", async () => {
+  // Beat 3 — checkbox + Submit (visible state changes).
+  await beat("Click checkbox and Submit", async () => {
     await callTool("click", {
       app: nativePid,
       query: q("checkbox", "notifications-checkbox"),
-      strategy: "ax",
-    });
-    await callTool("click", { app: nativePid, query: q("button", "advance-progress-btn") });
-    const submit = jsonOf(await callTool("get_element", {
+    }, { noDelay: true });
+    if (holdMs > 0) await sleep(holdMs);
+    await callTool("click", {
       app: nativePid,
       query: q("button", "submit-btn"),
-    }, { quiet: true, noDelay: true }));
-    await callTool("click", { app: nativePid, handleId: submit.handleId });
-    const status = jsonOf(await callTool("get_element", {
-      app: nativePid,
-      query: statusQuery,
-    }, { quiet: true, noDelay: true }));
-    assert(String(status.value).includes("Submitted"), `Unexpected status: ${status.value}`);
+    }, { noDelay: true });
+    if (beatMs > 0) await sleep(beatMs);
   });
 
-  await step("Single and batched keyboard shortcuts", async () => {
-    await callTool("click", { app: nativePid, query: q("button", "advance-progress-btn") });
-    await callTool("press_key", { app: nativePid, key: "r", modifiers: ["cmd", "shift"] });
-    await callTool("wait_for", {
-      app: nativePid,
-      query: statusQuery,
-      timeout: 3,
-      condition: { kind: "value_equals", value: "Status: Demo reset from menu" },
-    }, { quiet: true, noDelay: true });
-    await callTool("click", { app: nativePid, query: q("checkbox", "notifications-checkbox") });
-    await callTool("press_keys", {
-      app: nativePid,
-      keys: [
-        { key: "r", modifiers: ["cmd", "shift"], delayMs: 100 },
-        { key: "tab", delayMs: 100 },
-      ],
-    });
-    await callTool("wait_for", {
-      app: nativePid,
-      query: statusQuery,
-      timeout: 3,
-      condition: { kind: "value_equals", value: "Status: Demo reset from menu" },
-    }, { quiet: true, noDelay: true });
-  });
-
-  await section("Wait conditions, dialogs, and menus");
-  await step("Menu discovery and deterministic menu selection", async () => {
-    const menu = textOf(await callTool(
-      "list_menu_bar", { app: APP_NATIVE }, { quiet: true, noDelay: true }
-    ));
-    assert(menu.includes("Demo"), "Demo menu was not discovered");
-    assert(menu.includes("Reset Demo"), "Reset Demo item was not discovered");
-    await callTool("select_menu_item", { app: APP_NATIVE, menuPath: ["Demo", "Reset Demo"] });
-    await callTool("wait_for", {
-      app: nativePid,
-      query: statusQuery,
-      timeout: 3,
-      condition: { kind: "value_equals", value: "Status: Demo reset from menu" },
-    }, { quiet: true, noDelay: true });
-  });
-
-  await step("wait_for exists discovers a modal", async () => {
-    await concurrentWait(
-      {
-        app: nativePid,
-        query: [{ role: "window", title: "Modal Dialog" }],
-        timeout: 5,
-        condition: { kind: "exists" },
-      },
-      () => callTool("click", { app: nativePid, query: q("button", "modal-btn") }, { noDelay: true })
-    );
-    await callTool("fill", { app: nativePid, query: q("text_field", "modal-text-input"), value: "modal probe" });
-    await callTool("click", { app: nativePid, query: q("button", "modal-close-btn") });
-  });
-
-  await step("wait_for value_equals and value_changes", async () => {
-    await callTool("fill", { app: nativePid, query: q("text_field", "name-input"), value: "Wait Target" });
-    await callTool("wait_for", {
-      app: nativePid,
-      query: q("text_field", "name-input"),
-      timeout: 3,
-      condition: { kind: "value_equals", value: "Wait Target" },
-    }, { quiet: true, noDelay: true });
-    await concurrentWait(
-      {
-        app: nativePid,
-        query: statusQuery,
-        timeout: 5,
-        condition: { kind: "value_changes" },
-      },
-      () => callTool("click", { app: nativePid, query: q("button", "advance-progress-btn") }, { noDelay: true })
-    );
-  });
-
-  await step("wait_for enabled observes a real transition", async () => {
-    await concurrentWait(
-      {
-        app: nativePid,
-        query: q("button", "gated-action-btn"),
-        timeout: 5,
-        condition: { kind: "enabled" },
-      },
-      () => callTool("click", { app: nativePid, query: q("button", "enable-action-btn") }, { noDelay: true })
-    );
-    await callTool("click", { app: nativePid, query: q("button", "gated-action-btn") });
-  });
-
-  await step("Native alert can be inspected and dismissed", async () => {
-    await concurrentWait(
-      {
-        app: nativePid,
-        query: q("button", "alert-delete"),
-        timeout: 5,
-        condition: { kind: "exists" },
-      },
-      () => callTool("click", { app: nativePid, query: q("button", "alert-btn") }, { noDelay: true })
-    );
-    await callTool("click", { app: nativePid, query: q("button", "alert-delete") });
-    await callTool("wait_for", {
-      app: nativePid,
-      query: statusQuery,
-      timeout: 3,
-      condition: { kind: "value_equals", value: "Status: Alert – Delete clicked" },
-    }, { quiet: true, noDelay: true });
-  });
-
-  await section("Electron web content");
-  await step("Electron auto and keyboard fill deliver input events", async () => {
+  // Beat 4 — hand off to Electron: outline + form + Submit.
+  await beat("Fill and submit Electron form", async () => {
+    await setFrontmost(electronPid);
     await callTool("fill", {
       app: electronPid,
       query: [{ role: "text_field", title: "Name:" }],
-      value: "Electron Auto",
-    });
-    let tree = textOf(await callTool(
-      "query_tree", { app: electronPid, maxDepth: 12 }, { quiet: true, noDelay: true }
-    ));
-    assert(tree.includes("Mirror: Electron Auto"), "Auto fill did not update the Electron mirror");
-    await callTool("fill", {
-      app: electronPid,
-      query: [{ role: "text_field", title: "Name:" }],
-      value: "Electron Keyboard",
-      strategy: "keyboard",
-    });
-    tree = textOf(await callTool(
-      "query_tree", { app: electronPid, maxDepth: 12 }, { quiet: true, noDelay: true }
-    ));
-    assert(tree.includes("Mirror: Electron Keyboard"), "Keyboard fill did not update the Electron mirror");
-  });
-
-  await step("Forced mouse click with idle protection", async () => {
-    await callTool("fill", {
-      app: electronPid,
-      query: [{ role: "text_field", title: "Email:" }],
-      value: "electron@example.test",
-    });
+      value: "Electron Demo",
+    }, { noDelay: true });
+    if (holdMs > 0) await sleep(holdMs);
     await callTool("click", {
       app: electronPid,
       query: [{ role: "button", title: "Submit" }],
-      strategy: "mouse",
-      waitForIdleMs: 50,
-    });
-    const tree = textOf(await callTool(
-      "query_tree", { app: electronPid, maxDepth: 12 }, { quiet: true, noDelay: true }
-    ));
-    assert(tree.includes("Submitted"), "Mouse click did not submit the Electron form");
+    }, { noDelay: true });
+    if (beatMs > 0) await sleep(beatMs);
   });
 
-  await section("Capture and OCR");
-  await step("Full native screenshot", async () => {
-    const saved = jsonOf(await callTool("screenshot", { app: nativePid }));
+  // Beat 5 — hero capture animation on the native window.
+  await beat("Screenshot native window", async () => {
+    await setFrontmost(nativePid);
+    const saved = jsonOf(await callTool("screenshot", { app: nativePid }, { noDelay: true }));
     assert(saved.path && saved.width > 0 && saved.height > 0, "Screenshot metadata was incomplete");
     artifacts.push(saved.path);
+    // Capture overlay already presents ~0.95s; beat pause lets the snap read.
+    if (beatMs > 0) await sleep(beatMs);
   });
 
-  await step("Cropped Electron screenshot", async () => {
-    const saved = jsonOf(await callTool("screenshot", {
-      app: electronPid,
-      region: { x: 0, y: 0, width: 500, height: 320 },
-    }));
-    assert(saved.path && saved.width > 0 && saved.height > 0, "Cropped screenshot metadata was incomplete");
-    artifacts.push(saved.path);
+  // Beat 6 — hold for the outro frame.
+  await beat("Outro hold", async () => {
+    if (outroHoldMs > 0) await sleep(outroHoldMs);
   });
-
-  await step("OCR an app window", async () => {
-    const text = textOf(await callTool("extract_text", { app: nativePid }));
-    assert(
-      text.includes("Macbeth") || text.includes("Text Inputs") || text.includes("Sliders & Steppers"),
-      `Expected fixture text in OCR output: ${text.slice(0, 100)}`,
-    );
-  });
-
 }
 
 async function cleanup() {
@@ -547,7 +419,7 @@ async function cleanup() {
       try {
         await callTool("run_applescript", {
           source: `do shell script "/bin/kill -TERM ${fixturePids.join(" ")} 2>/dev/null || true"`,
-        }, { quiet: true, noDelay: true });
+        }, { noDelay: true });
       } catch (error) {
         cleanupErrors.push(`could not terminate fixtures: ${error instanceof Error ? error.message : String(error)}`);
       }
@@ -556,7 +428,7 @@ async function cleanup() {
       let remaining = new Set(fixturePids);
       while (remaining.size > 0 && Date.now() < deadline) {
         try {
-          const apps = textOf(await callTool("list_apps", {}, { quiet: true, noDelay: true }));
+          const apps = textOf(await callTool("list_apps", {}, { noDelay: true }));
           remaining = new Set(runningOwnedFixturePids(apps));
         } catch (error) {
           cleanupErrors.push(`could not verify fixture exit: ${error instanceof Error ? error.message : String(error)}`);
@@ -569,20 +441,9 @@ async function cleanup() {
         try {
           await callTool("run_applescript", {
             source: `do shell script "/bin/kill -KILL ${[...remaining].join(" ")} 2>/dev/null || true"`,
-          }, { quiet: true, noDelay: true });
+          }, { noDelay: true });
         } catch (error) {
           cleanupErrors.push(`could not force-close fixtures: ${error instanceof Error ? error.message : String(error)}`);
-        }
-
-        try {
-          await sleep(100);
-          const apps = textOf(await callTool("list_apps", {}, { quiet: true, noDelay: true }));
-          remaining = new Set(runningOwnedFixturePids(apps).filter((pid) => remaining.has(pid)));
-          if (remaining.size > 0) {
-            cleanupErrors.push(`fixture PIDs still running: ${[...remaining].join(", ")}`);
-          }
-        } catch (error) {
-          cleanupErrors.push(`could not verify forced fixture exit: ${error instanceof Error ? error.message : String(error)}`);
         }
       }
     }
@@ -595,7 +456,7 @@ async function cleanup() {
               set frontmost of first application process whose unix id is ${originalFrontmostPid} to true
             end if
           end tell`,
-        }, { quiet: true, noDelay: true });
+        }, { noDelay: true });
       } catch (error) {
         cleanupErrors.push(`could not restore the foreground app: ${error instanceof Error ? error.message : String(error)}`);
       }
@@ -642,9 +503,9 @@ process.once("SIGTERM", () => { void shutdownFromSignal("SIGTERM", 143); });
 function printSummary() {
   const totalMs = Date.now() - startedAt;
   const counts = { pass: 0, fail: 0, skip: 0 };
-  console.log("\n━━ Demo summary ━━");
+  console.log("\n━━ Presentation summary ━━");
   for (const result of outcomes) {
-    counts[result.status] += 1;
+    counts[result.status] = (counts[result.status] ?? 0) + 1;
     const mark = result.status === "pass" ? "✓" : result.status === "fail" ? "✗" : "↷";
     const detail = result.detail ? ` — ${result.detail}` : "";
     console.log(`${mark} ${result.name} [${result.status}, ${result.durationMs}ms]${detail}`);
@@ -653,8 +514,8 @@ function printSummary() {
     console.log("\nScreenshot artifacts:");
     for (const path of artifacts) console.log(`  ${path}`);
   }
-  console.log(`\n${counts.pass} passed, ${counts.fail} failed, ${counts.skip} skipped in ${(totalMs / 1000).toFixed(1)}s`);
-  return counts.fail;
+  console.log(`\n${counts.pass ?? 0} passed, ${counts.fail ?? 0} failed in ${(totalMs / 1000).toFixed(1)}s`);
+  return counts.fail ?? 0;
 }
 
 async function main() {
@@ -662,17 +523,32 @@ async function main() {
   await connectMcp();
   await captureInitialState();
 
+  const stage = await beat("Stage native and Electron fixtures", stageApps);
+  if (stage.status !== "pass") {
+    outcomes.push({
+      name: "Presentation",
+      status: "skip",
+      durationMs: 0,
+      detail: "fixtures did not stage",
+    });
+    return;
+  }
+
   if (!args.fast) {
-    console.log("\nRecording starts in…");
+    console.log("\n━━ Hide this terminal, start screen capture on the two windows ━━");
+    console.log("Recording starts in…");
     for (const count of [3, 2, 1]) {
       console.log(`  ${count}`);
       await sleep(1000);
     }
+    console.log("  RECORDING — action begins\n");
   }
 
-  const launch = await step("Launch native and Electron fixtures through MCP", launchApps);
-  if (launch.status === "pass") await runDemo();
-  else outcomes.push({ name: "Feature presentation", status: "skip", durationMs: 0, detail: "apps did not launch" });
+  await runPresentation();
+
+  if (!args.fast) {
+    console.log("\n━━ Recording complete — stop capture ━━\n");
+  }
 }
 
 let fatalError;
@@ -681,7 +557,7 @@ try {
 } catch (error) {
   fatalError = error;
   outcomes.push({
-    name: "Demo runner",
+    name: "Presentation runner",
     status: "fail",
     durationMs: 0,
     detail: error instanceof Error ? error.message : String(error),

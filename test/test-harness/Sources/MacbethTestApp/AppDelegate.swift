@@ -380,6 +380,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         gatedActionButton.isEnabled = false
         contentView.addSubview(gatedActionButton)
 
+        // The presentation demo records the first form controls. AppKit document
+        // views use a bottom-left origin, so an unpositioned scroll view opens on
+        // the status/table section at the bottom and makes those interactions
+        // happen off-screen. Keep the general-purpose fixture behavior unchanged;
+        // only the presentation launch opts into a top-aligned viewport.
+        if CommandLine.arguments.contains("--presentation") {
+            let topOrigin = NSPoint(
+                x: 0,
+                y: max(0, contentView.bounds.maxY - scrollView.contentView.bounds.height)
+            )
+            scrollView.contentView.scroll(to: topOrigin)
+            scrollView.reflectScrolledClipView(scrollView.contentView)
+        }
     }
 
     // MARK: - Radio button references

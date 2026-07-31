@@ -17,6 +17,11 @@ func registerConnectApp(
             let pid = obj["pid"]?.intValue
             let readyTimeoutMs = obj["readyTimeoutMs"]?.intValue
 
+            // Acquire the automatic scope before native/Electron readiness work so
+            // a preceding tool's buffered glow cannot expire while this resolves.
+            await glow.activityStarted()
+            defer { Task { await glow.activityEnded() } }
+
             let result = try await appManager.connect(
                 name: name, pid: pid, readyTimeoutMs: readyTimeoutMs
             )

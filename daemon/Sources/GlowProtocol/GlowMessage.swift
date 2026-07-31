@@ -67,6 +67,7 @@ public enum GlowPointerAction: String, Codable, Sendable {
 /// {"type":"activate","color":"#8B3342","debounceMs":400}
 /// {"type":"deactivate"}
 /// {"type":"focusWindow","windowId":"123:456","rect":{"x":0,"y":0,"width":800,"height":600}}
+/// {"type":"targetActivated","ownerPid":42}
 /// {"type":"pointerMove","point":{"x":120,"y":240},"action":"click"}
 /// {"type":"captureStart","captureId":"...","rect":{"x":0,"y":0,"width":800,"height":600}}
 /// {"type":"captureFinish","captureId":"...","success":true}
@@ -81,6 +82,10 @@ public struct GlowMessage: Codable, Equatable, Sendable {
         case deactivate
         /// Create or refresh the subtle outline for one addressed window.
         case focusWindow
+        /// Daemon activated this app without presenting a replacement outline
+        /// (e.g. mouse-click raise-and-restore). Retire other apps' outlines even
+        /// while an activity scope is open.
+        case targetActivated
         /// Move the synthetic presentation pointer to an interaction target.
         case pointerMove
         /// Focus and scan the target window while ScreenCaptureKit captures it.
@@ -101,6 +106,9 @@ public struct GlowMessage: Codable, Equatable, Sendable {
     /// Stable process-local identity of the controlled window. This lets the
     /// helper retain independent outlines when several windows are in use.
     public var windowId: String?
+    /// Owning process for `.targetActivated`. Retires outlines that belong to
+    /// any other pid.
+    public var ownerPid: Int32?
     /// Target window bounds. Only meaningful on `.captureStart`.
     public var rect: GlowCaptureRect?
     /// Interaction target. Only meaningful on `.pointerMove`.
@@ -116,6 +124,7 @@ public struct GlowMessage: Codable, Equatable, Sendable {
         debounceMs: Int? = nil,
         captureId: String? = nil,
         windowId: String? = nil,
+        ownerPid: Int32? = nil,
         rect: GlowCaptureRect? = nil,
         point: GlowPointerPoint? = nil,
         action: GlowPointerAction? = nil,
@@ -126,6 +135,7 @@ public struct GlowMessage: Codable, Equatable, Sendable {
         self.debounceMs = debounceMs
         self.captureId = captureId
         self.windowId = windowId
+        self.ownerPid = ownerPid
         self.rect = rect
         self.point = point
         self.action = action
@@ -149,6 +159,10 @@ public struct GlowMessage: Codable, Equatable, Sendable {
 
     public static func windowFocused(id: String, rect: GlowCaptureRect) -> GlowMessage {
         GlowMessage(type: .focusWindow, windowId: id, rect: rect)
+    }
+
+    public static func targetActivated(ownerPid: Int32) -> GlowMessage {
+        GlowMessage(type: .targetActivated, ownerPid: ownerPid)
     }
 
     public static func pointerMoved(
