@@ -23,4 +23,15 @@ describe("presentation demo contract", () => {
     expect(demoSource).toContain('callTool("screenshot"');
     expect(demoSource).toContain("Electron Demo");
   });
+
+  it("matches current connect_app success text", () => {
+    expect(demoSource).toContain("isConnectAppSuccess");
+    expect(demoSource).not.toContain('text.includes("Connected to")');
+  });
+
+  it("terminates only launched fixture PIDs", () => {
+    expect(demoSource).toContain("ownedFixturePids");
+    expect(demoSource).toContain("kill -KILL");
+    expect(demoSource).not.toContain("rememberCreatedFixtures");
+  });
 });

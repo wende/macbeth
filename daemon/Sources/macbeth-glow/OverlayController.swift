@@ -164,6 +164,13 @@ final class OverlayController: NSObject {
             let id = message.windowId ?? legacyWindowID(for: rect)
             focusWindow(id: id, rect: rect)
 
+        case .targetActivated:
+            guard let ownerPid = message.ownerPid else { return }
+            // Runs even while activityActive: a daemon-driven activate that will
+            // not send focusWindow must still clear the previous app's buffered
+            // outline so it does not sit on the wrong window mid-raise.
+            dismissOutlinesNotBelonging(to: ownerPid)
+
         case .pointerMove:
             guard let point = message.point else { return }
             movePointer(to: point, action: message.action ?? .interact)
@@ -195,6 +202,17 @@ final class OverlayController: NSObject {
         guard rect.width > 0, rect.height > 0,
               rect.x.isFinite, rect.y.isFinite,
               rect.width.isFinite, rect.height.isFinite else { return }
+
+        // Concurrent Task.detached handlers can deliver a stale focusWindow for a
+        // background app after the real frontmost app's message. Refuse to show
+        // or dismiss-on-behalf-of a non-frontmost owner so legitimate chrome
+        // survives out-of-order delivery. Nil frontmost (tests / transient) keeps
+        // the prior "trust the message" behaviour.
+        if let ownerPid = navigationOverlayOwnerPid(id),
+           let frontmost = frontmostPidProvider(),
+           frontmost != ownerPid {
+            return
+        }
 
         let frame = appKitCaptureFrame(rect)
 
