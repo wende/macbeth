@@ -185,7 +185,11 @@ stall unrelated handle operations. Full contract in `docs/handle-lifecycle.md`.
 `JsonRpcClient.call()` retries once on connection errors (ECONNREFUSED, connection
 closed, socket missing). The retry re-spawns the daemon via `DaemonManager.ensureRunning()`.
 App handles must be re-obtained after a daemon restart since handle IDs are not stable
-across daemon processes.
+across daemon processes — `AppHandle.reconnect()` does that by pid, and locators derived
+from an `AppHandle` call it automatically when a recovery needs it (`unknown_handle`, or a
+re-resolve rejected with `app_not_found`). A restarted daemon can reissue the old app
+handle's id to a different app, so replaying a query without reconnecting can hit the
+wrong app.
 
 ## Key Constraints
 

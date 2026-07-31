@@ -157,6 +157,27 @@ private func fingerprint(role: String? = nil, subrole: String? = nil, identifier
     #expect(describe(await table.classify(known)) == "stale:recycled")
 }
 
+@Test func aPartialReadDoesNotErasePreviouslyRecordedIdentity() async {
+    // known → partial → recycled. The middle read fetched the role but lost the
+    // identifier; if that erased "save", the recycled reference below (same role,
+    // different identifier) would have nothing to contradict and the handle would
+    // silently resolve to the wrong button.
+    let table = HandleTable(ttl: 60)
+    let element = appElement(4242)
+
+    let saveButton = await table.store(
+        element, pid: 4242, fingerprint: fingerprint(role: "AXButton", identifier: "save"))
+    let afterPartialRead = await table.store(
+        element, pid: 4242, fingerprint: fingerprint(role: "AXButton"))
+    #expect(afterPartialRead == saveButton)
+
+    let cancelButton = await table.store(
+        element, pid: 4242, fingerprint: fingerprint(role: "AXButton", identifier: "cancel"))
+
+    #expect(cancelButton != saveButton)
+    #expect(describe(await table.classify(saveButton)) == "stale:recycled")
+}
+
 // MARK: - Invalidation boundaries
 
 @Test func expiredHandlesAreStaleNotUnknown() async {
@@ -227,6 +248,20 @@ private func fingerprint(role: String? = nil, subrole: String? = nil, identifier
     let table = HandleTable(ttl: 60)
     #expect(await table.pin("h_999") == false)
     #expect(await table.unpin("h_999") == false)
+}
+
+@Test func theFirstInvalidationReasonWins() async {
+    // Liveness probes run outside the actor, so a probe that started before the app quit
+    // can report `destroyed` after eviction already recorded `app_terminated`. The
+    // authoritative first reason must survive, or the caller is told to re-query an app
+    // that no longer exists.
+    let table = HandleTable(ttl: 60)
+    let handleId = await table.store(appElement(4242), pid: 4242)
+
+    await table.removeHandles(forPid: 4242)
+    await table.invalidate(handleId, reason: .destroyed)
+
+    #expect(describe(await table.classify(handleId)) == "stale:app_terminated")
 }
 
 @Test func invalidationRecordsStayBounded() async {

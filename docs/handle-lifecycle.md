@@ -78,11 +78,25 @@ stale→unknown, so a real handle is never reported as one that never existed.
 
 ### Client behaviour
 
-`ScopedLocator` re-resolves from its query path and retries once on **either** code — it
-holds the query path, so both are recoverable for it. The distinction is preserved for
-agents and direct RPC callers, who see `[stale_handle]` / `[unknown_handle]` and the
-reason. `isRecoverableHandleError()` (`client/src/errors.ts`) also still recognises the
-pre-typed-code messages, so an updated client works against an older daemon binary.
+`ScopedLocator` re-resolves from its query path and retries once on **either** code. The
+query path alone isn't always enough: app handles are daemon-local too, so a restart kills
+the app handle as well, and the new daemon may already have issued that same `h_N` to a
+different app — replaying the query against it would act on the wrong window. So recovery
+re-acquires the app handle (`AppHandle.reconnect()`, by pid) when it must:
+
+- on `unknown_handle`, which proves the id came from another daemon process
+- on any other stale reason *only if* the replayed query is rejected for the app handle
+  (`app_not_found`), because `connect_app` waits for Electron web content to build and
+  must not sit on the path of an ordinary TTL re-resolve
+
+Locators built from an `AppHandle` inherit the reconnect callback; a bare `Locator`
+constructed by hand has none and surfaces `app_not_found` instead. If the app itself
+relaunched, its pid changed and `reconnect()` fails — connect again by name.
+
+The stale/unknown distinction is preserved for agents and direct RPC callers, who see
+`[stale_handle]` / `[unknown_handle]` and the reason. `isRecoverableHandleError()`
+(`client/src/errors.ts`) also still recognises the pre-typed-code messages, so an updated
+client works against an older daemon binary.
 
 ## Acceptance criteria
 
@@ -102,22 +116,26 @@ app and Accessibility permission.
   get different ids; a retired id is not handed out again.
   (`distinctElementsGetDistinctHandles`, `handleIdsAreNeverReused`)
 - [x] **AC4 — Tree changes retire the right handle.** A recycled reference retires the old
-  id and mints a new one; a changed title or value does not.
+  id and mints a new one; a changed title or value does not; and a read that failed to
+  fetch an attribute neither retires the handle nor erases the identity already recorded.
   (`recycledReferenceRetiresTheOldHandle`, `changingTitleOrValueDoesNotRetireAHandle`,
-  `missingAttributesNeverCountAsAConflict`)
+  `missingAttributesNeverCountAsAConflict`,
+  `aPartialReadDoesNotErasePreviouslyRecordedIdentity`)
 - [x] **AC5 — Stale is distinguishable from unknown, with a reason.** Expired, destroyed,
   recycled and app-terminated all report `stale_handle` with their own reason; a
-  never-issued id reports `unknown_handle`. (`expiredHandlesAreStaleNotUnknown`,
+  never-issued id reports `unknown_handle`, and the first authoritative reason survives a
+  late-landing liveness probe. (`expiredHandlesAreStaleNotUnknown`,
   `neverIssuedHandlesAreUnknown`, `terminatedAppsReportTheirOwnReason`,
-  `handle lifecycle errors` suite)
+  `theFirstInvalidationReasonWins`, `handle lifecycle errors` suite)
 - [x] **AC6 — Pinning is the only TTL exemption.** A pinned handle survives expiry and
   keeps its id; unpinning restores normal expiry.
   (`pinnedHandlesSurviveExpiryAndKeepTheirId`)
 - [x] **AC7 — Bounded memory.** Invalidation records stay under their cap, and dropped
   records degrade to `expired` rather than `unknown`. (`invalidationRecordsStayBounded`)
 - [x] **AC8 — Recovery still works end to end.** A scoped locator re-resolves and retries
-  once on stale *and* on unknown, and does not retry errors re-resolving cannot fix.
-  (`locator.test.ts`)
+  once on stale *and* on unknown, re-acquires the app handle when that is what died, keeps
+  `connect_app` off the ordinary TTL path, and does not retry errors re-resolving cannot
+  fix. (`locator.test.ts`)
 - [x] **AC9 — Boundaries are documented.** This file, plus `ElementHandle` in
   `protocol/schema.ts` and the `query_tree` MCP tool description.
 
@@ -136,8 +154,10 @@ Run against a native Cocoa app first — System Settings, TextEdit or Xcode.
   act on the handle: `stale_handle` with reason `destroyed` (or `expired` if the app
   reuses the element lazily), never a wrong-element action.
 - [ ] **AC14 — Unknown id.** `dump_attributes` with `h_99999`: `unknown_handle`.
-- [ ] **AC15 — Daemon restart.** Kill `macbethd`, then act on a pre-restart handle:
-  `unknown_handle`, and a `ScopedLocator` recovers by itself.
+- [ ] **AC15 — Daemon restart.** Kill `macbethd`, then act on a pre-restart handle. The
+  daemon reports `unknown_handle`; a `ScopedLocator` derived from an `AppHandle` recovers
+  by itself (reconnect, replay, retry) and acts on the correct app. Worth running with a
+  second app connected first after the restart, so the old app-handle id is taken.
 - [ ] **AC16 — Electron degradation.** Repeat AC10 on Slack or VS Code. Handles may still
   churn there — expected, documented above, and not a regression. Worth recording how much
   they churn, since that decides whether the synthetic-key follow-up is worth building.

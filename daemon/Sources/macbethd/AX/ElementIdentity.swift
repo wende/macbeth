@@ -78,6 +78,20 @@ struct ElementFingerprint: Sendable, Equatable {
         )
     }
 
+    /// Combine what two reads know about the same element.
+    ///
+    /// The newer read wins per attribute, but an attribute it failed to fetch never
+    /// erases one already recorded: dropping a known `AXIdentifier` because one read
+    /// came back empty would leave nothing for a later recycled reference to
+    /// contradict, and the handle would resolve to the wrong control.
+    func merged(with newer: ElementFingerprint) -> ElementFingerprint {
+        ElementFingerprint(
+            role: newer.role ?? role,
+            subrole: newer.subrole ?? subrole,
+            identifier: newer.identifier ?? identifier
+        )
+    }
+
     /// True when two fingerprints cannot describe the same UI object.
     ///
     /// Only *contradictions* count. An attribute missing on either side is "unknown",

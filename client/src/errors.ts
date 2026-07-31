@@ -73,6 +73,22 @@ export function isRecoverableHandleError(err: unknown): boolean {
     && (err.message.includes("expired") || err.message.includes("stale-element"));
 }
 
+/**
+ * True when the daemon says it never issued this handle id.
+ *
+ * That means the id came from a *different daemon process*, so nothing the caller holds
+ * from before is trustworthy — including the app handle, whose id the new daemon may
+ * already have issued to a different app. Recovery has to re-acquire the app first.
+ */
+export function isUnknownHandleError(err: unknown): boolean {
+  return err instanceof JsonRpcError && err.code === RPC_ERROR_CODES.unknownHandle;
+}
+
+/** True when the daemon rejected the app handle itself (dead or never issued). */
+export function isAppHandleInvalid(err: unknown): boolean {
+  return err instanceof JsonRpcError && err.code === RPC_ERROR_CODES.appNotFound;
+}
+
 /** The lifecycle reason behind a stale-handle error, when the daemon reported one. */
 export function staleHandleReason(err: unknown): StaleHandleReason | undefined {
   if (!(err instanceof JsonRpcError)) return undefined;

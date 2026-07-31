@@ -72,7 +72,10 @@ actor HandleTable {
             } else {
                 entry.lastAccessed = now
                 entry.pinned = entry.pinned || pinned
-                if !fingerprint.isEmpty { entry.fingerprint = fingerprint }
+                // Merge rather than replace: a read where AXIdentifier happened to fail
+                // must not erase the identifier already on record, or a later recycled
+                // reference would have nothing left to contradict.
+                entry.fingerprint = entry.fingerprint.merged(with: fingerprint)
                 handles[existingId] = entry
                 return existingId
             }
@@ -184,9 +187,13 @@ actor HandleTable {
     }
 
     private func recordInvalidation(_ handleId: String, _ reason: HandleInvalidation) {
-        if invalidated.updateValue(reason, forKey: handleId) == nil {
-            invalidationOrder.append(handleId)
-        }
+        // First reason wins. `resolveLiveHandle` probes the app outside the actor, so a
+        // probe that started before the app quit can land after `removeHandles(forPid:)`
+        // has already recorded `app_terminated`; overwriting it with the probe's
+        // `destroyed` would send the caller off to re-query an app that is gone.
+        guard invalidated[handleId] == nil else { return }
+        invalidated[handleId] = reason
+        invalidationOrder.append(handleId)
         guard invalidationOrder.count > maxInvalidationRecords else { return }
         // Drop the oldest quarter in one pass so trimming stays amortised O(1) even when
         // a huge app quits and invalidates tens of thousands of handles at once — but
