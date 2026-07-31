@@ -30,8 +30,11 @@ const UNPROBED: AppAccessibility = {
   connectable: true,
 };
 
+/** Read an app's readiness, tolerating a daemon old enough not to report one.
+ *  The field is required in the protocol — the current daemon always sends it — so
+ *  this is a wire-compatibility check, not an optional property. */
 export function appAccessibility(app: AppInfo): AppAccessibility {
-  return (app as Partial<AppInfo>).accessibility ?? UNPROBED;
+  return "accessibility" in app ? app.accessibility : UNPROBED;
 }
 
 function describeApp(app: AppInfo): string {

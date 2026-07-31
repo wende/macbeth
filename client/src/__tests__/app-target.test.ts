@@ -142,4 +142,15 @@ describe("formatAppList", () => {
   it("handles an empty list", () => {
     expect(formatAppList([])).toBe("No running apps found.");
   });
+
+  it("lists apps flat when the daemon is too old to report readiness", () => {
+    // Pre-probing daemons omit the field entirely. Everything should still list
+    // rather than being declared unreachable.
+    const legacy = { name: "Finder", pid: 100, bundleId: null, aliases: [], runtime: "native" };
+    const text = formatAppList([legacy as unknown as AppInfo]);
+
+    expect(text).toContain("Connectable through Accessibility (1):");
+    expect(text).toContain("Finder (pid: 100");
+    expect(text).not.toContain("NOT connectable");
+  });
 });
