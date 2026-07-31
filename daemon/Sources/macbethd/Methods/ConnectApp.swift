@@ -15,6 +15,7 @@ func registerConnectApp(
 
             let name = obj["name"]?.stringValue
             let pid = obj["pid"]?.intValue
+            let appHandle = obj["appHandle"]?.stringValue
             let readyTimeoutMs = obj["readyTimeoutMs"]?.intValue
 
             // Acquire the automatic scope before native/Electron readiness work so
@@ -23,7 +24,7 @@ func registerConnectApp(
             defer { Task { await glow.activityEnded() } }
 
             let result = try await appManager.connect(
-                name: name, pid: pid, readyTimeoutMs: readyTimeoutMs
+                name: name, pid: pid, appHandle: appHandle, readyTimeoutMs: readyTimeoutMs
             )
             let connection = result.connection
             if let window = ElementGeometry.preferredWindow(of: connection.appElement.element),

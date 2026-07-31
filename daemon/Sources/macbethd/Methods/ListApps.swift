@@ -1,3 +1,4 @@
+@preconcurrency import ApplicationServices
 import AppKit
 
 enum AppRuntime: String, Sendable {
@@ -6,16 +7,74 @@ enum AppRuntime: String, Sendable {
     case unknown
 }
 
+/// Whether a running app can currently be driven through the Accessibility API.
+///
+/// "Running" and "automatable" are different things: launchers, helper processes, and
+/// apps that never implement AX show up in the process list but refuse every request.
+/// `list_apps` reports this so callers do not discover it only when `connect_app` fails.
+enum AXReadiness: String, Sendable {
+    /// The app answered an accessibility probe.
+    case connectable
+    /// The whole API is off because macbeth lacks Accessibility permission.
+    case permissionRequired = "permission_required"
+    /// The app is running but refuses accessibility requests.
+    case notConnectable = "not_connectable"
+}
+
+struct AppAccessibility: Sendable, Equatable {
+    let readiness: AXReadiness
+    /// Explanation of the probe failure; `nil` when the app is connectable.
+    let error: AXErrorInfo?
+
+    var json: JSONValue {
+        var fields: [String: JSONValue] = [
+            "status": .string(readiness.rawValue),
+            "connectable": .bool(readiness == .connectable),
+        ]
+        if let error {
+            fields["axCode"] = .number(Double(error.code))
+            fields["axError"] = .string(error.name)
+            fields["explanation"] = .string(error.explanation)
+            fields["nextAction"] = .string(error.nextAction)
+        }
+        return .object(fields)
+    }
+}
+
 struct AppInfo: Sendable {
     let name: String
     let pid: Int32
     let bundleId: String?
     let aliases: [String]
     let runtime: AppRuntime
+    let accessibility: AppAccessibility
 }
 
-/// List running GUI applications.
-func listApps() -> [AppInfo] {
+/// Classify the result of an accessibility probe.
+func classifyAccessibility(probe: AXError) -> AppAccessibility {
+    switch probe {
+    case .success:
+        return AppAccessibility(readiness: .connectable, error: nil)
+    case .apiDisabled:
+        return AppAccessibility(readiness: .permissionRequired, error: axErrorInfo(probe))
+    default:
+        return AppAccessibility(readiness: .notConnectable, error: axErrorInfo(probe))
+    }
+}
+
+/// Ask an app for its AX role — the same check `connect_app` performs, with a tighter
+/// messaging timeout so one unresponsive process cannot stall the whole listing.
+func probeAccessibility(pid: pid_t, timeout: Float = 0.25) -> AXError {
+    let element = AXUIElementCreateApplication(pid)
+    AXUIElementSetMessagingTimeout(element, timeout)
+    var role: CFTypeRef?
+    return AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &role)
+}
+
+/// List running GUI applications, probing each one for accessibility readiness.
+///
+/// - Parameter probe: Accessibility probe, injectable for tests.
+func listApps(probe: (pid_t) -> AXError = { probeAccessibility(pid: $0) }) -> [AppInfo] {
     NSWorkspace.shared.runningApplications
         .filter { $0.activationPolicy == .regular }
         .compactMap { app in
@@ -25,7 +84,8 @@ func listApps() -> [AppInfo] {
                 pid: app.processIdentifier,
                 bundleId: app.bundleIdentifier,
                 aliases: appAliases(app),
-                runtime: detectRuntime(app)
+                runtime: detectRuntime(app),
+                accessibility: classifyAccessibility(probe: probe(app.processIdentifier))
             )
         }
 }
@@ -116,14 +176,21 @@ func detectRuntime(pid: pid_t) -> AppRuntime {
 
 /// Convert app list to JSON-RPC result.
 func listAppsResult() -> JSONValue {
-    let apps = listApps().map { app -> JSONValue in
+    listAppsResult(apps: listApps())
+}
+
+/// Serialize an app list. Split from discovery so the wire format is testable without
+/// a running desktop session.
+func listAppsResult(apps: [AppInfo]) -> JSONValue {
+    let entries = apps.map { app -> JSONValue in
         .object([
             "name": .string(app.name),
             "pid": .number(Double(app.pid)),
             "bundleId": app.bundleId.map { .string($0) } ?? .null,
             "aliases": .array(app.aliases.map { .string($0) }),
             "runtime": .string(app.runtime.rawValue),
+            "accessibility": app.accessibility.json,
         ])
     }
-    return .object(["apps": .array(apps)])
+    return .object(["apps": .array(entries)])
 }

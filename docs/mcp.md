@@ -53,9 +53,13 @@ unexpected CLI failure.
 
 Then ask your agent to run this **smoke-test prompt**:
 
-> Using the macbeth MCP tools, call `list_apps` and tell me which apps are running. Then `connect_app` to Finder, `query_tree` its front window, and report the first few elements you see.
+> Using the macbeth MCP tools, call `list_apps` and tell me which apps are connectable through Accessibility. Then `query_tree` Finder's front window and report the first few elements you see.
 
-A healthy install returns a list of running apps and a small accessibility tree for Finder. If any step fails — the tools don't appear, `list_apps` errors, or the tree comes back empty — run `npx macbeth doctor` and paste its fix block to your agent, or see **[TROUBLESHOOTING.md](../TROUBLESHOOTING.md)**.
+A healthy install lists running apps under a **Connectable through Accessibility** heading and returns a small accessibility tree for Finder. If every app lands under the not-connectable heading with AX `-25211 api_disabled`, Accessibility permission is missing. If any step fails — the tools don't appear, `list_apps` errors, or the tree comes back empty — run `npx macbeth doctor` and paste its fix block to your agent, or see **[TROUBLESHOOTING.md](../TROUBLESHOOTING.md)**.
+
+### Do I need `connect_app`?
+
+No. Every app-taking tool (`query_tree`, `click`, `fill`, `screenshot`, …) connects on its own — pass an app name or PID and it resolves. `connect_app` is a preflight you call deliberately: to confirm an app is reachable through Accessibility before driving it, to see exactly how a fuzzy name resolved, or to give an Electron app a longer `readyTimeoutMs`. It returns an app handle (`h_3`) that any other tool accepts in its `app` argument, which pins the target to that exact process instead of re-running fuzzy name matching.
 
 ## Updating
 
@@ -72,8 +76,8 @@ npx macbeth update --check  # report only
 |---|---|
 | `list_daemon_methods` | List registered daemon RPCs for MCP parity checks |
 | `begin_activity` / `end_activity` | Bracket external computer-control work with the interaction glow |
-| `list_apps` | List running macOS apps |
-| `connect_app` | Connect to an app by name or PID |
+| `list_apps` | List running macOS apps, split into Accessibility-connectable and running-but-not-connectable (with the AX code and what to do instead) |
+| `connect_app` | Optional preflight — verify Accessibility reachability, see how a fuzzy name resolved, or warm an Electron tree. Returns an app handle you can pass as `app` to any other tool |
 | `list_windows` | List app and helper process windows across macOS Spaces without activating them |
 | `query_tree` | Accessibility tree as text or JSON, including menus and web-content readiness diagnostics |
 | `get_element` | Find an element by query or handle |
