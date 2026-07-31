@@ -58,7 +58,11 @@ func resolveQuery(
         current = matches[targetIndex]
     }
 
-    let handleId = await handleTable.store(SendableElement(current), pid: pid)
+    let handleId = await handleTable.store(
+        SendableElement(current),
+        pid: pid,
+        fingerprint: ElementFingerprint.capture(current)
+    )
     return (current, handleId)
 }
 

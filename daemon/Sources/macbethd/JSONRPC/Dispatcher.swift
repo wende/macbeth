@@ -97,6 +97,11 @@ enum RPCError: Error {
     case appBusy(String)
     case scriptFailed(String, data: JSONValue? = nil)
     case axLookupFailed(String)
+    /// A handle this daemon issued whose element is gone. Carries the lifecycle reason
+    /// so callers can tell a TTL eviction from a destroyed or recycled element.
+    case staleHandle(String, handleId: String?, reason: String)
+    /// A handle id this daemon never issued.
+    case unknownHandle(String, handleId: String?)
 
     func toJSONRPC() -> JSONRPCErrorData {
         switch self {
@@ -111,6 +116,18 @@ enum RPCError: Error {
         case .appBusy(let msg): .appBusy(msg)
         case .scriptFailed(let msg, let data): .scriptFailed(msg, data: data)
         case .axLookupFailed(let msg): .axLookupFailed(msg)
+        case .staleHandle(let msg, let handleId, let reason):
+            .staleHandle(msg, data: handleErrorData(handleId: handleId, reason: reason))
+        case .unknownHandle(let msg, let handleId):
+            .unknownHandle(msg, data: handleErrorData(handleId: handleId, reason: "never_issued"))
         }
     }
+}
+
+/// Machine-readable detail for the handle-lifecycle errors, so an agent can branch on
+/// `data.reason` instead of parsing prose.
+private func handleErrorData(handleId: String?, reason: String) -> JSONValue {
+    var data: [String: JSONValue] = ["reason": .string(reason)]
+    if let handleId { data["handleId"] = .string(handleId) }
+    return .object(data)
 }

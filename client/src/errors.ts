@@ -20,6 +20,10 @@ export const RPC_ERROR_CODES = {
   appBusy: -32007,
   scriptFailed: -32008,
   axLookupFailed: -32009,
+  /** A handle the daemon issued whose element is gone; `data.reason` says why. */
+  staleHandle: -32010,
+  /** A handle id the daemon never issued (or one from a previous daemon process). */
+  unknownHandle: -32011,
 } as const;
 
 /** Agent-readable names for the codes above, used when formatting MCP errors. */
@@ -34,7 +38,49 @@ export const RPC_ERROR_NAMES: Record<number, string> = {
   [RPC_ERROR_CODES.appBusy]: "app_busy",
   [RPC_ERROR_CODES.scriptFailed]: "script_failed",
   [RPC_ERROR_CODES.axLookupFailed]: "ax_lookup_failed",
+  [RPC_ERROR_CODES.staleHandle]: "stale_handle",
+  [RPC_ERROR_CODES.unknownHandle]: "unknown_handle",
 };
+
+/** Lifecycle reasons the daemon reports in `data.reason` of a `stale_handle` error. */
+export type StaleHandleReason =
+  | "expired"
+  | "destroyed"
+  | "recycled"
+  | "app_terminated";
+
+/**
+ * True when a handle-based call failed because the handle can no longer be used, and
+ * re-resolving from the original query path is the right recovery.
+ *
+ * Deliberately covers `unknown_handle` too: the daemon draws that distinction so an
+ * *agent* can tell a lifecycle event from a bad id, but a caller that still holds the
+ * query path recovers from both the same way — and a restarted daemon reports its
+ * predecessor's handles as unknown.
+ */
+export function isRecoverableHandleError(err: unknown): boolean {
+  if (!(err instanceof JsonRpcError)) return false;
+  if (
+    err.code === RPC_ERROR_CODES.staleHandle
+    || err.code === RPC_ERROR_CODES.unknownHandle
+  ) {
+    return true;
+  }
+  // Daemons predating the typed codes reported both as element_not_found, marking the
+  // message instead. Keep recognising them so an updated client works against an older
+  // daemon binary.
+  return err.code === RPC_ERROR_CODES.elementNotFound
+    && (err.message.includes("expired") || err.message.includes("stale-element"));
+}
+
+/** The lifecycle reason behind a stale-handle error, when the daemon reported one. */
+export function staleHandleReason(err: unknown): StaleHandleReason | undefined {
+  if (!(err instanceof JsonRpcError)) return undefined;
+  const data = err.data;
+  if (typeof data !== "object" || data === null) return undefined;
+  const reason = (data as { reason?: unknown }).reason;
+  return typeof reason === "string" ? (reason as StaleHandleReason) : undefined;
+}
 
 export class JsonRpcError extends Error {
   code: number;

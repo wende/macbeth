@@ -1,4 +1,5 @@
-import { type JsonRpcClient, JsonRpcError } from "./rpc.js";
+import type { JsonRpcClient } from "./rpc.js";
+import { isRecoverableHandleError } from "./errors.js";
 import type { QueryStep, ElementInfo, ClickOptions, FillStrategy } from "./types.js";
 
 function buildClickParams(args: {
@@ -234,13 +235,9 @@ class ScopedLocator extends Locator {
   }
 }
 
-/** True when a handle-based call failed because the handle expired (TTL) OR because
- *  the underlying element was invalidated by a host re-render (Electron). Both are
- *  recoverable by re-resolving from the original query path. */
+/** True when a handle-based call failed for a reason that re-resolving from the original
+ *  query path fixes — a TTL eviction, an element the host destroyed or recycled, or a
+ *  handle from a previous daemon process. See `isRecoverableHandleError`. */
 function isHandleStale(err: unknown): boolean {
-  return (
-    err instanceof JsonRpcError &&
-    err.code === -32000 &&
-    (err.message.includes("expired") || err.message.includes("stale-element"))
-  );
+  return isRecoverableHandleError(err);
 }

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { Locator } from "../elements.js";
+import { JsonRpcError, RPC_ERROR_CODES } from "../errors.js";
 import type { JsonRpcClient } from "../rpc.js";
 
 function mockRpc(impl?: (method: string, params?: unknown) => unknown): JsonRpcClient {
@@ -152,5 +153,67 @@ describe("Locator", () => {
     const payload = calls.mock.calls.at(-1)?.[1];
     expect(payload).toMatchObject({ handleId: "h_1", strategy: "mouse" });
     expect(payload).not.toHaveProperty("waitForIdleMs");
+  });
+
+  /** Builds a scoped locator whose first click fails with `err`, then succeeds. */
+  async function scopedLocatorFailingOnce(err: unknown) {
+    const handles = ["h_1", "h_2"];
+    let clicks = 0;
+    const rpc = mockRpc((method) => {
+      if (method === "get_element") {
+        return { handleId: handles.shift(), role: "button", enabled: true, focused: false };
+      }
+      if (method === "click" && clicks++ === 0) throw err;
+      return { success: true };
+    });
+    const scoped = await new Locator(rpc, "h_0", []).button("Save").scope();
+    return { rpc, scoped };
+  }
+
+  it("scoped locators re-resolve when the daemon retires their handle", async () => {
+    const { rpc, scoped } = await scopedLocatorFailingOnce(
+      new JsonRpcError(
+        RPC_ERROR_CODES.staleHandle,
+        "Handle h_1 is no longer usable (stale-element, reason: recycled).",
+        { reason: "recycled", handleId: "h_1" }
+      )
+    );
+
+    await scoped.click();
+
+    const calls = (rpc.call as ReturnType<typeof vi.fn>).mock.calls;
+    expect(calls.map((c) => c[0])).toEqual([
+      "get_element", "pin_handle",   // scope()
+      "click",                       // fails: stale handle
+      "get_element", "pin_handle",   // rediscover
+      "click",                       // retry
+    ]);
+    expect(calls.at(-1)?.[1]).toMatchObject({ handleId: "h_2" });
+  });
+
+  it("scoped locators re-resolve after a daemon restart drops their handle", async () => {
+    // A restarted daemon has never issued the old id, so it answers unknown_handle
+    // rather than stale — still recoverable, because the locator kept its query path.
+    const { rpc, scoped } = await scopedLocatorFailingOnce(
+      new JsonRpcError(
+        RPC_ERROR_CODES.unknownHandle,
+        "Unknown handle h_1: this daemon never issued it.",
+        { reason: "never_issued", handleId: "h_1" }
+      )
+    );
+
+    await scoped.click();
+
+    const calls = (rpc.call as ReturnType<typeof vi.fn>).mock.calls;
+    expect(calls.at(-1)?.[0]).toBe("click");
+    expect(calls.at(-1)?.[1]).toMatchObject({ handleId: "h_2" });
+  });
+
+  it("scoped locators do not retry errors that re-resolving cannot fix", async () => {
+    const { scoped } = await scopedLocatorFailingOnce(
+      new JsonRpcError(RPC_ERROR_CODES.actionFailed, "AXPress unsupported on the element.")
+    );
+
+    await expect(scoped.click()).rejects.toThrow("AXPress unsupported");
   });
 });

@@ -75,18 +75,21 @@ private func makeManager(
     await manager.seedForTesting(makeConnection(pid: 101, handleId: "h_0"))
     await manager.seedForTesting(makeConnection(pid: 202, handleId: "h_1"))
 
-    // Handles minted against each app by a tree walk.
-    let element = SendableElement(AXUIElementCreateSystemWide())
-    _ = await table.store(element, pid: 101)
-    _ = await table.store(element, pid: 101)
-    let survivor = await table.store(element, pid: 202)
+    // Handles minted against each app by a tree walk. Distinct elements, because the
+    // handle table canonicalises: storing one element twice returns one handle.
+    _ = await table.store(SendableElement(AXUIElementCreateApplication(101)), pid: 101)
+    _ = await table.store(SendableElement(AXUIElementCreateApplication(1010)), pid: 101)
+    let survivor = await table.store(SendableElement(AXUIElementCreateApplication(202)), pid: 202)
     #expect(await table.count == 3)
 
     processes.terminate(101)
     await manager.evictTerminatedApps()
 
     #expect(await table.count == 1)
-    #expect(await table.resolve(survivor) != nil)
+    guard case .found = await table.classify(survivor) else {
+        Issue.record("the surviving app's handle should still resolve")
+        return
+    }
 }
 
 @Test func evictionLeavesLiveConnectionsAlone() async {

@@ -3,56 +3,266 @@ import Foundation
 @preconcurrency import ApplicationServices
 @testable import macbethd
 
+/// Compact rendering of a lookup outcome, so expectations read as one string compare.
+private func describe(_ lookup: HandleTable.Lookup) -> String {
+    switch lookup {
+    case .found: "found"
+    case .stale(let reason): "stale:\(reason.rawValue)"
+    case .unknown: "unknown"
+    }
+}
+
+private func appElement(_ pid: pid_t) -> SendableElement {
+    SendableElement(AXUIElementCreateApplication(pid))
+}
+
+private func fingerprint(role: String? = nil, subrole: String? = nil, identifier: String? = nil) -> ElementFingerprint {
+    ElementFingerprint(role: role, subrole: subrole, identifier: identifier)
+}
+
+// MARK: - The platform assumption everything else rests on
+
+@Test func separatelyCreatedReferencesToTheSameElementCompareEqual() {
+    // AXUIElement implements CFEqual/CFHash by target identity, not pointer identity:
+    // two references obtained at different times for the same UI object are equal. Handle
+    // canonicalisation is built on exactly this. If this test ever fails, every dedup
+    // test below fails with it — and this is the one to read first.
+    let first = AXUIElementCreateApplication(4242)
+    let second = AXUIElementCreateApplication(4242)
+
+    #expect(CFEqual(first, second))
+    #expect(ElementKey(first) == ElementKey(second))
+    #expect(ElementKey(first).hashValue == ElementKey(second).hashValue)
+    #expect(ElementKey(first) != ElementKey(AXUIElementCreateApplication(4243)))
+}
+
+// MARK: - Canonical handles
+
 @Test func storeAndResolve() async {
     let table = HandleTable(ttl: 60)
-    let element = AXUIElementCreateSystemWide()
-    let handleId = await table.store(SendableElement(element), pid: 1)
+    let handleId = await table.store(appElement(4242), pid: 4242)
     #expect(handleId == "h_0")
-
-    let resolved = await table.resolve(handleId)
-    #expect(resolved != nil)
+    #expect(describe(await table.lookup(handleId)) == "found")
 }
 
-@Test func sequentialIds() async {
+@Test func sameElementReusesItsHandle() async {
     let table = HandleTable(ttl: 60)
-    let element = AXUIElementCreateSystemWide()
-    let id1 = await table.store(SendableElement(element), pid: 1)
-    let id2 = await table.store(SendableElement(element), pid: 1)
-    let id3 = await table.store(SendableElement(element), pid: 1)
-    #expect(id1 == "h_0")
-    #expect(id2 == "h_1")
-    #expect(id3 == "h_2")
+    let identity = fingerprint(role: "AXButton", identifier: "save")
+
+    let first = await table.store(appElement(4242), pid: 4242, fingerprint: identity)
+    let second = await table.store(appElement(4242), pid: 4242, fingerprint: identity)
+    let third = await table.store(appElement(4242), pid: 4242, fingerprint: identity)
+
+    #expect(first == second)
+    #expect(second == third)
+    #expect(await table.count == 1)
 }
 
-@Test func resolveNonexistent() async {
+@Test func distinctElementsGetDistinctHandles() async {
     let table = HandleTable(ttl: 60)
-    let resolved = await table.resolve("h_999")
-    #expect(resolved == nil)
+    let first = await table.store(appElement(4242), pid: 4242)
+    let second = await table.store(appElement(4243), pid: 4243)
+
+    #expect(first != second)
+    #expect(await table.count == 2)
 }
 
-@Test func expireStale() async {
+/// The acceptance criterion from issue #32: repeating a tree walk over an unchanged tree
+/// hands back the handles the caller already has, and the earlier handles keep working.
+@Test func repeatedWalksOverAnUnchangedTreeReturnTheSameHandles() async {
+    let table = HandleTable(ttl: 60)
+    let tree: [(pid_t, ElementFingerprint)] = [
+        (4242, fingerprint(role: "AXApplication")),
+        (4243, fingerprint(role: "AXWindow", identifier: "main")),
+        (4244, fingerprint(role: "AXButton", identifier: "save")),
+    ]
+
+    func walk() async -> [String] {
+        var ids: [String] = []
+        for (pid, identity) in tree {
+            ids.append(await table.store(appElement(pid), pid: pid, fingerprint: identity))
+        }
+        return ids
+    }
+
+    let firstWalk = await walk()
+    let secondWalk = await walk()
+    let thirdWalk = await walk()
+
+    #expect(firstWalk == secondWalk)
+    #expect(secondWalk == thirdWalk)
+    #expect(await table.count == tree.count)
+    for id in firstWalk {
+        #expect(describe(await table.lookup(id)) == "found")
+    }
+}
+
+@Test func handleIdsAreNeverReused() async {
+    let table = HandleTable(ttl: 60)
+    let element = appElement(4242)
+
+    let original = await table.store(element, pid: 4242, fingerprint: fingerprint(role: "AXButton"))
+    await table.invalidate(original, reason: .destroyed)
+    let reissued = await table.store(element, pid: 4242, fingerprint: fingerprint(role: "AXButton"))
+
+    #expect(reissued != original)
+    #expect(describe(await table.classify(original)) == "stale:destroyed")
+    #expect(describe(await table.classify(reissued)) == "found")
+}
+
+// MARK: - Tree changes
+
+@Test func recycledReferenceRetiresTheOldHandle() async {
+    // Same AX reference, contradictory identity: the app reused the reference for a
+    // different element (view recycling). The old handle must fail rather than silently
+    // start pointing at the new element.
+    let table = HandleTable(ttl: 60)
+    let element = appElement(4242)
+
+    let rowOne = await table.store(element, pid: 4242, fingerprint: fingerprint(role: "AXRow", identifier: "row-1"))
+    let rowNine = await table.store(element, pid: 4242, fingerprint: fingerprint(role: "AXRow", identifier: "row-9"))
+
+    #expect(rowNine != rowOne)
+    #expect(describe(await table.classify(rowOne)) == "stale:recycled")
+    #expect(describe(await table.classify(rowNine)) == "found")
+    #expect(await table.count == 1)
+}
+
+@Test func changingTitleOrValueDoesNotRetireAHandle() async {
+    // A button that flips between "Play" and "Pause" is the same button — only role,
+    // subrole and identifier participate in identity.
+    let table = HandleTable(ttl: 60)
+    let element = appElement(4242)
+
+    let first = await table.store(element, pid: 4242, fingerprint: fingerprint(role: "AXButton", identifier: "transport"))
+    let second = await table.store(element, pid: 4242, fingerprint: fingerprint(role: "AXButton", identifier: "transport"))
+
+    #expect(first == second)
+    #expect(describe(await table.classify(first)) == "found")
+}
+
+@Test func missingAttributesNeverCountAsAConflict() async {
+    // A busy app answers attribute reads with an error. Treating that as a new identity
+    // would churn handles exactly when the app can least afford extra queries.
+    let table = HandleTable(ttl: 60)
+    let element = appElement(4242)
+
+    let known = await table.store(element, pid: 4242, fingerprint: fingerprint(role: "AXButton", identifier: "save"))
+    let blind = await table.store(element, pid: 4242, fingerprint: .unknown)
+
+    #expect(blind == known)
+    // The richer fingerprint is retained, so a later contradiction is still caught.
+    let recycled = await table.store(element, pid: 4242, fingerprint: fingerprint(role: "AXRow"))
+    #expect(recycled != known)
+    #expect(describe(await table.classify(known)) == "stale:recycled")
+}
+
+// MARK: - Invalidation boundaries
+
+@Test func expiredHandlesAreStaleNotUnknown() async {
     let table = HandleTable(ttl: 0)  // 0 TTL = immediate expiration
-    let element = AXUIElementCreateSystemWide()
-    let handleId = await table.store(SendableElement(element), pid: 1)
+    let handleId = await table.store(appElement(4242), pid: 4242)
     #expect(await table.count == 1)
 
-    // Wait briefly then expire
     try? await Task.sleep(for: .milliseconds(10))
     await table.expireStale()
-    #expect(await table.count == 0)
 
-    let resolved = await table.resolve(handleId)
-    #expect(resolved == nil)
+    #expect(await table.count == 0)
+    #expect(describe(await table.classify(handleId)) == "stale:expired")
 }
 
-@Test func removeByPid() async {
+@Test func neverIssuedHandlesAreUnknown() async {
     let table = HandleTable(ttl: 60)
-    let element = AXUIElementCreateSystemWide()
-    _ = await table.store(SendableElement(element), pid: 100)
-    _ = await table.store(SendableElement(element), pid: 100)
-    _ = await table.store(SendableElement(element), pid: 200)
-    #expect(await table.count == 3)
+    _ = await table.store(appElement(4242), pid: 4242)
 
-    await table.removeHandles(forPid: 100)
+    #expect(describe(await table.classify("h_999")) == "unknown")
+    #expect(describe(await table.classify("not-a-handle")) == "unknown")
+    #expect(describe(await table.classify("h_")) == "unknown")
+}
+
+@Test func expiredElementsGetAFreshHandleNotTheOldOne() async {
+    let table = HandleTable(ttl: 0)
+    let element = appElement(4242)
+    let original = await table.store(element, pid: 4242)
+
+    try? await Task.sleep(for: .milliseconds(10))
+    await table.expireStale()
+    let reissued = await table.store(element, pid: 4242)
+
+    #expect(reissued != original)
+    #expect(describe(await table.classify(original)) == "stale:expired")
+}
+
+@Test func terminatedAppsReportTheirOwnReason() async {
+    let table = HandleTable(ttl: 60)
+    let doomed = await table.store(appElement(4242), pid: 4242)
+    let survivor = await table.store(appElement(4243), pid: 4243)
+
+    await table.removeHandles(forPid: 4242)
+
+    #expect(describe(await table.classify(doomed)) == "stale:app_terminated")
+    #expect(describe(await table.classify(survivor)) == "found")
     #expect(await table.count == 1)
+}
+
+@Test func pinnedHandlesSurviveExpiryAndKeepTheirId() async {
+    let table = HandleTable(ttl: 0)
+    let element = appElement(4242)
+    let handleId = await table.store(element, pid: 4242)
+    #expect(await table.pin(handleId))
+
+    try? await Task.sleep(for: .milliseconds(10))
+    await table.expireStale()
+
+    #expect(describe(await table.classify(handleId)) == "found")
+    #expect(await table.store(element, pid: 4242) == handleId)
+
+    #expect(await table.unpin(handleId))
+    try? await Task.sleep(for: .milliseconds(10))
+    await table.expireStale()
+    #expect(describe(await table.classify(handleId)) == "stale:expired")
+}
+
+@Test func pinningAnUnknownHandleFails() async {
+    let table = HandleTable(ttl: 60)
+    #expect(await table.pin("h_999") == false)
+    #expect(await table.unpin("h_999") == false)
+}
+
+@Test func invalidationRecordsStayBounded() async {
+    let table = HandleTable(ttl: 60, maxInvalidationRecords: 8)
+    var ids: [String] = []
+    for pid in 1...40 {
+        ids.append(await table.store(appElement(pid_t(pid)), pid: pid_t(pid)))
+    }
+    for id in ids {
+        await table.invalidate(id, reason: .destroyed)
+    }
+
+    #expect(await table.invalidationRecordCount <= 8)
+    #expect(await table.count == 0)
+    // Recent invalidations still explain themselves precisely...
+    #expect(describe(await table.classify(ids[ids.count - 1])) == "stale:destroyed")
+    // ...and dropped records degrade to the generic expired classification, which is
+    // still stale-class, so a caller is never told a real handle was never issued.
+    #expect(describe(await table.classify(ids[0])) == "stale:expired")
+}
+
+// MARK: - Fingerprint semantics
+
+@Test func fingerprintConflictsOnlyOnContradiction() {
+    let button = fingerprint(role: "AXButton", subrole: "AXCloseButton", identifier: "close")
+
+    #expect(button.conflicts(with: button) == false)
+    #expect(button.conflicts(with: .unknown) == false)
+    #expect(ElementFingerprint.unknown.conflicts(with: button) == false)
+    #expect(button.conflicts(with: fingerprint(role: "AXButton")) == false)
+    #expect(button.conflicts(with: fingerprint(role: "AXRow", identifier: "close")))
+    #expect(button.conflicts(with: fingerprint(role: "AXButton", subrole: "AXMinimizeButton")))
+    #expect(button.conflicts(with: fingerprint(role: "AXButton", identifier: "open")))
+}
+
+@Test func unknownFingerprintIsEmpty() {
+    #expect(ElementFingerprint.unknown.isEmpty)
+    #expect(fingerprint(role: "AXButton").isEmpty == false)
 }

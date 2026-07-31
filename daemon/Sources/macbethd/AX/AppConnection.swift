@@ -178,7 +178,13 @@ actor AppConnectionManager {
             )
         }
 
-        let handleId = await handleTable.store(SendableElement(appElement), pid: resolvedPid)
+        // Canonical storage makes reconnecting to an app return the handle it already
+        // has, instead of accumulating one connection record per connect call.
+        let handleId = await handleTable.store(
+            SendableElement(appElement),
+            pid: resolvedPid,
+            fingerprint: ElementFingerprint.capture(appElement)
+        )
 
         let connection = Connection(
             pid: resolvedPid,

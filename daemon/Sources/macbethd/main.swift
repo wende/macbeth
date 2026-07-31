@@ -136,7 +136,7 @@ await dispatcher.register(method: "pin_handle") { params in
         throw RPCError.invalidParams("Missing 'handleId'")
     }
     let pinned = await handleTable.pin(handleId)
-    if !pinned { throw RPCError.elementNotFound("Handle not found: \(handleId)") }
+    if !pinned { throw handleLookupError(handleId, await handleTable.classify(handleId)) }
     return .object(["pinned": .bool(true), "handleId": .string(handleId)])
 }
 
@@ -146,7 +146,7 @@ await dispatcher.register(method: "unpin_handle") { params in
         throw RPCError.invalidParams("Missing 'handleId'")
     }
     let unpinned = await handleTable.unpin(handleId)
-    if !unpinned { throw RPCError.elementNotFound("Handle not found: \(handleId)") }
+    if !unpinned { throw handleLookupError(handleId, await handleTable.classify(handleId)) }
     return .object(["pinned": .bool(false), "handleId": .string(handleId)])
 }
 
@@ -156,9 +156,7 @@ await dispatcher.register(method: "dump_attributes") { params in
           let handleId = obj["handleId"]?.stringValue else {
         throw RPCError.invalidParams("Missing 'handleId'")
     }
-    guard let resolved = await handleTable.resolve(handleId) else {
-        throw RPCError.elementNotFound("Handle expired: \(handleId)")
-    }
+    let resolved = try await resolveLiveHandle(handleId, in: handleTable)
     let attrs = dumpAttributes(resolved.element)
     return .object(attrs)
 }

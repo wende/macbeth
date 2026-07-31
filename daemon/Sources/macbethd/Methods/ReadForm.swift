@@ -23,10 +23,7 @@ func registerReadForm(
             let root: AXUIElement
 
             if let handleId = obj["handleId"]?.stringValue {
-                guard let resolved = await handleTable.resolve(handleId) else {
-                    throw RPCError.elementNotFound("Handle expired: \(handleId)")
-                }
-                root = resolved.element
+                root = try await resolveLiveHandle(handleId, in: handleTable).element
             } else if let querySteps = QueryStep.fromArray(obj["query"]) {
                 guard let appElement = await appManager.getElement(appHandle) else {
                     throw RPCError.appNotFound("Invalid app handle: \(appHandle)")
@@ -101,12 +98,20 @@ private func buildFormField(
     pid: pid_t,
     handleTable: HandleTable
 ) async -> JSONValue {
-    let handleId = await handleTable.store(SendableElement(element), pid: pid)
-
     let value = getValueAsString(element)
     let title = getStringAttribute(element, kAXTitleAttribute)
     let label = inferLabel(element)
     let identifier = getStringAttribute(element, kAXIdentifierAttribute)
+
+    let handleId = await handleTable.store(
+        SendableElement(element),
+        pid: pid,
+        fingerprint: ElementFingerprint(
+            role: role,
+            subrole: getStringAttribute(element, kAXSubroleAttribute),
+            identifier: identifier
+        )
+    )
     let enabled = getBoolAttribute(element, kAXEnabledAttribute) ?? true
 
     var settableRef: DarwinBoolean = false

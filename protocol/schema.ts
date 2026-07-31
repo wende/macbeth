@@ -1,6 +1,29 @@
 // macbeth JSON-RPC 2.0 protocol definitions
 // TypeScript is the canonical source; Swift implements manually.
 
+// --- Element handles ---
+
+/**
+ * An opaque element handle (`h_0`, `h_1`, …) issued by the daemon.
+ *
+ * Handles are canonical: the same AX element gets the same handle every time the daemon
+ * sees it, so repeating `query_tree` over an unchanged tree returns the ids you already
+ * hold, and previously returned handles stay usable across unrelated queries. Ids are
+ * never reused — a retired handle fails rather than resolving to a different element.
+ *
+ * A handle stops working when (see `docs/handle-lifecycle.md`):
+ *  - it goes unused past the daemon's idle TTL (5 min) and isn't pinned — `stale_handle`
+ *    (-32010) with `data.reason === "expired"`
+ *  - the app destroys or recycles the element — `stale_handle` with `"destroyed"` /
+ *    `"recycled"`
+ *  - the owning app quits — `stale_handle` with `"app_terminated"`
+ *  - the daemon restarts, which clears every handle — `unknown_handle` (-32011)
+ *
+ * Stale means "re-resolve from the query that produced it"; unknown means the id was
+ * never issued and retrying it can't help.
+ */
+export type ElementHandle = string;
+
 // --- Query types ---
 
 export interface QueryStep {
@@ -151,7 +174,7 @@ export interface TreeDiagnostics {
 }
 
 export interface AXNodeJSON {
-  handleId: string;
+  handleId: ElementHandle;
   role: string;
   title?: string;
   value?: string;
@@ -169,7 +192,7 @@ export interface GetElementParams {
 }
 
 export interface GetElementResult {
-  handleId: string;
+  handleId: ElementHandle;
   role: string;
   title?: string;
   value?: string;
@@ -283,7 +306,7 @@ export interface ReadFormParams {
 }
 
 export interface FormField {
-  handleId: string;
+  handleId: ElementHandle;
   role: string;
   kind: "text" | "number" | "boolean" | "choice" | "unknown";
   label?: string;
