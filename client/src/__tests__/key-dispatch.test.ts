@@ -142,4 +142,14 @@ describe("formatKeyDispatch", () => {
     expect(text).toBe("Pressed return");
     expect(isError).toBe(false);
   });
+
+  it("does not treat a partial payload as a dispatch report", () => {
+    // An `outcome` field alone is not proof of a keyboard payload — another RPC
+    // could grow one. Anything short of the full shape keeps the legacy wording.
+    expect(formatKeyDispatch("return", { outcome: "dispatched" }, "Pressed return").text)
+      .toBe("Pressed return");
+    expect(
+      formatKeyDispatch("return", { success: true, outcome: "dispatched" }, "Pressed return").text
+    ).toBe("Pressed return");
+  });
 });

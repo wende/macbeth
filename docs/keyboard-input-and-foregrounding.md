@@ -21,17 +21,21 @@ looking at.
 
 | Outcome | Meaning |
 | --- | --- |
-| `attempted` | The events could not be shown to have entered the event stream — either no `CGEvent` could be created, or the session key-down counter never advanced. |
-| `dispatched` | The events entered the system event stream. Whether the target app consumed them is **unknown**. |
-| `verified` | The app's observable state changed as a result. **Never produced yet** — reserved for effect verification. |
+| `attempted` | The events could not be shown to have entered the event stream — no `CGEvent` could be created, the session key-down counter never advanced, or it advanced for only some of the posted events. |
+| `dispatched` | Every posted event is accounted for in the system event stream. Whether the target app consumed them is **unknown**. |
+| `verified` | The app's observable state changed as a result. **Not produced yet** — reserved for effect verification. |
 
 Alongside the outcome, the result carries the target that was addressed (app,
 pid, window title, focused AX element), who actually held keyboard focus, a
 `note` explaining the outcome in prose, and machine-readable `warnings`:
 
 `dispatch-failed`, `dispatch-incomplete`, `dispatch-unconfirmed`,
-`dispatch-partially-confirmed`, `accessibility-not-trusted`,
-`target-not-frontmost`, `no-focused-element`, `app-handle-unknown`.
+`dispatch-partially-confirmed`, `key-up-not-posted`, `accessibility-not-trusted`,
+`target-not-frontmost`, `no-focused-element`.
+
+`key-up-not-posted` is the one warning that describes a lingering side effect
+rather than missing evidence: the key-down reached the system but its key-up
+could not be created, so a key or modifier may still be held down.
 
 ### Limitations
 
@@ -46,10 +50,12 @@ pid, window title, focused AX element), who actually held keyboard focus, a
 - **`no-focused-element` is not a failure.** Plenty of apps handle keys at window
   level, and apps with poor AX support (Unity, some Electron IDEs — see
   `CLAUDE.md`) expose no focused element at all while still receiving input fine.
-- **Nothing here blocks a keystroke.** Every check is observational: warnings
-  annotate the result, they never stop the dispatch or turn a working call into
-  an RPC error. A daemon that cannot establish anything still posts the events
-  and says so.
+- **Nothing here blocks a keystroke, with one exception.** Warnings annotate the
+  result; they never stop a dispatch. The exception is an `appHandle` that no
+  longer resolves — expired, or from a previous daemon process. There is nothing
+  to activate in that case, so the events would land in whichever app the user is
+  currently in; `press_key` rejects with `appNotFound` instead. Reconnect with
+  `connect_app` and retry.
 - **Cost.** Reporting adds one AX snapshot per call plus a ~20 ms settle before
   the counter is read back — negligible next to the activation poll that already
   precedes every keyboard dispatch, and the settle happens once per call, not per

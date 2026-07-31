@@ -9,9 +9,9 @@ export function describeKeyPress(key: string, modifiers?: string[]): string {
 export function describeKeyStrokes(keys: KeyStroke[]): string {
   return keys
     .map((stroke) =>
-      "text" in stroke && stroke.text !== undefined
-        ? JSON.stringify(stroke.text)
-        : describeKeyPress((stroke as { key: string }).key, (stroke as { modifiers?: string[] }).modifiers)
+      "key" in stroke
+        ? describeKeyPress(stroke.key, stroke.modifiers)
+        : JSON.stringify(stroke.text)
     )
     .join(", ");
 }
@@ -29,10 +29,15 @@ export interface KeyDispatchReport {
  * case keeps the old wording rather than inventing evidence it never received.
  */
 function hasOutcome(result: unknown): result is PressKeyResult {
+  if (typeof result !== "object" || result === null) return false;
+  const payload = result as Partial<PressKeyResult>;
+  // Require the whole shape, not just `outcome`: another RPC could grow an
+  // `outcome` field of its own without ever being a keyboard dispatch report.
   return (
-    typeof result === "object" &&
-    result !== null &&
-    typeof (result as { outcome?: unknown }).outcome === "string"
+    typeof payload.outcome === "string" &&
+    typeof payload.success === "boolean" &&
+    typeof payload.target === "object" &&
+    payload.target !== null
   );
 }
 

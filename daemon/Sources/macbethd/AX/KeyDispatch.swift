@@ -10,7 +10,7 @@ import Foundation
 /// The tiers are cumulative, and deliberately additive: `attempted` does not mean
 /// "nothing happened" — it means macbeth could not establish that the events entered
 /// the system event stream. `verified` is reserved for post-action effect
-/// verification and is never produced yet; see
+/// verification and is not yet produced; see
 /// `docs/keyboard-input-and-foregrounding.md`.
 enum KeyDispatchOutcome: String, Sendable, Equatable {
     /// Events were requested but their arrival in the event stream is unconfirmed.
@@ -34,14 +34,31 @@ enum KeyDispatchWarning: String, Sendable, Equatable {
     case dispatchUnconfirmed = "dispatch-unconfirmed"
     /// The counter advanced by less than the number of events posted.
     case dispatchPartiallyConfirmed = "dispatch-partially-confirmed"
+    /// A key-down was posted whose matching key-up could not be created.
+    case keyUpNotPosted = "key-up-not-posted"
     /// macbethd is not trusted for Accessibility, so macOS drops synthetic events.
     case accessibilityNotTrusted = "accessibility-not-trusted"
     /// The target app did not hold keyboard focus when the events were posted.
     case targetNotFrontmost = "target-not-frontmost"
     /// The target app exposes no focused AX element.
     case noFocusedElement = "no-focused-element"
-    /// The app handle no longer resolves to a connection.
-    case appHandleUnknown = "app-handle-unknown"
+}
+
+/// The result of posting one key-down / key-up pair.
+///
+/// The halves are tracked separately because they fail independently: a key-down
+/// whose key-up could not be created still reached the system, and leaves the key
+/// logically held. Collapsing that into a single boolean either hides a stuck key
+/// or claims nothing was sent when something was.
+struct KeyEventPost: Sendable, Equatable {
+    let downPosted: Bool
+    let upPosted: Bool
+
+    static let nothingPosted = KeyEventPost(downPosted: false, upPosted: false)
+    static let complete = KeyEventPost(downPosted: true, upPosted: true)
+
+    /// A key-down that reached the system with no matching key-up.
+    var isDangling: Bool { downPosted && !upPosted }
 }
 
 /// The classification of a keyboard dispatch plus the prose that explains it.
@@ -59,6 +76,7 @@ struct KeyDispatchDiagnosis: Sendable, Equatable {
 /// - Parameters:
 ///   - requestedKeyDowns: Key-down events the call asked for.
 ///   - postedKeyDowns: Key-down events that were actually created and posted.
+///   - danglingKeyDowns: Key-downs posted without a matching key-up.
 ///   - sessionKeyDownDelta: How far the session key-down counter advanced across
 ///     the dispatch, or nil when no counter reading was available. Real user
 ///     typing can inflate this, so it confirms dispatch (`>=`) and never refutes it.
@@ -68,6 +86,7 @@ struct KeyDispatchDiagnosis: Sendable, Equatable {
 func diagnoseKeyDispatch(
     requestedKeyDowns: Int,
     postedKeyDowns: Int,
+    danglingKeyDowns: Int = 0,
     sessionKeyDownDelta: Int?,
     accessibilityTrusted: Bool,
     targetFrontmost: Bool,
@@ -93,11 +112,15 @@ func diagnoseKeyDispatch(
         case .some(let delta) where delta >= postedKeyDowns:
             outcome = .dispatched
         case .some(let delta) where delta > 0:
-            outcome = .dispatched
+            // Partial confirmation is not dispatch: with 5 events posted and a delta
+            // of 1, four of them may never have entered the event stream. Claiming
+            // `dispatched` there would overstate exactly what this tier exists to pin
+            // down, so the outcome stays `attempted` and the count goes in the note.
+            outcome = .attempted
             warnings.append(.dispatchPartiallyConfirmed)
             notes.append(
                 "The session key-down counter advanced by \(delta) for \(postedKeyDowns) "
-                + "posted events, so part of the sequence is unconfirmed.")
+                + "posted events, so most of the sequence is unconfirmed.")
         case .some:
             outcome = .attempted
             warnings.append(.dispatchUnconfirmed)
@@ -112,6 +135,13 @@ func diagnoseKeyDispatch(
         }
     }
 
+    if danglingKeyDowns > 0 {
+        warnings.append(.keyUpNotPosted)
+        notes.append(
+            "\(danglingKeyDowns) key-down event(s) reached the system without a matching "
+            + "key-up, so a key or modifier may still be held down. Send the key again "
+            + "to clear it if the app starts behaving as though a key is stuck.")
+    }
     if !accessibilityTrusted {
         warnings.append(.accessibilityNotTrusted)
         notes.append(
@@ -293,35 +323,56 @@ func truncateFocusedValue(_ value: String) -> String {
 
 // MARK: - JSON
 
+// Optional-to-JSON helpers, and dictionaries assembled key by key. Swift's type
+// checker times out on a nested literal that mixes `map`/`??` conversions inline
+// (it has to consider every JSONValue overload for every entry at once).
+
+private func jsonText(_ value: String?) -> JSONValue {
+    guard let value else { return .null }
+    return .string(value)
+}
+
+private func jsonCount(_ value: Int?) -> JSONValue {
+    guard let value else { return .null }
+    return .number(Double(value))
+}
+
+private func jsonPid(_ value: pid_t?) -> JSONValue {
+    guard let value else { return .null }
+    return .number(Double(value))
+}
+
 extension KeyFocusedElement {
     var json: JSONValue {
-        .object([
-            "role": role.map(JSONValue.string) ?? .null,
-            "subrole": subrole.map(JSONValue.string) ?? .null,
-            "title": title.map(JSONValue.string) ?? .null,
-            "identifier": identifier.map(JSONValue.string) ?? .null,
-            "value": value.map(JSONValue.string) ?? .null,
-        ])
+        var fields: [String: JSONValue] = [:]
+        fields["role"] = jsonText(role)
+        fields["subrole"] = jsonText(subrole)
+        fields["title"] = jsonText(title)
+        fields["identifier"] = jsonText(identifier)
+        fields["value"] = jsonText(value)
+        return .object(fields)
     }
 }
 
 extension KeyTargetSnapshot {
     var json: JSONValue {
-        .object([
-            "app": appName.map(JSONValue.string) ?? .null,
-            "pid": pid.map { JSONValue.number(Double($0)) } ?? .null,
-            "bundleId": bundleId.map(JSONValue.string) ?? .null,
-            "frontmost": .bool(frontmost),
-            "focusedApp": .object([
-                "pid": focusedAppPid.map { JSONValue.number(Double($0)) } ?? .null,
-                "name": focusedAppName.map(JSONValue.string) ?? .null,
-            ]),
-            "window": .object([
-                "title": windowTitle.map(JSONValue.string) ?? .null,
-                "identity": windowIdentity.map(JSONValue.string) ?? .null,
-            ]),
-            "focusedElement": focusedElement?.json ?? .null,
-        ])
+        var focusedApp: [String: JSONValue] = [:]
+        focusedApp["pid"] = jsonPid(focusedAppPid)
+        focusedApp["name"] = jsonText(focusedAppName)
+
+        var window: [String: JSONValue] = [:]
+        window["title"] = jsonText(windowTitle)
+        window["identity"] = jsonText(windowIdentity)
+
+        var fields: [String: JSONValue] = [:]
+        fields["app"] = jsonText(appName)
+        fields["pid"] = jsonPid(pid)
+        fields["bundleId"] = jsonText(bundleId)
+        fields["frontmost"] = .bool(frontmost)
+        fields["focusedApp"] = .object(focusedApp)
+        fields["window"] = .object(window)
+        fields["focusedElement"] = focusedElement?.json ?? .null
+        return .object(fields)
     }
 }
 
@@ -337,24 +388,24 @@ func keyDispatchResultJSON(
     sessionKeyDownDelta: Int?,
     accessibilityTrusted: Bool,
     target: KeyTargetSnapshot,
-    extraWarnings: [String] = [],
     extra: [String: JSONValue] = [:]
 ) -> JSONValue {
-    var payload: [String: JSONValue] = [
-        "success": .bool(postedKeyDowns > 0),
-        "outcome": .string(diagnosis.outcome.rawValue),
-        "dispatched": .bool(diagnosis.outcome != .attempted),
-        "verified": .bool(diagnosis.outcome == .verified),
-        "note": .string(diagnosis.note),
-        "warnings": .array((extraWarnings + diagnosis.warnings).map(JSONValue.string)),
-        "keysRequested": .number(Double(requestedKeyDowns)),
-        "keysPosted": .number(Double(postedKeyDowns)),
-        "evidence": .object([
-            "sessionKeyDownDelta": sessionKeyDownDelta.map { JSONValue.number(Double($0)) } ?? .null,
-            "accessibilityTrusted": .bool(accessibilityTrusted),
-        ]),
-        "target": target.json,
-    ]
+    var evidence: [String: JSONValue] = [:]
+    evidence["sessionKeyDownDelta"] = jsonCount(sessionKeyDownDelta)
+    evidence["accessibilityTrusted"] = .bool(accessibilityTrusted)
+
+    var payload: [String: JSONValue] = [:]
+    payload["success"] = .bool(postedKeyDowns > 0)
+    payload["outcome"] = .string(diagnosis.outcome.rawValue)
+    payload["dispatched"] = .bool(diagnosis.outcome != .attempted)
+    payload["verified"] = .bool(diagnosis.outcome == .verified)
+    payload["note"] = .string(diagnosis.note)
+    payload["warnings"] = .array(diagnosis.warnings.map(JSONValue.string))
+    payload["keysRequested"] = jsonCount(requestedKeyDowns)
+    payload["keysPosted"] = jsonCount(postedKeyDowns)
+    payload["evidence"] = .object(evidence)
+    payload["target"] = target.json
+
     for (key, value) in extra {
         payload[key] = value
     }

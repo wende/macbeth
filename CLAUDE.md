@@ -134,10 +134,13 @@ Xcode, TextEdit, etc.) where controls expose `AXValue`, `AXTitleUIElement`, and
 The classification is a pure function — `diagnoseKeyDispatch` in
 `AX/KeyDispatch.swift` — so it is unit tested without a window server. Evidence
 is the session key-down counter delta (confirmation only; a human at the keyboard
-also advances it) and per-event `CGEvent` creation results. `verified` is
-reserved for effect verification and is never produced yet. Every check is
-observational: it annotates the result and never blocks a keystroke or turns a
-previously working call into an error. See
+also advances it) and per-event `CGEvent` creation results. `dispatched` requires
+the counter to account for every posted event; partial confirmation stays
+`attempted`. `verified` is reserved for effect verification and is not yet
+produced. Checks are observational — they annotate the result rather than
+blocking a keystroke — with one exception: an app handle that no longer resolves
+is an `appNotFound` error, because without a connection the events would land in
+whatever app happens to be frontmost. See
 `docs/keyboard-input-and-foregrounding.md`.
 
 ### Error codes

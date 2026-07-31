@@ -66,10 +66,8 @@ func registerPressKey(dispatcher: Dispatcher, appManager: AppConnectionManager, 
             }
             let parsed = try parseKeyPress(.object(obj))
 
-            let connection = await appManager.get(appHandle)
-            let targetWindow = connection.flatMap {
-                ElementGeometry.preferredWindow(of: $0.appElement.element)
-            }
+            let connection = try await requireConnection(appHandle, appManager)
+            let targetWindow = ElementGeometry.preferredWindow(of: connection.appElement.element)
             // press_key always activates the target so HID events land — outline
             // after activate so background-to-front paths get honest chrome.
             var glowScoped = false
@@ -108,10 +106,8 @@ func registerPressKeys(dispatcher: Dispatcher, appManager: AppConnectionManager,
 
             let parsedKeys = try keyValues.map(parseKeyPress)
 
-            let connection = await appManager.get(appHandle)
-            let targetWindow = connection.flatMap {
-                ElementGeometry.preferredWindow(of: $0.appElement.element)
-            }
+            let connection = try await requireConnection(appHandle, appManager)
+            let targetWindow = ElementGeometry.preferredWindow(of: connection.appElement.element)
             var glowScoped = false
             defer {
                 if glowScoped { Task { await glow.activityEnded() } }
@@ -144,30 +140,33 @@ func registerPressKeys(dispatcher: Dispatcher, appManager: AppConnectionManager,
 /// creation results. Nothing here can prevent a keystroke from being sent.
 private func dispatchAndReport(
     strokes: [ParsedKeyPress],
-    connection: AppConnectionManager.Connection?,
+    connection: AppConnectionManager.Connection,
     targetWindow: AXUIElement?,
     extra: [String: JSONValue] = [:]
 ) async throws -> JSONValue {
     let requested = strokes.reduce(0) { $0 + $1.keyDownCount }
-    let target = connection.map {
-        captureKeyTargetSnapshot(
-            pid: $0.pid,
-            appName: $0.appName,
-            bundleId: $0.bundleId,
-            window: targetWindow
-        )
-    } ?? .unknown
+    let target = captureKeyTargetSnapshot(
+        pid: connection.pid,
+        appName: connection.appName,
+        bundleId: connection.bundleId,
+        window: targetWindow
+    )
 
     let counterBefore = sessionKeyDownCounter()
     var posted = 0
+    var dangling = 0
 
     for stroke in strokes {
         switch stroke.kind {
         case .key(let keyCode, let flags):
-            if postKeyEvent(keyCode: keyCode, flags: flags) { posted += 1 }
+            let result = postKeyEvent(keyCode: keyCode, flags: flags)
+            if result.downPosted { posted += 1 }
+            if result.isDangling { dangling += 1 }
         case .text(let text):
             for char in text {
-                if typeCharacter(char) { posted += 1 }
+                let result = typeCharacter(char)
+                if result.downPosted { posted += 1 }
+                if result.isDangling { dangling += 1 }
             }
         }
         if stroke.delayMs > 0 {
@@ -181,6 +180,7 @@ private func dispatchAndReport(
     let diagnosis = diagnoseKeyDispatch(
         requestedKeyDowns: requested,
         postedKeyDowns: posted,
+        danglingKeyDowns: dangling,
         sessionKeyDownDelta: delta,
         accessibilityTrusted: trusted,
         targetFrontmost: target.frontmost,
@@ -194,7 +194,25 @@ private func dispatchAndReport(
         sessionKeyDownDelta: delta,
         accessibilityTrusted: trusted,
         target: target,
-        extraWarnings: connection == nil ? [KeyDispatchWarning.appHandleUnknown.rawValue] : [],
         extra: extra
     )
+}
+
+/// Resolve the app handle, or refuse to type.
+///
+/// Every other method rejects an unresolvable handle (`wait_for`, `click`, …), and
+/// keyboard input is the one place where continuing is actively harmful: with no
+/// connection there is nothing to activate, so the events land in whatever app the
+/// user is currently in. Refusing is the honest answer to "send this to that app"
+/// when that app cannot be found.
+private func requireConnection(
+    _ appHandle: String, _ appManager: AppConnectionManager
+) async throws -> AppConnectionManager.Connection {
+    guard let connection = await appManager.get(appHandle) else {
+        throw RPCError.appNotFound(
+            "Invalid or expired app handle: \(appHandle). Reconnect with connect_app — "
+            + "keyboard input is not sent without a resolvable target, because it would "
+            + "reach whichever app is frontmost instead.")
+    }
+    return connection
 }

@@ -99,18 +99,63 @@ import Testing
     #expect(diagnosis.warnings.isEmpty)
 }
 
-@Test func partialCounterMovementIsDispatchedButFlagged() {
+@Test func partialCounterMovementIsNotPromotedToDispatched() {
+    // 5 posted, 1 confirmed: four events may never have entered the event stream,
+    // so the tier must not claim they did.
     let diagnosis = diagnoseKeyDispatch(
         requestedKeyDowns: 5,
         postedKeyDowns: 5,
+        sessionKeyDownDelta: 1,
+        accessibilityTrusted: true,
+        targetFrontmost: true,
+        hasFocusedElement: true
+    )
+
+    #expect(diagnosis.outcome == .attempted)
+    #expect(diagnosis.warnings.contains("dispatch-partially-confirmed"))
+    #expect(diagnosis.note.contains("advanced by 1 for 5"))
+}
+
+// MARK: - Key-up failures
+
+@Test func danglingKeyDownIsReportedAsAStuckKeyRisk() {
+    let diagnosis = diagnoseKeyDispatch(
+        requestedKeyDowns: 1,
+        postedKeyDowns: 1,
+        danglingKeyDowns: 1,
+        sessionKeyDownDelta: 1,
+        accessibilityTrusted: true,
+        targetFrontmost: true,
+        hasFocusedElement: true
+    )
+
+    // The key-down did reach the system, so the dispatch tier stands — but a
+    // press with no matching key-up must not look like a clean one.
+    #expect(diagnosis.outcome == .dispatched)
+    #expect(diagnosis.warnings.contains("key-up-not-posted"))
+    #expect(diagnosis.note.contains("still be held down"))
+}
+
+@Test func completeKeyPairsRaiseNoStuckKeyWarning() {
+    let diagnosis = diagnoseKeyDispatch(
+        requestedKeyDowns: 2,
+        postedKeyDowns: 2,
+        danglingKeyDowns: 0,
         sessionKeyDownDelta: 2,
         accessibilityTrusted: true,
         targetFrontmost: true,
         hasFocusedElement: true
     )
 
-    #expect(diagnosis.outcome == .dispatched)
-    #expect(diagnosis.warnings.contains("dispatch-partially-confirmed"))
+    #expect(!diagnosis.warnings.contains("key-up-not-posted"))
+}
+
+@Test func keyEventPostTracksEachHalfOfThePair() {
+    #expect(KeyEventPost.complete.downPosted)
+    #expect(KeyEventPost.complete.upPosted)
+    #expect(!KeyEventPost.complete.isDangling)
+    #expect(!KeyEventPost.nothingPosted.isDangling)
+    #expect(KeyEventPost(downPosted: true, upPosted: false).isDangling)
 }
 
 @Test func effectVerificationIsNeverClaimed() {
@@ -242,15 +287,13 @@ import Testing
         postedKeyDowns: 0,
         sessionKeyDownDelta: 0,
         accessibilityTrusted: true,
-        target: .unknown,
-        extraWarnings: ["app-handle-unknown"]
+        target: .unknown
     ).objectValue
 
     #expect(payload?["success"] == .bool(false))
     #expect(payload?["outcome"] == .string("attempted"))
     #expect(payload?["dispatched"] == .bool(false))
     if case .array(let warnings)? = payload?["warnings"] {
-        #expect(warnings.contains(.string("app-handle-unknown")))
         #expect(warnings.contains(.string("dispatch-failed")))
     } else {
         Issue.record("warnings missing from payload")
