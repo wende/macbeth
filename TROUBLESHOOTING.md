@@ -160,6 +160,29 @@ else works without Screen Recording access.
   request for `Codex` may resolve to the running `ChatGPT` process through its declared
   alias while retaining bundle ID `com.openai.codex`.
 
+## An app is listed but `connect_app` fails with an AX error
+
+`list_apps` probes every running app and splits the output into **Connectable
+through Accessibility** and **Running but NOT connectable**. An app in the second
+group is running, but macOS will refuse to hand macbeth its accessibility tree —
+`connect_app` reports the AX code, what it means, and what to try instead.
+
+| AX code | Meaning | What to do |
+|---|---|---|
+| `-25204` `cannot_complete` | The process never answered. Launchers (Unity Hub), helper processes, apps mid-launch, and apps blocked on their main thread all look like this. | Wait for the app to finish launching and retry. If it persists, the process cannot be automated through AX — use `screenshot` + `extract_text` to read it, and `select_menu_item` or `run_applescript` to drive it. |
+| `-25211` `api_disabled` | Accessibility permission is not granted, so *every* app is unreachable. | Grant Accessibility in **System Settings → Privacy & Security → Accessibility**, then retry. `npx macbeth doctor` prints the exact steps. |
+| `-25202` `invalid_ui_element` | The reference is stale; the app quit or rebuilt that part of its UI. | Re-run `connect_app` / `query_tree` for fresh handles. |
+| `-25208` `not_implemented` | The process does not implement AX for this request (games, custom-rendered canvases). | Screenshot + OCR, or drive it through menus and keyboard. |
+
+## `connect_app` returns a handle — do I have to use it?
+
+No. Every app-taking tool connects on its own, so `connect_app` is optional. When
+you do call it, the handle it returns (`h_3`) can be passed as the `app` argument
+to any other tool, which addresses that exact process without re-running fuzzy name
+matching. Handles are **daemon-local**: they are dropped when the app quits or the
+daemon restarts, and reusing a dead one returns an `app_not_found` error telling you
+to reconnect by name or PID.
+
 ## `query_tree` returns only 3–5 nodes / `read_form` finds nothing
 
 For some apps this is expected, not a bug. Complex non-native hosts (Unity,
@@ -250,7 +273,7 @@ RPC errors surface to the agent as `[error_kind]: message`.
 | `element_not_found` | The locator matched nothing before timeout. |
 | `timeout` | `wait_for`, an auto-wait, or a script deadline expired. Scoped to that one call; the server stays healthy. |
 | `permission_denied` | Accessibility (or Screen Recording) not granted — run `doctor`. |
-| `app_not_found` | `connect_app` couldn't match a running app. |
+| `app_not_found` | `connect_app` couldn't match a running app, the app is running but unreachable through AX (message carries the AX code and next step), or the app handle is unknown/dead. |
 | `action_failed` | `AXUIElementPerformAction` was rejected by the app. |
 | `menu_item_not_found` / `menu_item_disabled` | Menu path missing or greyed out. |
 | `app_busy` | The app was mid-operation; retry. |

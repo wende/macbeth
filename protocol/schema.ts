@@ -61,7 +61,18 @@ export interface EndActivityResult {
 
 // run_applescript
 export interface RunAppleScriptParams {
+  /**
+   * Script source. The parameter is `source` — not `script`, `code`, or `body`.
+   *
+   * AppleScript: `tell application "Finder" to get name of every window`
+   * JavaScript (JXA): `Application("Finder").windows().map(w => w.name())`
+   */
   source: string;
+  /**
+   * Exactly `"AppleScript"` or `"JavaScript"` — JXA is `"JavaScript"`. The
+   * daemon also accepts the lowercase spellings and `"jxa"`, but the MCP tool
+   * enum exposes only the two canonical values.
+   */
   language?: "AppleScript" | "JavaScript";
   /** Defaults to true because arbitrary scripts may control applications. */
   interactive?: boolean;
@@ -97,18 +108,39 @@ export interface SelectMenuItemResult {
 
 export type AppRuntime = "native" | "electron" | "unknown";
 
+/** Whether a running app can currently be driven through the Accessibility API.
+ *  `permission_required` means the API is off for every app because macbeth has
+ *  not been granted Accessibility; `not_connectable` means this specific process
+ *  refuses accessibility requests. */
+export type AXReadiness = "connectable" | "permission_required" | "not_connectable";
+
+export interface AppAccessibility {
+  status: AXReadiness;
+  connectable: boolean;
+  /** Raw AX error code from the probe. Absent when connectable. */
+  axCode?: number;
+  /** Stable snake_case name for the AX error, e.g. "cannot_complete". */
+  axError?: string;
+  explanation?: string;
+  nextAction?: string;
+}
+
 export interface AppInfo {
   name: string;
   pid: number;
   bundleId: string | null;
   aliases: string[];
   runtime: AppRuntime;
+  accessibility: AppAccessibility;
 }
 
 // connect_app
 export interface ConnectAppParams {
   name?: string;
   pid?: number;
+  /** Handle returned by an earlier connect_app. Reconnecting by handle skips name
+   *  resolution and keeps addressing the same process. */
+  appHandle?: string;
   /** For Electron apps, how long (ms) to wait for Chromium to build its
    *  accessibility tree after enabling it. Default 3000. */
   readyTimeoutMs?: number;
@@ -122,7 +154,7 @@ export interface ConnectAppResult {
   aliases: string[];
   runtime: AppRuntime;
   requestedName: string | null;
-  matchKind: "pid" | "exact_name" | "declared_alias" | "bundle_identifier" | "partial_name" | "partial_alias" | "partial_bundle_identifier";
+  matchKind: "pid" | "app_handle" | "exact_name" | "declared_alias" | "bundle_identifier" | "partial_name" | "partial_alias" | "partial_bundle_identifier";
   matchedValue: string;
   manualAccessibility: string;
   webContentReadiness: "ready" | "empty_web_area" | "no_web_area" | null;
@@ -130,12 +162,20 @@ export interface ConnectAppResult {
 
 // list_windows
 export interface ListWindowsParams {
-  appHandle: string;
+  /** Scope the listing to one connected app and its helper processes.
+   *  Omit to list windows for every app that owns one. */
+  appHandle?: string;
+  /** Include menu-bar strips, overlays, and bookkeeping sentinels
+   *  (`kind !== "window"`). Default false. */
+  includeAllSurfaces?: boolean;
 }
 
 export type WindowKind = "window" | "bookkeeping" | "menu_bar" | "overlay";
 
 export interface AppWindowInfo {
+  /** WindowServer window ID. Not an AX element handle: it is issued by macOS,
+   *  is unaffected by handle TTL or `pin_handle`, and stays valid until the
+   *  window closes (a reopened window gets a new ID). */
   windowId: number;
   ownerPid: number | null;
   ownerName: string | null;
@@ -147,7 +187,17 @@ export interface AppWindowInfo {
   active: boolean;
   capturable: boolean;
   kind: WindowKind;
+  /** The window `screenshot`/`extract_text` capture for this owner when no
+   *  `windowId` is given. */
   default: boolean;
+  /** AX role (e.g. "AXWindow"), null when the app exposes no AX window for
+   *  this surface or accessibility permission is missing. */
+  role: string | null;
+  /** AX subrole (e.g. "AXStandardWindow", "AXDialog"), null when unavailable. */
+  subrole: string | null;
+  /** Minimized into the Dock. Null (not false) when AX metadata is unavailable —
+   *  WindowServer still reports a frame for minimized windows. */
+  minimized: boolean | null;
 }
 
 export interface ListWindowsResult {
@@ -280,6 +330,69 @@ export type KeyStroke =
 export interface PressKeysParams {
   appHandle: string;
   keys: KeyStroke[];
+}
+
+/**
+ * How far a keyboard call got. Tiers are cumulative:
+ *
+ * - `attempted` — the events could not be shown to have entered the event stream
+ *   (creation failed, or the session key-down counter never advanced).
+ * - `dispatched` — they entered the system event stream. Whether the target app
+ *   consumed them is unknown: nothing in the AX or CoreGraphics APIs reports it.
+ * - `verified` — the app's observable state changed as a result. Reserved; the
+ *   daemon does not produce this yet.
+ */
+export type KeyDispatchOutcome = "attempted" | "dispatched" | "verified";
+
+export interface KeyFocusedElementInfo {
+  role: string | null;
+  subrole: string | null;
+  title: string | null;
+  identifier: string | null;
+  /** Truncated to 120 characters. */
+  value: string | null;
+}
+
+export interface KeyTargetInfo {
+  app: string | null;
+  pid: number | null;
+  bundleId: string | null;
+  /** Whether the target app held keyboard focus when the events were posted. */
+  frontmost: boolean;
+  /** Who actually held keyboard focus — the app that received the events. */
+  focusedApp: { pid: number | null; name: string | null };
+  window: { title: string | null; identity: string | null };
+  /** Null when the app exposes no focused element; many apps still handle keys. */
+  focusedElement: KeyFocusedElementInfo | null;
+}
+
+export interface PressKeyResult {
+  /** False only when no key event could be created at all. */
+  success: boolean;
+  outcome: KeyDispatchOutcome;
+  dispatched: boolean;
+  verified: boolean;
+  /** Human-readable explanation of the outcome and its caveats. */
+  note: string;
+  /** Machine-readable warning codes, e.g. `target-not-frontmost`. */
+  warnings: string[];
+  keysRequested: number;
+  keysPosted: number;
+  evidence: {
+    /**
+     * Session key-down counter delta across the dispatch. Other processes and a
+     * human at the keyboard also advance it, so it confirms dispatch (`>=` the
+     * posted count) and never refutes it.
+     */
+    sessionKeyDownDelta: number | null;
+    accessibilityTrusted: boolean;
+  };
+  target: KeyTargetInfo;
+}
+
+export interface PressKeysResult extends PressKeyResult {
+  /** Number of key/text items in the sequence. */
+  count: number;
 }
 
 // screenshot

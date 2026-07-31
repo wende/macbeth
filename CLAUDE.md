@@ -108,6 +108,26 @@ an error containing `stale-element`; the TS `ScopedLocator` keys off that marker
 from the original query path and retry once. Raw `h_N` handles from `query_tree` carry no path,
 so the error tells the caller to re-run `query_tree`.
 
+### Discovery and connection contract
+
+`connect_app` is optional: every app-taking tool resolves its `app` argument through
+`MacbethClient.connect` first. What it adds is a deliberate preflight — a reachability
+check, the resolved match kind, and a tunable Electron `readyTimeoutMs`. Its `appHandle`
+is not decorative: `app` accepts `h_<n>` (see `client/src/app-target.ts`), and the daemon
+resolves it straight out of `AppConnectionManager.connections`, skipping fuzzy matching.
+Unknown or dead handles fail with an `app_not_found` that says to reconnect by name/PID.
+
+`list_apps` probes each running app with the same AX role read that `connect` performs
+(`probeAccessibility`, 0.25s messaging timeout) and reports `connectable` /
+`permission_required` / `not_connectable`. "Running" and "automatable" are different
+things — listing a launcher like Unity Hub as if it were drivable is what makes discovery
+untrustworthy.
+
+Raw `AXError` codes never reach a caller uninterpreted. `axErrorInfo`
+(`AX/AXErrorInfo.swift`) is the single mapping from code → name, plain-language
+explanation, and likely next action; it feeds both `list_apps` entries and the
+`app_not_found` message and `data` payload thrown by a failed connect.
+
 ### AX limitations in complex apps (Unity, Electron IDEs)
 
 Apps like Unity expose only window + menu bar through the Accessibility API. Panel
@@ -126,6 +146,22 @@ For these apps, the primary interaction model is:
 `read_form` works well on native macOS apps with proper AX support (System Settings,
 Xcode, TextEdit, etc.) where controls expose `AXValue`, `AXTitleUIElement`, and
 `AXSettable` attributes.
+
+### Keyboard dispatch reporting
+
+`press_key` / `press_keys` return a three-tier `outcome` (`attempted`,
+`dispatched`, `verified`) plus the addressed target, evidence, and warning codes.
+The classification is a pure function — `diagnoseKeyDispatch` in
+`AX/KeyDispatch.swift` — so it is unit tested without a window server. Evidence
+is the session key-down counter delta (confirmation only; a human at the keyboard
+also advances it) and per-event `CGEvent` creation results. `dispatched` requires
+the counter to account for every posted event; partial confirmation stays
+`attempted`. `verified` is reserved for effect verification and is not yet
+produced. Checks are observational — they annotate the result rather than
+blocking a keystroke — with one exception: an app handle that no longer resolves
+is an `appNotFound` error, because without a connection the events would land in
+whatever app happens to be frontmost. See
+`docs/keyboard-input-and-foregrounding.md`.
 
 ### Error codes
 
@@ -179,6 +215,23 @@ three outcomes rather than one nil: live, `stale_handle` (-32010, with `data.rea
 `expired` / `destroyed` / `recycled` / `app_terminated`), or `unknown_handle` (-32011) for
 an id this daemon never issued. Liveness checks run outside the actor so a slow app can't
 stall unrelated handle operations. Full contract in `docs/handle-lifecycle.md`.
+
+`windowId` from `list_windows` is *not* one of these handles: it is a WindowServer ID
+issued by macOS, so it has no TTL, ignores `pin_handle`, survives daemon restarts, and
+stays valid until the window closes. Say so wherever the two appear together — agents
+otherwise assume every opaque ID macbeth returns expires after five minutes.
+
+### Window listing
+
+`list_windows` takes an optional `appHandle`. Without one it enumerates every app that
+owns a window, which is how an agent answers "is app X open?" in a single call instead of
+connecting and walking a tree. Filtering, defaults, and serialisation live on
+`WindowDescriptor` (`WindowDiscovery.swift`) rather than `SCWindow` so they stay testable
+— ScreenCaptureKit types cannot be constructed in tests. Real windows only by default;
+`includeAllSurfaces` adds menu-bar strips, overlays, and bookkeeping sentinels. AX
+role/subrole/minimized are joined in per window via `AXWindowNumber` (the same ID
+ScreenCaptureKit reports), under a short per-app AX messaging timeout so one hung app
+cannot stall the listing.
 
 ### Auto-reconnect
 

@@ -110,6 +110,16 @@ final class OverlayController: NSObject {
     /// Drop navigation outlines whose owning process is no longer frontmost.
     /// Safe to call from tests after changing `frontmostPidProvider`.
     func reconcileOutlinesWithFrontmostApp() {
+        // An active scope is a continuity promise. Keep the current outline as a
+        // visual buffer during an app hand-off; focusWindow will atomically reveal
+        // the new frontmost outline before retiring this one.
+        //
+        // Trade-off: if the *user* Cmd+Tabs to an uncontrolled app mid-tool, the
+        // old outline stays until activityEnded, then arms the normal buffered
+        // fade (~debounceMs). That brief stale chrome is preferred over blanking
+        // between sequential tool-driven hand-offs. See
+        // endingActivityAfterUnfinishedAppSwitchSchedulesBufferedOutlineFade.
+        guard !activityActive else { return }
         dismissOutlinesNotBelongingToFrontmostApp()
     }
 
@@ -126,16 +136,11 @@ final class OverlayController: NSObject {
             tracker.reset()
             fadeOutTimer?.invalidate()
             fadeOutTimer = nil
-            // A new frontmost operation can spend longer than the debounce resolving
-            // its target before the next focusWindow message arrives. Resume only
-            // outlines that still belong to the system frontmost app so continuous
-            // foreground demos stay smooth — never re-arm a background window's
-            // outline from a bare activate / MCP begin_activity scope.
-            let frontmostPid = frontmostPidProvider()
+            // Tool calls are sequential, but each call has to resolve its target
+            // before it can send focusWindow. Re-arm every buffered outline here:
+            // the next focusWindow atomically hands the glow to its target, while
+            // an operation that never focuses a window releases it on deactivate.
             for (id, state) in navigationOverlays where state.fadeDeadline != nil {
-                guard navigationOverlayMayBeArmed(id, frontmostPid: frontmostPid) else {
-                    continue
-                }
                 state.fadeTimer?.invalidate()
                 state.fadeTimer = nil
                 state.fadeDeadline = nil
@@ -158,6 +163,13 @@ final class OverlayController: NSObject {
             guard let rect = message.rect else { return }
             let id = message.windowId ?? legacyWindowID(for: rect)
             focusWindow(id: id, rect: rect)
+
+        case .targetActivated:
+            guard let ownerPid = message.ownerPid else { return }
+            // Runs even while activityActive: a daemon-driven activate that will
+            // not send focusWindow must still clear the previous app's buffered
+            // outline so it does not sit on the wrong window mid-raise.
+            dismissOutlinesNotBelonging(to: ownerPid)
 
         case .pointerMove:
             guard let point = message.point else { return }
@@ -191,6 +203,17 @@ final class OverlayController: NSObject {
               rect.x.isFinite, rect.y.isFinite,
               rect.width.isFinite, rect.height.isFinite else { return }
 
+        // Concurrent Task.detached handlers can deliver a stale focusWindow for a
+        // background app after the real frontmost app's message. Refuse to show
+        // or dismiss-on-behalf-of a non-frontmost owner so legitimate chrome
+        // survives out-of-order delivery. Nil frontmost (tests / transient) keeps
+        // the prior "trust the message" behaviour.
+        if let ownerPid = navigationOverlayOwnerPid(id),
+           let frontmost = frontmostPidProvider(),
+           frontmost != ownerPid {
+            return
+        }
+
         let frame = appKitCaptureFrame(rect)
 
         let state: NavigationOverlayState
@@ -220,6 +243,13 @@ final class OverlayController: NSObject {
             activeNavigationIDs.insert(id)
         } else {
             rearmNavigationFade(id: id)
+        }
+
+        // During an app hand-off, the previous outline remains visible until the
+        // replacement is already on screen. Retire other apps only after showing
+        // this outline, producing an overlap/cross-fade instead of a blank frame.
+        if let ownerPid = navigationOverlayOwnerPid(id) {
+            dismissOutlinesNotBelonging(to: ownerPid)
         }
     }
 
@@ -286,20 +316,19 @@ final class OverlayController: NSObject {
         return pid
     }
 
-    private func navigationOverlayMayBeArmed(_ id: String, frontmostPid: pid_t?) -> Bool {
-        guard let owner = navigationOverlayOwnerPid(id) else { return true }
-        return owner == frontmostPid
-    }
-
     @objc private func frontmostApplicationChanged(_ notification: Notification) {
-        dismissOutlinesNotBelongingToFrontmostApp()
+        reconcileOutlinesWithFrontmostApp()
     }
 
     private func dismissOutlinesNotBelongingToFrontmostApp() {
         guard let frontmostPid = frontmostPidProvider() else { return }
+        dismissOutlinesNotBelonging(to: frontmostPid)
+    }
+
+    private func dismissOutlinesNotBelonging(to ownerPid: pid_t) {
         let staleIDs = navigationOverlays.keys.filter { id in
             guard let owner = navigationOverlayOwnerPid(id) else { return false }
-            return owner != frontmostPid
+            return owner != ownerPid
         }
         for id in staleIDs {
             dismissNavigationOutline(id: id)

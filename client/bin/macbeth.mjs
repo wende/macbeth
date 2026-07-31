@@ -202,6 +202,17 @@ try {
       break;
     }
     default: {
+      const MCP_START_ALIASES = new Set(["mcp", "serve", "server", "start"]);
+      if (command && MCP_START_ALIASES.has(command)) {
+        // These read as "start the server" verbs, but the MCP server has no
+        // subcommand — it's what `macbeth` does with no arguments at all.
+        // Name the fix instead of just refusing.
+        process.stderr.write(
+          `Unknown command: ${command} — the MCP server is the default; ` +
+            `run \`macbeth\` with no arguments.\n`
+        );
+        process.exit(1);
+      }
       if (command && !command.startsWith("-")) {
         // An unrecognized bare word is almost certainly a typo; surface help
         // rather than silently starting the MCP server.

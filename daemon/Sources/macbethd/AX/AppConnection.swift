@@ -6,6 +6,7 @@ import Foundation
 actor AppConnectionManager {
     enum MatchKind: String, Sendable {
         case pid
+        case appHandle = "app_handle"
         case exactName = "exact_name"
         case declaredAlias = "declared_alias"
         case bundleIdentifier = "bundle_identifier"
@@ -80,15 +81,30 @@ actor AppConnectionManager {
     }
     #endif
 
-    /// Connect to an app by name or PID. Returns the connection info.
+    /// Connect to an app by app handle, name, or PID. Returns the connection info.
     ///
+    /// - Parameter appHandle: A handle returned by an earlier `connect`. Reconnecting by
+    ///   handle skips name resolution entirely, so a caller that already resolved an
+    ///   ambiguous name keeps addressing the same process.
     /// - Parameter readyTimeoutMs: For Electron apps, how long to wait for Chromium
     ///   to build its accessibility tree after enabling it (default 3000ms).
-    func connect(name: String?, pid: Int?, readyTimeoutMs: Int? = nil) async throws -> ConnectResult {
+    func connect(
+        name: String? = nil,
+        pid: Int? = nil,
+        appHandle: String? = nil,
+        readyTimeoutMs: Int? = nil
+    ) async throws -> ConnectResult {
         let runningApp: NSRunningApplication
         let resolution: Resolution
 
-        if let pid {
+        if let appHandle {
+            runningApp = try await resolveHandle(appHandle)
+            resolution = Resolution(
+                requestedName: appHandle,
+                matchKind: .appHandle,
+                matchedValue: appHandle
+            )
+        } else if let pid {
             guard let app = NSRunningApplication(processIdentifier: pid_t(pid)) else {
                 throw RPCError.appNotFound("No running app with PID \(pid)")
             }
@@ -109,7 +125,7 @@ actor AppConnectionManager {
                 matchedValue: match.value
             )
         } else {
-            throw RPCError.invalidParams("Must provide 'name' or 'pid'")
+            throw RPCError.invalidParams("Must provide 'appHandle', 'name', or 'pid'")
         }
         let resolvedPid = runningApp.processIdentifier
 
@@ -151,12 +167,19 @@ actor AppConnectionManager {
         // or pin the dispatch thread for the default ~6s per call.
         AXUIElementSetMessagingTimeout(appElement, 1.5)
 
-        // Verify the app responds to AX queries
+        // Verify the app responds to AX queries. `apiDisabled` means the whole API is off
+        // (missing permission), which the daemon reports separately at startup — every
+        // other failure means this specific process is not automatable through AX.
         var roleRef: CFTypeRef?
         let result = AXUIElementCopyAttributeValue(appElement, kAXRoleAttribute as CFString, &roleRef)
         guard result == .success || result == .apiDisabled else {
+            let info = axErrorInfo(result)
+            let label = runningApp.localizedName ?? runningApp.bundleIdentifier ?? "PID \(resolvedPid)"
             throw RPCError.appNotFound(
-                "App with PID \(resolvedPid) does not respond to accessibility queries (error: \(result.rawValue))")
+                "\(label) (pid \(resolvedPid)) is running but is not reachable through the "
+                    + "Accessibility API. \(info.summary)",
+                data: info.json
+            )
         }
 
         let runtime = detectRuntime(pid: resolvedPid)
@@ -231,6 +254,30 @@ actor AppConnectionManager {
             }
             try? await Task.sleep(for: .milliseconds(50))
         }
+    }
+
+    /// Resolve an app handle back to its running process, evicting the connection if the
+    /// app has since quit. Handles are daemon-local, so an unknown one is a caller error
+    /// worth explaining rather than a silent re-resolution by name.
+    private func resolveHandle(_ appHandle: String) async throws -> NSRunningApplication {
+        guard let connection = connections[appHandle] else {
+            throw RPCError.appNotFound(
+                "Unknown app handle \"\(appHandle)\". App handles are daemon-local and are dropped "
+                    + "when the app quits or the daemon restarts. Call connect_app again with "
+                    + "'name' or 'pid'."
+            )
+        }
+        guard isProcessAlive(connection.pid),
+              let app = NSRunningApplication(processIdentifier: connection.pid) else {
+            connections.removeValue(forKey: appHandle)
+            await handleTable.removeHandles(forPid: connection.pid)
+            throw RPCError.appNotFound(
+                "App handle \"\(appHandle)\" pointed at \(connection.appName ?? "an app") "
+                    + "(pid \(connection.pid)), which is no longer running. Call connect_app again "
+                    + "with 'name' or 'pid'."
+            )
+        }
+        return app
     }
 
     private struct AppMatch {

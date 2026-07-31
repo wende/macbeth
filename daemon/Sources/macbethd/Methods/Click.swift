@@ -16,6 +16,16 @@ func registerClick(
                 throw RPCError.invalidParams("Missing 'appHandle'")
             }
 
+            // Start before target resolution so auto-wait is part of the same
+            // buffered visual operation as the eventual pointer/click.
+            //
+            // Unconditional: even background-AX-only clicks (showGlow == false)
+            // open a scope so OverlayController can re-arm a preceding outline
+            // instead of letting it fade during resolve. User-visible chrome is
+            // still gated on showGlow below.
+            await glow.activityStarted()
+            defer { Task { await glow.activityEnded() } }
+
             let strategy = ClickStrategy(obj["strategy"]?.stringValue)
             let waitForIdleMs = obj["waitForIdleMs"]?.numberValue ?? 0
             let timeout = obj["timeout"]?.numberValue ?? 5.0
@@ -30,10 +40,6 @@ func registerClick(
             // user is currently looking at. Background AX work remains quiet.
             let targetWindow = ElementGeometry.containingWindow(of: element.element)
             let showGlow = targetWindow.map(ElementGeometry.isFrontmostWindow) ?? false
-            if showGlow { await glow.activityStarted() }
-            defer {
-                if showGlow { Task { await glow.activityEnded() } }
-            }
             if showGlow, let window = targetWindow,
                let frame = ElementGeometry.frame(of: window) {
                 await glow.windowFocused(id: ElementGeometry.windowIdentity(of: window), frame: frame)
@@ -59,6 +65,15 @@ func registerClick(
             // --- Safe coordinate fallback (strategy == .mouse, or auto fallback) ---
             guard let connection = await appManager.get(appHandle) else {
                 throw RPCError.appNotFound("Invalid app handle: \(appHandle)")
+            }
+            if !showGlow {
+                // performSafeMouseClick activates the target briefly while this
+                // scope keeps OverlayController.reconcileOutlinesWithFrontmostApp
+                // suppressed. Retire any buffered outline from a previous app so
+                // it does not remain drawn during that daemon-driven raise. No
+                // replacement outline: the mouse path restores the previous
+                // frontmost app after the click, and background work stays quiet.
+                await glow.targetActivated(ownerPid: connection.pid)
             }
             do {
                 try await performSafeMouseClick(

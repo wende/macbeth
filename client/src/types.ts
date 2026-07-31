@@ -13,16 +13,35 @@ export type ElementTarget =
 
 export type AppRuntime = "native" | "electron" | "unknown";
 
+/** Whether a running app can currently be driven through the Accessibility API.
+ *  `permission_required` means the API is off for every app because macbeth has not
+ *  been granted Accessibility; `not_connectable` means this specific process refuses
+ *  accessibility requests (launchers, helper processes, apps that never implement AX). */
+export type AXReadiness = "connectable" | "permission_required" | "not_connectable";
+
+export interface AppAccessibility {
+  status: AXReadiness;
+  connectable: boolean;
+  /** Raw AX error code from the probe. Absent when connectable. */
+  axCode?: number;
+  /** Stable snake_case name for the AX error, e.g. "cannot_complete". */
+  axError?: string;
+  explanation?: string;
+  nextAction?: string;
+}
+
 export interface AppInfo {
   name: string;
   pid: number;
   bundleId: string | null;
   aliases: string[];
   runtime: AppRuntime;
+  accessibility: AppAccessibility;
 }
 
 export type AppMatchKind =
   | "pid"
+  | "app_handle"
   | "exact_name"
   | "declared_alias"
   | "bundle_identifier"
@@ -42,6 +61,9 @@ export interface QueryTreeDetailedResult {
 }
 
 export interface AppWindowInfo {
+  /** WindowServer window ID. Not an AX element handle: it is issued by macOS,
+   *  is unaffected by handle TTL or `pin_handle`, and stays valid until the
+   *  window closes (a reopened window gets a new ID). */
   windowId: number;
   ownerPid: number | null;
   ownerName: string | null;
@@ -53,7 +75,20 @@ export interface AppWindowInfo {
   active: boolean;
   capturable: boolean;
   kind: "window" | "bookkeeping" | "menu_bar" | "overlay";
+  /** The window a screenshot captures for this owner when no `windowId` is given. */
   default: boolean;
+  /** AX role, or null when the app exposes no AX window for this surface. */
+  role: string | null;
+  /** AX subrole (e.g. "AXStandardWindow", "AXDialog"), or null when unavailable. */
+  subrole: string | null;
+  /** Minimized into the Dock; null when AX metadata is unavailable. */
+  minimized: boolean | null;
+}
+
+export interface ListWindowsOptions {
+  /** Include menu-bar strips, overlays, and bookkeeping surfaces
+   *  (`kind !== "window"`). Default false. */
+  includeAllSurfaces?: boolean;
 }
 
 export interface ConnectOptions {
@@ -121,6 +156,60 @@ export type KeyStroke =
       text: string;
       delayMs?: number;
     };
+
+/**
+ * How far a keyboard call got.
+ *
+ * - `attempted` — the events could not be shown to have entered the event stream.
+ * - `dispatched` — they entered the system event stream; app delivery is unproven.
+ * - `verified` — the app's observable state changed. Not produced yet.
+ */
+export type KeyDispatchOutcome = "attempted" | "dispatched" | "verified";
+
+export interface KeyFocusedElementInfo {
+  role: string | null;
+  subrole: string | null;
+  title: string | null;
+  identifier: string | null;
+  value: string | null;
+}
+
+export interface KeyTargetInfo {
+  app: string | null;
+  pid: number | null;
+  bundleId: string | null;
+  /** Whether the target app held keyboard focus when the events were posted. */
+  frontmost: boolean;
+  /** Who actually held keyboard focus — the app that received the events. */
+  focusedApp: { pid: number | null; name: string | null };
+  window: { title: string | null; identity: string | null };
+  focusedElement: KeyFocusedElementInfo | null;
+}
+
+export interface PressKeyResult {
+  /** False only when no key event could be created at all. */
+  success: boolean;
+  outcome: KeyDispatchOutcome;
+  dispatched: boolean;
+  verified: boolean;
+  /** Human-readable explanation of the outcome and its caveats. */
+  note: string;
+  /** Machine-readable warning codes, e.g. `target-not-frontmost`. */
+  warnings: string[];
+  keysRequested: number;
+  keysPosted: number;
+  evidence: {
+    /** Session key-down counter delta across the dispatch. */
+    sessionKeyDownDelta: number | null;
+    accessibilityTrusted: boolean;
+  };
+  target: KeyTargetInfo;
+}
+
+export interface PressKeysResult extends PressKeyResult {
+  /** Number of key/text items in the sequence. */
+  count: number;
+}
 
 export interface FormField {
   handleId: string;

@@ -36,6 +36,9 @@ describe("AppHandle", () => {
       capturable: true,
       kind: "window",
       default: true,
+      role: "AXWindow",
+      subrole: "AXStandardWindow",
+      minimized: false,
     }];
     vi.mocked(rpc.call).mockResolvedValueOnce({ windows });
     const app = new AppHandle(rpc, "h_0", {
@@ -47,6 +50,22 @@ describe("AppHandle", () => {
     await expect(app.listWindows()).resolves.toEqual(windows);
     expect(rpc.call).toHaveBeenCalledWith("list_windows", {
       appHandle: "h_0",
+    });
+  });
+
+  it("requests every surface only when asked", async () => {
+    const rpc = mockRpcWithResult({ windows: [] });
+    const app = new AppHandle(rpc, "h_0", {
+      name: "Finder",
+      pid: 1,
+      bundleId: "com.apple.finder",
+    });
+
+    await app.listWindows({ includeAllSurfaces: true });
+
+    expect(rpc.call).toHaveBeenCalledWith("list_windows", {
+      appHandle: "h_0",
+      includeAllSurfaces: true,
     });
   });
 
@@ -83,6 +102,25 @@ describe("AppHandle", () => {
       key: "a",
       modifiers: ["cmd"],
     });
+  });
+
+  it("pressKey returns the daemon's dispatch report", async () => {
+    const report = {
+      success: true,
+      outcome: "dispatched",
+      dispatched: true,
+      verified: false,
+      note: "Keyboard events entered the system event stream.",
+      warnings: ["target-not-frontmost"],
+      keysRequested: 1,
+      keysPosted: 1,
+      evidence: { sessionKeyDownDelta: 1, accessibilityTrusted: true },
+      target: { app: "Finder", pid: 1 },
+    };
+    const rpc = mockRpcWithResult(report);
+    const app = new AppHandle(rpc, "h_0", { name: "Finder", pid: 1, bundleId: null });
+
+    await expect(app.pressKey("return")).resolves.toEqual(report);
   });
 
   it("pressKeys sends the whole key sequence in one RPC call", async () => {

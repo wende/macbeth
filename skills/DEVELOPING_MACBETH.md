@@ -55,6 +55,8 @@ await client.close(); // shuts down daemon
 
 `connect()` accepts an app name (fuzzy matched) or a PID.
 
+**The split:** everything app-scoped (`queryTree`, `screenshot`, locators, keyboard input, …) hangs off the `AppHandle` returned by `connect()`, not off `MacbethClient`. The client itself only holds global/cross-app operations — `listApps`, `connect`, `runAppleScript`, `dumpAttributes`, lifecycle (`close`). The one deliberate exception is `client.extractText({ appHandle, ... })`: it stays on `MacbethClient` because it also accepts raw image `data` with no app involved at all, so it can't be a pure `AppHandle` method.
+
 ## Locators
 
 Locators are immutable and lazy. No RPC until a terminal method like `.click()` or `.fill()`.
@@ -169,7 +171,19 @@ Keys: `a`–`z`, `0`–`9`, `f1`–`f12`, `return`, `tab`, `escape`, `space`, `d
 
 Modifiers: `cmd`, `shift`, `alt` (`option`), `ctrl`.
 
-Keyboard delivery activates the target app. Background-safe text entry: use `fill` (AX path). Details: [docs/keyboard-input-and-foregrounding.md](../docs/keyboard-input-and-foregrounding.md).
+Keyboard delivery activates the target app. Background-safe text entry: use `fill` (AX path).
+
+Both calls resolve with a dispatch report — `outcome` (`attempted` | `dispatched` |
+`verified`), the addressed target, and warning codes — which callers may ignore:
+
+```ts
+const result = await app.pressKey("return");
+if (result.outcome !== "dispatched") console.warn(result.note);
+```
+
+`dispatched` means the events entered the system event stream, not that the app
+acted on them; assert real effects with `waitFor` or a fresh query. Details:
+[docs/keyboard-input-and-foregrounding.md](../docs/keyboard-input-and-foregrounding.md).
 
 ## Screenshots
 
@@ -189,6 +203,34 @@ if (settings?.capturable) {
 other macOS Spaces. Listing is read-only and does not activate windows or switch
 Spaces. ScreenCaptureKit may return blank content for some off-Space app
 windows. Screen Recording permission is prompted on first capture.
+
+## Listing windows
+
+```ts
+const client = new MacbethClient();
+
+// Every app that owns a window — no connect, no AX tree walk.
+const all = await client.listWindows();
+const unityIsOpen = all.some((window) => window.ownerName === "Unity");
+
+// One app and its helper processes.
+const unity = await client.connect("Unity");
+const unityWindows = await unity.listWindows();
+
+// Menu-bar strips, overlays, and bookkeeping surfaces are filtered out by
+// default; ask for them when diagnosing a window you cannot capture.
+const everySurface = await client.listWindows({ includeAllSurfaces: true });
+```
+
+Each entry: `windowId`, `title`, `ownerName` / `ownerPid` / `bundleId`, `frame`,
+`layer`, `onScreen`, `active`, `minimized`, `role`, `subrole`, `kind`,
+`capturable`, `default`. `role`, `subrole`, and `minimized` come from the
+accessibility API and are `null` when the app exposes no AX window for the
+surface.
+
+`windowId` is a WindowServer ID, not an element handle: it has no 5-minute TTL,
+`pin_handle` does not apply, and it stays valid until the window closes (a
+reopened window gets a new ID). Only `h_N` element handles expire.
 
 ## Listing apps
 

@@ -1,6 +1,7 @@
 import { DaemonManager } from "./daemon.js";
 import { JsonRpcClient } from "./rpc.js";
 import { Locator } from "./elements.js";
+import { appConnectParams, type AppTarget } from "./app-target.js";
 import type { HealthSnapshot } from "./health.js";
 import {
   clampScriptTimeoutMs,
@@ -13,6 +14,8 @@ import type {
   AppInfo,
   AppRuntime,
   KeyStroke,
+  PressKeyResult,
+  PressKeysResult,
   TreeOptions,
   ScreenshotResult,
   QueryStep,
@@ -25,6 +28,7 @@ import type {
   QueryTreeDetailedResult,
   TreeDiagnostics,
   AppWindowInfo,
+  ListWindowsOptions,
 } from "./types.js";
 
 /**
@@ -126,10 +130,12 @@ export class AppHandle extends Locator {
     };
   }
 
-  /** List WindowServer surfaces owned by the app or its helper processes. */
-  async listWindows(): Promise<AppWindowInfo[]> {
+  /** List WindowServer surfaces owned by the app or its helper processes.
+   *  Returns real windows only unless `includeAllSurfaces` is set. */
+  async listWindows(options?: ListWindowsOptions): Promise<AppWindowInfo[]> {
     const result = await this.rpc.call<{ windows: AppWindowInfo[] }>("list_windows", {
       appHandle: this.appHandle,
+      ...(options?.includeAllSurfaces ? { includeAllSurfaces: true } : {}),
     });
     return result.windows;
   }
@@ -179,12 +185,16 @@ export class AppHandle extends Locator {
     return result.selected;
   }
 
-  /** Send a keyboard input */
+  /** Send a keyboard input.
+   *
+   *  Resolves with what could be established about the dispatch — see
+   *  {@link PressKeyResult}. It rejects only on RPC-level failures, so callers
+   *  that ignore the result behave exactly as before. */
   async pressKey(
     key: string,
     modifiers?: string[]
-  ): Promise<void> {
-    await this.rpc.call("press_key", {
+  ): Promise<PressKeyResult> {
+    return await this.rpc.call<PressKeyResult>("press_key", {
       appHandle: this.appHandle,
       key,
       modifiers,
@@ -192,8 +202,8 @@ export class AppHandle extends Locator {
   }
 
   /** Send a sequence of keyboard inputs in one RPC call */
-  async pressKeys(keys: KeyStroke[]): Promise<void> {
-    await this.rpc.call("press_keys", {
+  async pressKeys(keys: KeyStroke[]): Promise<PressKeysResult> {
+    return await this.rpc.call<PressKeysResult>("press_keys", {
       appHandle: this.appHandle,
       keys,
     });
@@ -281,27 +291,47 @@ export class MacbethClient {
     return this.rpc.health;
   }
 
-  /** List running macOS apps with accessibility support */
+  /** List running macOS apps, each annotated with whether it is currently reachable
+   *  through the Accessibility API. */
   async listApps(): Promise<AppInfo[]> {
     await this.ensureConnected();
     const result = await this.rpc.call<{ apps: AppInfo[] }>("list_apps");
     return result.apps;
   }
 
-  /** Connect to a running app by name or PID.
+  /** List WindowServer surfaces across every app that owns a window.
+   *
+   *  Answers "is app X open, and what is it showing?" without connecting to an
+   *  app or walking an accessibility tree. Returns real windows only unless
+   *  `includeAllSurfaces` is set. */
+  async listWindows(options?: ListWindowsOptions): Promise<AppWindowInfo[]> {
+    await this.ensureConnected();
+    const result = await this.rpc.call<{ windows: AppWindowInfo[] }>(
+      "list_windows",
+      options?.includeAllSurfaces ? { includeAllSurfaces: true } : {}
+    );
+    return result.windows;
+  }
+
+  /** Connect to a running app by name, PID, or an app handle from a previous connect.
+   *
+   *  Passing a handle (`h_3`) skips name resolution, so a caller that already
+   *  disambiguated a fuzzy name keeps addressing the same process.
    *
    *  For Electron apps the daemon enables Chromium's accessibility tree and waits for
    *  it to build before returning. Pass `readyTimeoutMs` to tune that wait (default 3s). */
   async connect(
-    nameOrPid: string | number,
+    target: AppTarget,
     options?: AppConnectOptions
   ): Promise<AppHandle> {
     await this.ensureConnected();
 
-    const params: { pid?: number; name?: string; readyTimeoutMs?: number } =
-      typeof nameOrPid === "number"
-        ? { pid: nameOrPid }
-        : { name: nameOrPid };
+    const params: {
+      pid?: number;
+      name?: string;
+      appHandle?: string;
+      readyTimeoutMs?: number;
+    } = appConnectParams(target);
     if (options?.readyTimeoutMs !== undefined) {
       params.readyTimeoutMs = options.readyTimeoutMs;
     }

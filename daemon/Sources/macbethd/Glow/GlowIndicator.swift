@@ -150,6 +150,16 @@ actor GlowIndicator {
         send(.windowFocused(id: id, rect: captureRect(frame)))
     }
 
+    /// The daemon activated `ownerPid` without presenting a replacement outline
+    /// (mouse raise-and-restore). Retire other apps' buffered outlines even while
+    /// the current activity scope would otherwise suppress frontmost reconciliation.
+    func targetActivated(ownerPid: pid_t) {
+        guard !disabled else { return }
+        ensureRunning()
+        guard !disabled else { return }
+        send(.targetActivated(ownerPid: ownerPid))
+    }
+
     /// Move the synthetic presentation pointer to an AX interaction target.
     /// Returns false when the helper is unavailable so callers never wait for
     /// an animation the user cannot see.

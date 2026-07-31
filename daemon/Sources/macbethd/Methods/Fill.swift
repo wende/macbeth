@@ -17,6 +17,18 @@ func registerFill(
                 throw RPCError.invalidParams("Missing 'appHandle' or 'value'")
             }
 
+            // Scope the complete tool call, including auto-wait/AX resolution.
+            // Sequential actions can then re-arm the previous buffered outline
+            // before its debounce expires.
+            //
+            // Always open the scope (even when the target is backgrounded and no
+            // outline is drawn): activityActive suppresses frontmost reconciliation
+            // so a preceding tool's chrome can be re-armed rather than fading mid
+            // resolve. Visible glow remains gated on frontmost / post-activate below.
+            await glow.activityStarted()
+            defer { Task { await glow.activityEnded() } }
+            var glowPresented = false
+
             let strategy = FillStrategy(obj["strategy"]?.stringValue)
             let timeout = obj["timeout"]?.numberValue ?? 5.0
             let element = try await resolveTarget(
@@ -30,21 +42,17 @@ func registerFill(
             let isElectron = connection?.runtime == .electron
             let pid = connection?.pid
 
-            let targetWindow = ElementGeometry.containingWindow(of: element.element)
+            var targetWindow = ElementGeometry.containingWindow(of: element.element)
             // Glow only when the window is already frontmost (background AX stays quiet).
             // Keyboard synthesis below re-presents after activate when it must foreground.
-            var glowScoped = false
-            defer {
-                if glowScoped { Task { await glow.activityEnded() } }
-            }
             if targetWindow.map(ElementGeometry.isFrontmostWindow) == true {
                 await presentInteractionGlow(
                     glow: glow,
                     window: targetWindow,
                     element: element.element,
-                    pointerAction: .fill,
-                    scoped: &glowScoped
+                    pointerAction: .fill
                 )
+                glowPresented = true
             }
 
             // Check element role
@@ -90,13 +98,17 @@ func registerFill(
             // from the block above; re-presenting would replay the pointer approach to
             // a point it already occupies and pay the animation delay a second time.
             await appManager.activate(appHandle)
-            if !glowScoped {
+            if !glowPresented {
+                // Re-resolve after activate in case AX could not name a window while
+                // the app was backgrounded; the pre-activate ref is usually still fine.
+                if targetWindow == nil {
+                    targetWindow = ElementGeometry.containingWindow(of: element.element)
+                }
                 await presentInteractionGlow(
                     glow: glow,
                     window: targetWindow,
                     element: element.element,
-                    pointerAction: .fill,
-                    scoped: &glowScoped
+                    pointerAction: .fill
                 )
             }
             try await fillViaKeyboard(element.element, value: value, pid: pid)
@@ -242,28 +254,50 @@ private func fillSlider(element: AXUIElement, target: Double) throws -> JSONValu
 /// (`CGEvent.postToPid`) rather than the global HID tap, so input can reach a
 /// background target without depending on it being frontmost — important for
 /// Electron web content.
-func typeCharacter(_ char: Character, toPid pid: pid_t? = nil) {
+///
+/// Returns which halves of the key-down/key-up pair were created and posted. Event
+/// creation is the one failure the caller can observe locally; posting itself is
+/// fire-and-forget, which is why `press_key` also reads the session key-down counter
+/// for evidence. A missing key-up is reported rather than swallowed: it leaves the
+/// key logically held down.
+@discardableResult
+func typeCharacter(_ char: Character, toPid pid: pid_t? = nil) -> KeyEventPost {
     let str = String(char)
-    guard let event = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: true) else { return }
+    guard let event = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: true) else {
+        return .nothingPosted
+    }
     var utf16 = Array(str.utf16)
     event.keyboardSetUnicodeString(stringLength: utf16.count, unicodeString: &utf16)
     postEvent(event, toPid: pid)
 
-    guard let upEvent = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: false) else { return }
+    guard let upEvent = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: false) else {
+        return KeyEventPost(downPosted: true, upPosted: false)
+    }
     upEvent.keyboardSetUnicodeString(stringLength: utf16.count, unicodeString: &utf16)
     postEvent(upEvent, toPid: pid)
+    return .complete
 }
 
 /// Post a key event with modifiers. When `pid` is supplied the event is delivered
 /// directly to that process instead of the global HID tap.
-func postKeyEvent(keyCode: CGKeyCode, flags: CGEventFlags = CGEventFlags(), toPid pid: pid_t? = nil) {
-    guard let downEvent = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: true) else { return }
+///
+/// Returns which halves of the key-down/key-up pair were created and posted.
+@discardableResult
+func postKeyEvent(
+    keyCode: CGKeyCode, flags: CGEventFlags = CGEventFlags(), toPid pid: pid_t? = nil
+) -> KeyEventPost {
+    guard let downEvent = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: true) else {
+        return .nothingPosted
+    }
     downEvent.flags = flags
     postEvent(downEvent, toPid: pid)
 
-    guard let upEvent = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: false) else { return }
+    guard let upEvent = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: false) else {
+        return KeyEventPost(downPosted: true, upPosted: false)
+    }
     upEvent.flags = flags
     postEvent(upEvent, toPid: pid)
+    return .complete
 }
 
 private func postEvent(_ event: CGEvent, toPid pid: pid_t?) {

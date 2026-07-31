@@ -8,9 +8,12 @@ import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { MacbethClient } from "./client.js";
 import { isOperationTimeout, JsonRpcError, RPC_ERROR_NAMES } from "./errors.js";
+import { describeKeyPress, describeKeyStrokes, formatKeyDispatch } from "./key-dispatch.js";
 import { runScreenshotTool } from "./mcp-screenshot.js";
+import { runListWindowsTool } from "./mcp-windows.js";
 import { saveScreenshotToTempFile } from "./screenshots.js";
 import { resolveElementTarget } from "./mcp-target.js";
+import { formatAppList } from "./app-target.js";
 import { runWithActivity } from "./mcp-activity.js";
 import { SCRIPT_TIMEOUT, scriptTimeoutFromSeconds } from "./timeouts.js";
 import { readInstalledVersion } from "./update.js";
@@ -101,20 +104,18 @@ const keyStrokeSchema = z.object({
 
 // Keep PID targeting consistent with connect_app. This matters for unbundled
 // native processes, which can be addressable by PID but not discoverable by name.
-const appTargetSchema = z.union([z.string(), z.number()]).describe("App name or PID");
+// App handles are accepted too, so connect_app's return value can be passed straight
+// back in and no name is re-resolved.
+const appTargetSchema = z
+  .union([z.string(), z.number()])
+  .describe('App name (fuzzy), PID, or an app handle returned by connect_app (e.g. "h_3")');
 
 server.registerTool("list_apps", {
-  description: "List running macOS apps with accessibility support",
+  description: "List running macOS apps, split into the ones that are currently reachable through the Accessibility API and the ones that are running but will fail to connect (launchers, helper processes, apps that never implement AX). Blocked entries carry the AX error code, what it means, and what to do instead.",
+  annotations: { readOnlyHint: true },
 }, async () => {
   const apps = await client.listApps();
-  const text = apps
-    .map((a) => {
-      const bundle = a.bundleId ? `, bundle: ${a.bundleId}` : "";
-      const aliases = a.aliases?.length ? `, aliases: ${a.aliases.join(", ")}` : "";
-      return `${a.name} (pid: ${a.pid}, runtime: ${a.runtime}${bundle}${aliases})`;
-    })
-    .join("\n");
-  return { content: [{ type: "text", text }] };
+  return { content: [{ type: "text", text: formatAppList(apps) }] };
 });
 
 server.registerTool("list_daemon_methods", {
@@ -144,30 +145,36 @@ server.registerTool("end_activity", {
 });
 
 server.registerTool("connect_app", {
-  description: "Connect to a macOS app by name, declared bundle alias, bundle identifier, or PID. Reports exactly how the target resolved and whether Chromium accessibility content became ready.",
+  description: "OPTIONAL preflight. Every app-taking tool (query_tree, click, fill, screenshot, ...) connects on its own, so you do NOT need to call this first. Call it to (a) check an app is reachable through Accessibility before driving it, (b) see exactly how a fuzzy name resolved, or (c) warm up an Electron app's accessibility tree with a custom readyTimeoutMs. It returns an app handle (\"h_3\") that you can pass as the `app` argument to any other tool to address the same process without re-resolving the name.",
   inputSchema: {
     name: z.string().optional().describe("App name (fuzzy match)"),
     pid: z.number().optional().describe("Process ID"),
+    appHandle: z.string().optional().describe("Handle from a previous connect_app; reconnects without re-resolving the name"),
     readyTimeoutMs: z.number().int().nonnegative().optional().describe("Electron accessibility-tree readiness timeout in milliseconds"),
   },
-}, async ({ name, pid, readyTimeoutMs }) => {
-  const target = pid ?? name;
+}, async ({ name, pid, appHandle, readyTimeoutMs }) => {
+  const target = pid ?? appHandle ?? name;
   if (!target) {
-    return { content: [{ type: "text", text: "Error: provide 'name' or 'pid'" }], isError: true };
+    return { content: [{ type: "text", text: "Error: provide 'name', 'pid', or 'appHandle'" }], isError: true };
   }
-  const app = await client.connect(target, readyTimeoutMs === undefined ? undefined : { readyTimeoutMs });
-  const requested = typeof target === "string" ? `Requested “${target}” → ` : "";
-  const bundle = app.bundleId ? `, bundle: ${app.bundleId}` : "";
-  const aliases = app.aliases.length ? `, aliases: ${app.aliases.join(", ")}` : "";
-  const accessibility = app.runtime === "electron"
-    ? `, manualAccessibility: ${app.manualAccessibility}, webContent: ${app.webContentReadiness}`
-    : "";
-  return {
-    content: [{
-      type: "text",
-      text: `${requested}${app.name} (match: ${app.matchKind} via ${app.matchedValue}, pid: ${app.pid}, runtime: ${app.runtime}${bundle}${aliases}${accessibility}, handle: ${app.handle})`,
-    }],
-  };
+  try {
+    const app = await client.connect(target, readyTimeoutMs === undefined ? undefined : { readyTimeoutMs });
+    const requested = typeof target === "string" ? `Requested “${target}” → ` : "";
+    const bundle = app.bundleId ? `, bundle: ${app.bundleId}` : "";
+    const aliases = app.aliases.length ? `, aliases: ${app.aliases.join(", ")}` : "";
+    const accessibility = app.runtime === "electron"
+      ? `, manualAccessibility: ${app.manualAccessibility}, webContent: ${app.webContentReadiness}`
+      : "";
+    return {
+      content: [{
+        type: "text",
+        text: `${requested}${app.name} (match: ${app.matchKind} via ${app.matchedValue}, pid: ${app.pid}, runtime: ${app.runtime}${bundle}${aliases}${accessibility})\n`
+          + `Connected. Pass app: "${app.handle}" to any other tool to reuse this connection.`,
+      }],
+    };
+  } catch (err: unknown) {
+    return { content: [{ type: "text", text: formatError("Connect failed", err) }], isError: true };
+  }
 });
 
 server.registerTool("query_tree", {
@@ -188,15 +195,27 @@ server.registerTool("query_tree", {
 });
 
 server.registerTool("list_windows", {
-  description: "List WindowServer surfaces owned by an app or its helper processes across macOS Spaces. Returns window IDs, titles, frames, visibility, and whether each surface is capturable. This is read-only and does not activate windows or switch Spaces.",
+  description:
+    "List open windows across macOS Spaces without touching an accessibility tree. "
+    + "Omit 'app' to list windows for every running app — that answers \"is app X open, and what is it showing?\" in one call; "
+    + "pass 'app' to scope the listing to one app and its helper processes. "
+    + "Each entry has windowId, title, ownerName/ownerPid/bundleId, frame, onScreen/active/minimized, AX role/subrole, kind, and whether it is capturable. "
+    + "windowId is a WindowServer ID, not an element handle: it has no 5-minute TTL, ignores pin_handle, and stays valid until the window closes. "
+    + "Read-only — it does not activate windows or switch Spaces.",
   inputSchema: {
-    app: appTargetSchema,
+    app: appTargetSchema.optional().describe('Optional filter: app name (fuzzy), PID, or an app handle (e.g. "h_3"). Omit to list windows for every app.'),
+    includeAllSurfaces: z.boolean().optional().default(false)
+      .describe("Also return menu-bar strips, overlays, and bookkeeping surfaces (kind != 'window'). Default false."),
   },
   annotations: { readOnlyHint: true },
-}, async ({ app }) => {
-  const handle = await client.connect(app);
-  const windows = await handle.listWindows();
-  return { content: [{ type: "text", text: JSON.stringify({ windows }, null, 2) }] };
+}, async ({ app, includeAllSurfaces }) => {
+  return runListWindowsTool(
+    {
+      connect: (target) => client.connect(target),
+      listAll: (options) => client.listWindows(options),
+    },
+    { app, includeAllSurfaces }
+  );
 });
 
 server.registerTool("click", {
@@ -281,7 +300,7 @@ server.registerTool("wait_for", {
 });
 
 server.registerTool("press_key", {
-  description: 'WARNING: This tool steals focus — it activates the target app window before sending input. Use as a last resort when click/fill cannot achieve the goal (e.g. keyboard shortcuts, arrow-key navigation). Prefer "fill" for text entry and "click" for buttons. Key names: "return", "tab", "escape", "a"-"z", "1"-"9", "f1"-"f12", "up", "down", "left", "right", "space", "delete". Modifiers: "cmd", "shift", "alt", "ctrl".',
+  description: 'WARNING: This tool steals focus — it activates the target app window before sending input. Use as a last resort when click/fill cannot achieve the goal (e.g. keyboard shortcuts, arrow-key navigation). Prefer "fill" for text entry and "click" for buttons. Key names: "return", "tab", "escape", "a"-"z", "1"-"9", "f1"-"f12", "up", "down", "left", "right", "space", "delete". Modifiers: "cmd", "shift", "alt", "ctrl". The result reports how far the input got: outcome=dispatched means the events entered the system event stream (the app may still have ignored them); outcome=attempted means even that could not be confirmed. Neither proves the app acted — confirm real effects with query_tree, wait_for, or screenshot instead of resending.',
   inputSchema: {
     app: appTargetSchema,
     key: z.string().describe("Key name"),
@@ -290,13 +309,15 @@ server.registerTool("press_key", {
 }, async ({ app, key, modifiers }) => {
   return withActivity(async () => {
     const handle = await client.connect(app);
-    await handle.pressKey(key, modifiers);
-    return { content: [{ type: "text" as const, text: `Pressed ${modifiers?.length ? modifiers.join("+") + "+" : ""}${key}` }] };
+    const result = await handle.pressKey(key, modifiers);
+    const label = describeKeyPress(key, modifiers);
+    const report = formatKeyDispatch(label, result, `Pressed ${label}`);
+    return { content: [{ type: "text" as const, text: report.text }], isError: report.isError };
   });
 });
 
 server.registerTool("press_keys", {
-  description: 'WARNING: This tool steals focus — it activates the target app window before sending input. Use as a last resort when click/fill cannot achieve the goal. Prefer "fill" for text entry and "click" for buttons. Sends a sequence of keyboard inputs in one call. Each step accepts either `key` plus optional `modifiers`, or `text` to type literally, plus optional `delayMs`.',
+  description: 'WARNING: This tool steals focus — it activates the target app window before sending input. Use as a last resort when click/fill cannot achieve the goal. Prefer "fill" for text entry and "click" for buttons. Sends a sequence of keyboard inputs in one call. Each step accepts either `key` plus optional `modifiers`, or `text` to type literally, plus optional `delayMs`. Reports the same dispatch outcome as press_key, covering the sequence as a whole.',
   inputSchema: {
     app: appTargetSchema,
     keys: z.array(keyStrokeSchema).min(1).describe("Ordered list of key or text items to send"),
@@ -304,8 +325,14 @@ server.registerTool("press_keys", {
 }, async ({ app, keys }) => {
   return withActivity(async () => {
     const handle = await client.connect(app);
-    await handle.pressKeys(keys as KeyStroke[]);
-    return { content: [{ type: "text" as const, text: `Sent ${keys.length} input item${keys.length === 1 ? "" : "s"}` }] };
+    const strokes = keys as KeyStroke[];
+    const result = await handle.pressKeys(strokes);
+    const report = formatKeyDispatch(
+      describeKeyStrokes(strokes),
+      result,
+      `Sent ${keys.length} input item${keys.length === 1 ? "" : "s"}`
+    );
+    return { content: [{ type: "text" as const, text: report.text }], isError: report.isError };
   });
 });
 
@@ -502,12 +529,20 @@ server.registerTool("list_menu_bar", {
 server.registerTool("run_applescript", {
   description:
     "Run an AppleScript or JavaScript for Automation (JXA) script. Returns the script's output as text. "
+    + "The script goes in 'source' (not 'script' or 'code'), and 'language' is exactly \"AppleScript\" or \"JavaScript\" — "
+    + "JXA is \"JavaScript\", the string \"jxa\" is not accepted. Examples:\n"
+    + "  {\"source\": \"tell application \\\"Finder\\\" to get name of every window\"}\n"
+    + "  {\"source\": \"Application('Finder').windows().map(w => w.name()).join(', ')\", \"language\": \"JavaScript\"}\n"
     + "Set 'timeout' for work that legitimately runs long (e.g. enumerating many apps); the default is 30 seconds. "
     + "A script that overruns its timeout is stopped and reported as a timeout for that call alone — the server stays "
     + "healthy and other tools keep working.",
   inputSchema: {
-    source: z.string().describe("Script source code"),
-    language: z.enum(["AppleScript", "JavaScript"]).optional().default("AppleScript").describe("Script language (default: AppleScript)"),
+    source: z.string().describe(
+      "Script source code. AppleScript example: tell application \"Finder\" to get name of every window. "
+      + "JXA example: Application('Finder').windows().map(w => w.name()).join(', ')"
+    ),
+    language: z.enum(["AppleScript", "JavaScript"]).optional().default("AppleScript")
+      .describe("Script language: \"AppleScript\" or \"JavaScript\" (JXA). Default: AppleScript."),
     interaction: z.enum(["interactive", "read_only"]).optional().default("interactive").describe("Whether the script can control apps/input or only inspect state"),
     timeout: z.number()
       .min(SCRIPT_TIMEOUT.minMs / 1_000)

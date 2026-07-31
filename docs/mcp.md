@@ -53,9 +53,13 @@ unexpected CLI failure.
 
 Then ask your agent to run this **smoke-test prompt**:
 
-> Using the macbeth MCP tools, call `list_apps` and tell me which apps are running. Then `connect_app` to Finder, `query_tree` its front window, and report the first few elements you see.
+> Using the macbeth MCP tools, call `list_apps` and tell me which apps are connectable through Accessibility. Then `query_tree` Finder's front window and report the first few elements you see.
 
-A healthy install returns a list of running apps and a small accessibility tree for Finder. If any step fails — the tools don't appear, `list_apps` errors, or the tree comes back empty — run `npx macbeth doctor` and paste its fix block to your agent, or see **[TROUBLESHOOTING.md](../TROUBLESHOOTING.md)**.
+A healthy install lists running apps under a **Connectable through Accessibility** heading and returns a small accessibility tree for Finder. If every app lands under the not-connectable heading with AX `-25211 api_disabled`, Accessibility permission is missing. If any step fails — the tools don't appear, `list_apps` errors, or the tree comes back empty — run `npx macbeth doctor` and paste its fix block to your agent, or see **[TROUBLESHOOTING.md](../TROUBLESHOOTING.md)**.
+
+### Do I need `connect_app`?
+
+No. Every app-taking tool (`query_tree`, `click`, `fill`, `screenshot`, …) connects on its own — pass an app name or PID and it resolves. `connect_app` is a preflight you call deliberately: to confirm an app is reachable through Accessibility before driving it, to see exactly how a fuzzy name resolved, or to give an Electron app a longer `readyTimeoutMs`. It returns an app handle (`h_3`) that any other tool accepts in its `app` argument, which pins the target to that exact process instead of re-running fuzzy name matching.
 
 ## Updating
 
@@ -72,9 +76,9 @@ npx macbeth update --check  # report only
 |---|---|
 | `list_daemon_methods` | List registered daemon RPCs for MCP parity checks |
 | `begin_activity` / `end_activity` | Bracket external computer-control work with the interaction glow |
-| `list_apps` | List running macOS apps |
-| `connect_app` | Connect to an app by name or PID |
-| `list_windows` | List app and helper process windows across macOS Spaces without activating them |
+| `list_apps` | List running macOS apps, split into Accessibility-connectable and running-but-not-connectable (with the AX code and what to do instead) |
+| `connect_app` | Optional preflight — verify Accessibility reachability, see how a fuzzy name resolved, or warm an Electron tree. Returns an app handle you can pass as `app` to any other tool |
+| `list_windows` | List open windows across macOS Spaces without activating them; `app` is optional, so one call answers "is app X open?" |
 | `query_tree` | Accessibility tree as text or JSON, including menus and web-content readiness diagnostics |
 | `get_element` | Find an element by query or handle |
 | `dump_attributes` | Dump all AX attributes for a handle |
@@ -82,8 +86,8 @@ npx macbeth update --check  # report only
 | `click` | Click a UI element (auto-waits) |
 | `fill` | Set a text field value (auto-waits) |
 | `wait_for` | Wait for existence, value, change, or enabled state |
-| `press_key` | Activate target app, send keyboard input |
-| `press_keys` | Activate target app, send a key sequence |
+| `press_key` | Activate target app, send keyboard input, report the dispatch outcome |
+| `press_keys` | Activate target app, send a key sequence, report the dispatch outcome |
 | `screenshot` | Capture the default visible window or a window selected by `list_windows` ID |
 | `extract_text` | OCR the default visible window, a selected window ID, or a supplied PNG |
 | `pin_handle` / `unpin_handle` | Control element-handle expiry |
@@ -91,6 +95,51 @@ npx macbeth update --check  # report only
 | `run_applescript` | AppleScript or JXA (interactive or read-only), with a per-call `timeout` in seconds (default 30, max 300) |
 | `list_shortcuts` / `run_shortcut` | Inspect and run Apple Shortcuts |
 | `list_skills` / `load_skill` / `run_skill_script` | Discover and run bundled app workflows |
+
+## Listing windows
+
+`list_windows` reads the WindowServer catalog, so it answers "is app X open, and
+what is it showing?" without connecting to an app or walking an accessibility
+tree:
+
+```jsonc
+// every app that owns a window
+{ "name": "list_windows", "arguments": {} }
+// one app and its helper processes
+{ "name": "list_windows", "arguments": { "app": "Unity" } }
+```
+
+Each entry carries `windowId`, `title`, `ownerName` / `ownerPid` / `bundleId`,
+`frame`, `layer`, `onScreen`, `active`, `minimized`, AX `role` / `subrole`,
+`kind`, `capturable`, and `default` (the window `screenshot` and `extract_text`
+capture for that owner when no `windowId` is given). `role`, `subrole`, and
+`minimized` are `null` when the app exposes no AX window for the surface — for
+example when Accessibility permission has not been granted.
+
+By default only real windows are returned. Pass `includeAllSurfaces: true` to
+also see menu-bar strips, overlays, and the tiny bookkeeping surfaces some apps
+register (`kind` explains which is which — useful when a window you expected to
+capture is missing).
+
+**`windowId` is not an element handle.** It is a WindowServer ID issued by
+macOS: it has no 5-minute TTL, is unaffected by `pin_handle` / `unpin_handle`,
+and survives daemon restarts. It stays valid until the window closes; a reopened
+window gets a new ID. Element handles from `query_tree` / `get_element` (`h_0`,
+`h_1`, …) are the ones that expire.
+
+## Running scripts
+
+`run_applescript` takes the script in **`source`** (not `script` or `code`), and
+`language` is exactly `"AppleScript"` or `"JavaScript"` — JXA is `"JavaScript"`:
+
+```jsonc
+{ "source": "tell application \"Finder\" to get name of every window" }
+{ "source": "Application('Finder').windows().map(w => w.name()).join(', ')",
+  "language": "JavaScript" }
+```
+
+`interaction` is `"interactive"` (default — the script may control apps and
+input) or `"read_only"`, and `timeout` is in seconds.
 
 ## Timeouts and server health
 
