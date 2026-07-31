@@ -136,6 +136,28 @@ Scripts run in an isolated `osascript` process with a daemon-enforced deadline, 
 blocked Apple Event is terminated instead of occupying the daemon until the generic RPC
 timeout. OSA -1743/-10004 maps to `permissionDenied`; -1712 maps to `timeout`.
 
+### Operation timeouts vs server health
+
+Timeouts are scoped to one operation and never mean the server is unhealthy — an MCP
+host that counted them as transport failures would open its circuit breaker and take
+unrelated tools down with them.
+
+- `run_applescript` accepts a caller-set deadline (`timeoutMs`, MCP `timeout` in
+  seconds). Bounds live in `ScriptTimeout` (`Methods/ScriptExecution.swift`) and
+  `SCRIPT_TIMEOUT` (`client/src/timeouts.ts`) — 100ms–300s, default 30s — and both sides
+  clamp independently. The client waits `timeoutMs + 2s` so the daemon's own typed
+  timeout wins the race.
+- The daemon races the child process against the deadline (`waitForScriptProcess`).
+  `ScriptExitSignal.wait()` must stay cancellable: a task group only returns once every
+  child finishes, so an uncancellable exit waiter would park the whole call until the
+  script exited on its own and the deadline would never take effect.
+- Client-side deadlines reject with a typed `JsonRpcError` (-32001,
+  `data.phase === "client_wait"`), not a generic `Error`, and drop only that request —
+  the socket stays open.
+- `client/src/errors.ts` draws the line: a `JsonRpcError` is a result, never a transport
+  failure. `ServerHealth` (`client/src/health.ts`, exposed as `MacbethClient.health`)
+  counts only transport failures toward health.
+
 ### Handle lifecycle
 
 Handles expire after 5 minutes of inactivity. Use `pin_handle` to exempt long-lived
