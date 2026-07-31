@@ -211,9 +211,18 @@ private func fakeOverlayController(
 
 @MainActor
 @Test func nextToolRearmsBufferedOutlineAcrossAppHandoff() throws {
-    // Frontmost app has switched to pid 7 while the buffered outline still
-    // belongs to pid 42.
-    let controller = fakeOverlayController(frontmostPid: 7)
+    // The outline has to be established while its owner is still frontmost:
+    // a focusWindow naming a non-frontmost owner is refused outright, so the
+    // hand-off is staged the way it actually happens at runtime.
+    var frontmostPid: pid_t? = 42
+    let controller = OverlayController(
+        rgba: GlowRGBA(red: 0.66, green: 0.33, blue: 0.97),
+        debounceMs: 400,
+        navigationWindowFactory: { frame, _ in
+            FakeNavigationOverlayWindow(targetFrame: frame)
+        },
+        frontmostPidProvider: { frontmostPid }
+    )
     let id = "pid:42:window:1"
     let rect = GlowCaptureRect(x: 100, y: 100, width: 500, height: 400)
 
@@ -221,6 +230,10 @@ private func fakeOverlayController(
     controller.handle(.windowFocused(id: id, rect: rect))
     controller.handle(.deactivate)
     #expect(controller.navigationFadeIsScheduled(for: id))
+
+    // Frontmost has since moved to pid 7 while the buffered outline still
+    // belongs to pid 42.
+    frontmostPid = 7
 
     // The next automatic tool scope must keep the old outline alive while it
     // resolves the replacement target.
@@ -376,7 +389,7 @@ private func fakeOverlayController(
 
 @MainActor
 @Test func staleBackgroundFocusWindowDoesNotEvictFrontmostOutline() throws {
-    var frontmostPid: pid_t? = 7
+    let frontmostPid: pid_t? = 7
     let controller = OverlayController(
         rgba: GlowRGBA(red: 0.66, green: 0.33, blue: 0.97),
         debounceMs: 400,
