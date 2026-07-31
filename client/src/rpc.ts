@@ -1,4 +1,6 @@
 import * as net from "node:net";
+import { isConnectionError, JsonRpcError, operationTimeoutError } from "./errors.js";
+import { ServerHealth, type HealthSnapshot } from "./health.js";
 
 interface PendingRequest {
   resolve: (value: unknown) => void;
@@ -13,17 +15,7 @@ interface JsonRpcResponse {
   error?: { code: number; message: string; data?: unknown };
 }
 
-export class JsonRpcError extends Error {
-  code: number;
-  data?: unknown;
-
-  constructor(code: number, message: string, data?: unknown) {
-    super(message);
-    this.name = "JsonRpcError";
-    this.code = code;
-    this.data = data;
-  }
-}
+export { JsonRpcError } from "./errors.js";
 
 export class JsonRpcClient {
   private socket: net.Socket | null = null;
@@ -33,10 +25,18 @@ export class JsonRpcClient {
   private requestTimeout: number;
   private socketPath: string | null = null;
   private onReconnect?: () => Promise<void>;
+  private serverHealth: ServerHealth;
 
   constructor(options?: { timeout?: number; onReconnect?: () => Promise<void> }) {
     this.requestTimeout = options?.timeout ?? 60_000;
     this.onReconnect = options?.onReconnect;
+    this.serverHealth = new ServerHealth();
+  }
+
+  /** Daemon-connection health. Operation failures, timeouts included, never
+   *  make this unhealthy — see {@link ServerHealth}. */
+  get health(): HealthSnapshot {
+    return this.serverHealth.snapshot;
   }
 
   async connect(socketPath: string): Promise<void> {
@@ -78,12 +78,23 @@ export class JsonRpcClient {
     options?: { timeoutMs?: number },
   ): Promise<T> {
     try {
-      return await this.callOnce<T>(method, params, options?.timeoutMs);
+      const result = await this.callOnce<T>(method, params, options?.timeoutMs);
+      this.serverHealth.recordSuccess();
+      return result;
     } catch (err: unknown) {
       if (this.onReconnect && isConnectionError(err)) {
+        this.serverHealth.recordFailure(err);
         await this.onReconnect();
-        return await this.callOnce<T>(method, params, options?.timeoutMs);
+        try {
+          const result = await this.callOnce<T>(method, params, options?.timeoutMs);
+          this.serverHealth.recordSuccess();
+          return result;
+        } catch (retryErr: unknown) {
+          this.serverHealth.recordFailure(retryErr);
+          throw retryErr;
+        }
       }
+      this.serverHealth.recordFailure(err);
       throw err;
     }
   }
@@ -106,11 +117,14 @@ export class JsonRpcClient {
     };
 
     return new Promise<T>((resolve, reject) => {
+      const effectiveTimeout = timeoutMs ?? this.requestTimeout;
       const timer = setTimeout(() => {
+        // Drop only this request. The socket stays open and later requests keep
+        // working, so an operation that runs long is never a transport failure.
+        // A late reply for `id` is ignored by processBuffer().
         this.pending.delete(id);
-        const effectiveTimeout = timeoutMs ?? this.requestTimeout;
-        reject(new Error(`Request timeout: ${method} (${effectiveTimeout}ms)`));
-      }, timeoutMs ?? this.requestTimeout);
+        reject(operationTimeoutError(method, effectiveTimeout));
+      }, effectiveTimeout);
 
       this.pending.set(id, {
         resolve: resolve as (value: unknown) => void,
@@ -175,13 +189,4 @@ export class JsonRpcClient {
       }
     }
   }
-}
-
-function isConnectionError(err: unknown): boolean {
-  if (!(err instanceof Error)) return false;
-  const msg = err.message;
-  return msg === "Not connected" ||
-    msg === "Connection closed" ||
-    msg.includes("ECONNREFUSED") ||
-    msg.includes("ENOENT");
 }

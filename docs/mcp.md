@@ -88,9 +88,29 @@ npx macbeth update --check  # report only
 | `extract_text` | OCR the default visible window, a selected window ID, or a supplied PNG |
 | `pin_handle` / `unpin_handle` | Control element-handle expiry |
 | `list_menu_bar` / `select_menu_item` | Compactly inspect and select native menu items through AX; `query_tree` usually makes the list call unnecessary |
-| `run_applescript` | AppleScript or JXA (interactive or read-only) |
+| `run_applescript` | AppleScript or JXA (interactive or read-only), with a per-call `timeout` in seconds (default 30, max 300) |
 | `list_shortcuts` / `run_shortcut` | Inspect and run Apple Shortcuts |
 | `list_skills` / `load_skill` / `run_skill_script` | Discover and run bundled app workflows |
+
+## Timeouts and server health
+
+Timeouts are per operation. `run_applescript` takes a `timeout` in seconds (default 30,
+max 300); `click`, `fill` and `wait_for` take their own `timeout`. The daemon enforces the
+script deadline in a separate `osascript` process and clamps the request to 0.1–300s, so a
+hand-written RPC call cannot ask for an unbounded run.
+
+Exceeding a deadline stops that operation and returns a typed `[timeout]` tool error for
+that call. It is deliberately not a transport failure:
+
+- the daemon connection stays open and every other tool keeps working, so repeated script
+  timeouts never make `connect_app` (or anything else) unreachable;
+- the client's health tracking counts only transport failures — a broken socket, a daemon
+  that won't start — so operation timeouts cannot accumulate into an unhealthy server or
+  trip a host's circuit breaker;
+- the fix for a script that genuinely needs longer is a larger `timeout`, not a retry.
+
+`MacbethClient.health` exposes the same accounting to library users
+(`healthy`, `consecutiveTransportFailures`, `operationTimeouts`).
 
 ## Skills
 
