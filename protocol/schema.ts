@@ -69,18 +69,39 @@ export interface SelectMenuItemResult {
 
 export type AppRuntime = "native" | "electron" | "unknown";
 
+/** Whether a running app can currently be driven through the Accessibility API.
+ *  `permission_required` means the API is off for every app because macbeth has
+ *  not been granted Accessibility; `not_connectable` means this specific process
+ *  refuses accessibility requests. */
+export type AXReadiness = "connectable" | "permission_required" | "not_connectable";
+
+export interface AppAccessibility {
+  status: AXReadiness;
+  connectable: boolean;
+  /** Raw AX error code from the probe. Absent when connectable. */
+  axCode?: number;
+  /** Stable snake_case name for the AX error, e.g. "cannot_complete". */
+  axError?: string;
+  explanation?: string;
+  nextAction?: string;
+}
+
 export interface AppInfo {
   name: string;
   pid: number;
   bundleId: string | null;
   aliases: string[];
   runtime: AppRuntime;
+  accessibility: AppAccessibility;
 }
 
 // connect_app
 export interface ConnectAppParams {
   name?: string;
   pid?: number;
+  /** Handle returned by an earlier connect_app. Reconnecting by handle skips name
+   *  resolution and keeps addressing the same process. */
+  appHandle?: string;
   /** For Electron apps, how long (ms) to wait for Chromium to build its
    *  accessibility tree after enabling it. Default 3000. */
   readyTimeoutMs?: number;
@@ -94,7 +115,7 @@ export interface ConnectAppResult {
   aliases: string[];
   runtime: AppRuntime;
   requestedName: string | null;
-  matchKind: "pid" | "exact_name" | "declared_alias" | "bundle_identifier" | "partial_name" | "partial_alias" | "partial_bundle_identifier";
+  matchKind: "pid" | "app_handle" | "exact_name" | "declared_alias" | "bundle_identifier" | "partial_name" | "partial_alias" | "partial_bundle_identifier";
   matchedValue: string;
   manualAccessibility: string;
   webContentReadiness: "ready" | "empty_web_area" | "no_web_area" | null;

@@ -11,6 +11,7 @@ import { runScreenshotTool } from "./mcp-screenshot.js";
 import { JsonRpcError } from "./rpc.js";
 import { saveScreenshotToTempFile } from "./screenshots.js";
 import { resolveElementTarget } from "./mcp-target.js";
+import { formatAppList } from "./app-target.js";
 import { runWithActivity } from "./mcp-activity.js";
 import { readInstalledVersion } from "./update.js";
 import type { KeyStroke } from "./types.js";
@@ -99,20 +100,18 @@ const keyStrokeSchema = z.object({
 
 // Keep PID targeting consistent with connect_app. This matters for unbundled
 // native processes, which can be addressable by PID but not discoverable by name.
-const appTargetSchema = z.union([z.string(), z.number()]).describe("App name or PID");
+// App handles are accepted too, so connect_app's return value can be passed straight
+// back in and no name is re-resolved.
+const appTargetSchema = z
+  .union([z.string(), z.number()])
+  .describe('App name (fuzzy), PID, or an app handle returned by connect_app (e.g. "h_3")');
 
 server.registerTool("list_apps", {
-  description: "List running macOS apps with accessibility support",
+  description: "List running macOS apps, split into the ones that are currently reachable through the Accessibility API and the ones that are running but will fail to connect (launchers, helper processes, apps that never implement AX). Blocked entries carry the AX error code, what it means, and what to do instead.",
+  annotations: { readOnlyHint: true },
 }, async () => {
   const apps = await client.listApps();
-  const text = apps
-    .map((a) => {
-      const bundle = a.bundleId ? `, bundle: ${a.bundleId}` : "";
-      const aliases = a.aliases?.length ? `, aliases: ${a.aliases.join(", ")}` : "";
-      return `${a.name} (pid: ${a.pid}, runtime: ${a.runtime}${bundle}${aliases})`;
-    })
-    .join("\n");
-  return { content: [{ type: "text", text }] };
+  return { content: [{ type: "text", text: formatAppList(apps) }] };
 });
 
 server.registerTool("list_daemon_methods", {
@@ -142,30 +141,36 @@ server.registerTool("end_activity", {
 });
 
 server.registerTool("connect_app", {
-  description: "Connect to a macOS app by name, declared bundle alias, bundle identifier, or PID. Reports exactly how the target resolved and whether Chromium accessibility content became ready.",
+  description: "OPTIONAL preflight. Every app-taking tool (query_tree, click, fill, screenshot, ...) connects on its own, so you do NOT need to call this first. Call it to (a) check an app is reachable through Accessibility before driving it, (b) see exactly how a fuzzy name resolved, or (c) warm up an Electron app's accessibility tree with a custom readyTimeoutMs. It returns an app handle (\"h_3\") that you can pass as the `app` argument to any other tool to address the same process without re-resolving the name.",
   inputSchema: {
     name: z.string().optional().describe("App name (fuzzy match)"),
     pid: z.number().optional().describe("Process ID"),
+    appHandle: z.string().optional().describe("Handle from a previous connect_app; reconnects without re-resolving the name"),
     readyTimeoutMs: z.number().int().nonnegative().optional().describe("Electron accessibility-tree readiness timeout in milliseconds"),
   },
-}, async ({ name, pid, readyTimeoutMs }) => {
-  const target = pid ?? name;
+}, async ({ name, pid, appHandle, readyTimeoutMs }) => {
+  const target = pid ?? appHandle ?? name;
   if (!target) {
-    return { content: [{ type: "text", text: "Error: provide 'name' or 'pid'" }], isError: true };
+    return { content: [{ type: "text", text: "Error: provide 'name', 'pid', or 'appHandle'" }], isError: true };
   }
-  const app = await client.connect(target, readyTimeoutMs === undefined ? undefined : { readyTimeoutMs });
-  const requested = typeof target === "string" ? `Requested “${target}” → ` : "";
-  const bundle = app.bundleId ? `, bundle: ${app.bundleId}` : "";
-  const aliases = app.aliases.length ? `, aliases: ${app.aliases.join(", ")}` : "";
-  const accessibility = app.runtime === "electron"
-    ? `, manualAccessibility: ${app.manualAccessibility}, webContent: ${app.webContentReadiness}`
-    : "";
-  return {
-    content: [{
-      type: "text",
-      text: `${requested}${app.name} (match: ${app.matchKind} via ${app.matchedValue}, pid: ${app.pid}, runtime: ${app.runtime}${bundle}${aliases}${accessibility}, handle: ${app.handle})`,
-    }],
-  };
+  try {
+    const app = await client.connect(target, readyTimeoutMs === undefined ? undefined : { readyTimeoutMs });
+    const requested = typeof target === "string" ? `Requested “${target}” → ` : "";
+    const bundle = app.bundleId ? `, bundle: ${app.bundleId}` : "";
+    const aliases = app.aliases.length ? `, aliases: ${app.aliases.join(", ")}` : "";
+    const accessibility = app.runtime === "electron"
+      ? `, manualAccessibility: ${app.manualAccessibility}, webContent: ${app.webContentReadiness}`
+      : "";
+    return {
+      content: [{
+        type: "text",
+        text: `${requested}${app.name} (match: ${app.matchKind} via ${app.matchedValue}, pid: ${app.pid}, runtime: ${app.runtime}${bundle}${aliases}${accessibility})\n`
+          + `Connected. Pass app: "${app.handle}" to any other tool to reuse this connection.`,
+      }],
+    };
+  } catch (err: unknown) {
+    return { content: [{ type: "text", text: formatError("Connect failed", err) }], isError: true };
+  }
 });
 
 server.registerTool("query_tree", {

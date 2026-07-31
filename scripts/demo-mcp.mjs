@@ -184,7 +184,8 @@ function pidFromConnect(result) {
 
 function pidsForListedName(text, name) {
   const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return [...text.matchAll(new RegExp(`^${escaped} \\(pid: (\\d+),`, "gm"))]
+  // list_apps indents entries under a connectable / not-connectable heading.
+  return [...text.matchAll(new RegExp(`^\\s*${escaped} \\(pid: (\\d+),`, "gm"))]
     .map((match) => Number(match[1]));
 }
 

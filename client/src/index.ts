@@ -32,6 +32,8 @@ export type {
   AppWindowInfo,
   AppRuntime,
   AppMatchKind,
+  AppAccessibility,
+  AXReadiness,
   ClickStrategy,
   ClickOptions,
   FillStrategy,
@@ -44,6 +46,8 @@ export type {
   TreeDiagnostics,
   QueryTreeDetailedResult,
 } from "./types.js";
+export { isAppHandle, appConnectParams, formatAppList } from "./app-target.js";
+export type { AppTarget } from "./app-target.js";
 export { run, runJson } from "./shell.js";
 export { runAppleScript } from "./applescript.js";
 export { runShortcut, listShortcuts } from "./shortcuts.js";
