@@ -66,6 +66,15 @@ func registerClick(
             guard let connection = await appManager.get(appHandle) else {
                 throw RPCError.appNotFound("Invalid app handle: \(appHandle)")
             }
+            if !showGlow {
+                // performSafeMouseClick activates the target briefly while this
+                // scope keeps OverlayController.reconcileOutlinesWithFrontmostApp
+                // suppressed. Retire any buffered outline from a previous app so
+                // it does not remain drawn during that daemon-driven raise. No
+                // replacement outline: the mouse path restores the previous
+                // frontmost app after the click, and background work stays quiet.
+                await glow.targetActivated(ownerPid: connection.pid)
+            }
             do {
                 try await performSafeMouseClick(
                     element: element.element,

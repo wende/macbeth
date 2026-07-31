@@ -353,6 +353,59 @@ private func fakeOverlayController(
     #expect(window.orderOutCount == 0)
 }
 
+@MainActor
+@Test func targetActivatedRetiresForeignOutlinesWhileScopeIsActive() throws {
+    let controller = fakeOverlayController(frontmostPid: 42)
+    let previousID = "pid:42:window:1"
+    let rect = GlowCaptureRect(x: 100, y: 100, width: 500, height: 400)
+
+    controller.handle(.activate())
+    controller.handle(.windowFocused(id: previousID, rect: rect))
+    let window = try #require(
+        controller.navigationOutlineWindow(for: previousID) as? FakeNavigationOverlayWindow
+    )
+
+    // Mouse raise-and-restore activates pid 7 without focusWindow. The activity
+    // scope would otherwise keep pid 42's outline buffered across that steal.
+    controller.handle(.targetActivated(ownerPid: 7))
+
+    #expect(controller.navigationOverlayCount == 0)
+    #expect(window.hideCount == 1)
+    #expect(window.orderOutCount == 1)
+}
+
+@MainActor
+@Test func staleBackgroundFocusWindowDoesNotEvictFrontmostOutline() throws {
+    var frontmostPid: pid_t? = 7
+    let controller = OverlayController(
+        rgba: GlowRGBA(red: 0.66, green: 0.33, blue: 0.97),
+        debounceMs: 400,
+        navigationWindowFactory: { frame, _ in
+            FakeNavigationOverlayWindow(targetFrame: frame)
+        },
+        frontmostPidProvider: { frontmostPid }
+    )
+    let frontmostID = "pid:7:window:1"
+    let staleID = "pid:42:window:1"
+
+    controller.handle(.activate())
+    controller.handle(.windowFocused(
+        id: frontmostID,
+        rect: GlowCaptureRect(x: 650, y: 100, width: 500, height: 400)
+    ))
+    #expect(controller.navigationOverlayCount == 1)
+
+    // Out-of-order focus for a background app must be ignored.
+    controller.handle(.windowFocused(
+        id: staleID,
+        rect: GlowCaptureRect(x: 100, y: 100, width: 500, height: 400)
+    ))
+
+    #expect(controller.navigationOverlayCount == 1)
+    #expect(controller.navigationOutlineWindow(for: frontmostID) != nil)
+    #expect(controller.navigationOutlineWindow(for: staleID) == nil)
+}
+
 @Test func subPointWindowFrameChangesReuseTheSameOutline() {
     let original = CGRect(x: 100, y: 200, width: 800, height: 500)
     let jittered = CGRect(x: 100.4, y: 199.6, width: 800.5, height: 499.5)

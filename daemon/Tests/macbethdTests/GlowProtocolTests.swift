@@ -57,6 +57,14 @@ import Foundation
     #expect(decoded.action == .fill)
 }
 
+@Test func targetActivatedMessageRoundTrips() throws {
+    let message = GlowMessage.targetActivated(ownerPid: 42)
+    let decoded = try GlowMessage.decode(line: message.encodedLine())
+    #expect(decoded == message)
+    #expect(decoded.type == .targetActivated)
+    #expect(decoded.ownerPid == 42)
+}
+
 @Test func decodesMinimalActivateWithoutConfig() throws {
     let json = Data(#"{"type":"activate"}"#.utf8)
     let decoded = try GlowMessage.decode(line: json)

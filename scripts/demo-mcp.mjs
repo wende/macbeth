@@ -35,7 +35,6 @@ let signalShutdownStarted = false;
 let originalFrontmostPid;
 const baselineNativePids = new Set();
 const baselineElectronPids = new Set();
-const createdFixturePids = new Set();
 
 const APP_NATIVE = "Macbeth TestApp";
 const q = (role, identifier, extra = {}) => [{ role, identifier, ...extra }];
@@ -182,19 +181,24 @@ function pidFromConnect(result) {
   return Number(match[1]);
 }
 
+/** MCP connect_app success text (no longer contains the literal "Connected to"). */
+function isConnectAppSuccess(text) {
+  return /\bpid:\s*\d+/.test(text) && /\bhandle:\s*\S+/.test(text) && !/^Error\b/i.test(text);
+}
+
 function pidsForListedName(text, name) {
   const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return [...text.matchAll(new RegExp(`^${escaped} \\(pid: (\\d+),`, "gm"))]
     .map((match) => Number(match[1]));
 }
 
-function rememberCreatedFixtures(appListText) {
-  for (const pid of pidsForListedName(appListText, APP_NATIVE)) {
-    if (!baselineNativePids.has(pid)) createdFixturePids.add(pid);
-  }
-  for (const pid of pidsForListedName(appListText, "Electron")) {
-    if (!baselineElectronPids.has(pid)) createdFixturePids.add(pid);
-  }
+/** Only the PIDs this script launched — never every process named Electron. */
+function ownedFixturePids() {
+  return [nativePid, electronPid].filter((pid) => Number.isFinite(pid));
+}
+
+function runningOwnedFixturePids(appListText) {
+  return ownedFixturePids().filter((pid) => new RegExp(`\\(pid: ${pid},`).test(appListText));
 }
 
 async function positionFixtureWindow(pid, position, { frontmost = false } = {}) {
@@ -278,7 +282,6 @@ async function launchApps() {
     source: `do shell script "/usr/bin/open -g -n " & quoted form of "${NATIVE_BUNDLE}"`,
   });
   await pollTool("list_apps", {}, (text) => {
-    rememberCreatedFixtures(text);
     const launchedPid = pidsForListedName(text, APP_NATIVE)
       .find((pid) => !baselineNativePids.has(pid));
     if (!launchedPid) return false;
@@ -290,7 +293,6 @@ async function launchApps() {
     source: `do shell script "/usr/bin/open -g -n -a " & quoted form of "${ELECTRON_BUNDLE}" & " --args " & quoted form of "${ELECTRON_APP}"`,
   });
   await pollTool("list_apps", {}, (text) => {
-    rememberCreatedFixtures(text);
     const launchedPid = pidsForListedName(text, "Electron")
       .find((pid) => !baselineElectronPids.has(pid));
     if (!launchedPid) return false;
@@ -310,14 +312,14 @@ async function launchApps() {
   const electronConnection = await pollTool(
     "connect_app",
     { pid: electronPid, readyTimeoutMs: 8_000 },
-    (text) => text.includes("Connected to"),
+    isConnectAppSuccess,
     20_000
   );
   electronPid = pidFromConnect(electronConnection);
   const nativeConnection = await pollTool(
     "connect_app",
     { pid: nativePid },
-    (text) => text.includes("Connected to")
+    isConnectAppSuccess
   );
   nativePid = pidFromConnect(nativeConnection);
 }
@@ -539,36 +541,23 @@ async function cleanup() {
   const cleanupErrors = [];
 
   if (mcpConnected) {
-    try {
-      const apps = textOf(await callTool("list_apps", {}, { quiet: true, noDelay: true }));
-      rememberCreatedFixtures(apps);
-    } catch (error) {
-      cleanupErrors.push(`could not discover fixture processes: ${error instanceof Error ? error.message : String(error)}`);
-    }
+    const fixturePids = ownedFixturePids();
 
-    for (const pid of [nativePid, electronPid]) {
-      if (Number.isFinite(pid)) createdFixturePids.add(pid);
-    }
-
-    if (createdFixturePids.size > 0) {
+    if (fixturePids.length > 0) {
       try {
         await callTool("run_applescript", {
-          source: `do shell script "/bin/kill -TERM ${[...createdFixturePids].join(" ")} 2>/dev/null || true"`,
+          source: `do shell script "/bin/kill -TERM ${fixturePids.join(" ")} 2>/dev/null || true"`,
         }, { quiet: true, noDelay: true });
       } catch (error) {
         cleanupErrors.push(`could not terminate fixtures: ${error instanceof Error ? error.message : String(error)}`);
       }
 
       const deadline = Date.now() + 3_000;
-      let remaining = new Set(createdFixturePids);
+      let remaining = new Set(fixturePids);
       while (remaining.size > 0 && Date.now() < deadline) {
         try {
           const apps = textOf(await callTool("list_apps", {}, { quiet: true, noDelay: true }));
-          const running = new Set([
-            ...pidsForListedName(apps, APP_NATIVE),
-            ...pidsForListedName(apps, "Electron"),
-          ]);
-          remaining = new Set([...remaining].filter((pid) => running.has(pid)));
+          remaining = new Set(runningOwnedFixturePids(apps));
         } catch (error) {
           cleanupErrors.push(`could not verify fixture exit: ${error instanceof Error ? error.message : String(error)}`);
           break;
@@ -588,11 +577,7 @@ async function cleanup() {
         try {
           await sleep(100);
           const apps = textOf(await callTool("list_apps", {}, { quiet: true, noDelay: true }));
-          const stillRunning = new Set([
-            ...pidsForListedName(apps, APP_NATIVE),
-            ...pidsForListedName(apps, "Electron"),
-          ]);
-          remaining = new Set([...remaining].filter((pid) => stillRunning.has(pid)));
+          remaining = new Set(runningOwnedFixturePids(apps).filter((pid) => remaining.has(pid)));
           if (remaining.size > 0) {
             cleanupErrors.push(`fixture PIDs still running: ${[...remaining].join(", ")}`);
           }

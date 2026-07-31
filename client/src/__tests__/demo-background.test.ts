@@ -33,4 +33,15 @@ describe("background demo contract", () => {
     expect(demoSource).toContain("analyzeFocus");
     expect(demoSource).not.toContain("setTargetFrontmost");
   });
+
+  it("matches current connect_app success text", () => {
+    expect(demoSource).toContain("isConnectAppSuccess");
+    expect(demoSource).not.toContain('text.includes("Connected to")');
+  });
+
+  it("terminates only launched fixture PIDs and escalates to SIGKILL", () => {
+    expect(demoSource).toContain("ownedFixturePids");
+    expect(demoSource).toContain("kill -KILL");
+    expect(demoSource).not.toContain("rememberCreatedFixtures");
+  });
 });
