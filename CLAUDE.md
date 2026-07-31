@@ -127,6 +127,19 @@ For these apps, the primary interaction model is:
 Xcode, TextEdit, etc.) where controls expose `AXValue`, `AXTitleUIElement`, and
 `AXSettable` attributes.
 
+### Keyboard dispatch reporting
+
+`press_key` / `press_keys` return a three-tier `outcome` (`attempted`,
+`dispatched`, `verified`) plus the addressed target, evidence, and warning codes.
+The classification is a pure function — `diagnoseKeyDispatch` in
+`AX/KeyDispatch.swift` — so it is unit tested without a window server. Evidence
+is the session key-down counter delta (confirmation only; a human at the keyboard
+also advances it) and per-event `CGEvent` creation results. `verified` is
+reserved for effect verification and is never produced yet. Every check is
+observational: it annotates the result and never blocks a keystroke or turns a
+previously working call into an error. See
+`docs/keyboard-input-and-foregrounding.md`.
+
 ### Error codes
 
 RPC errors use codes -32000 to -32009. AppleScript/JXA errors are classified by OSA

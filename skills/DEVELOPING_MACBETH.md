@@ -169,7 +169,19 @@ Keys: `a`–`z`, `0`–`9`, `f1`–`f12`, `return`, `tab`, `escape`, `space`, `d
 
 Modifiers: `cmd`, `shift`, `alt` (`option`), `ctrl`.
 
-Keyboard delivery activates the target app. Background-safe text entry: use `fill` (AX path). Details: [docs/keyboard-input-and-foregrounding.md](../docs/keyboard-input-and-foregrounding.md).
+Keyboard delivery activates the target app. Background-safe text entry: use `fill` (AX path).
+
+Both calls resolve with a dispatch report — `outcome` (`attempted` | `dispatched` |
+`verified`), the addressed target, and warning codes — which callers may ignore:
+
+```ts
+const result = await app.pressKey("return");
+if (result.outcome !== "dispatched") console.warn(result.note);
+```
+
+`dispatched` means the events entered the system event stream, not that the app
+acted on them; assert real effects with `waitFor` or a fresh query. Details:
+[docs/keyboard-input-and-foregrounding.md](../docs/keyboard-input-and-foregrounding.md).
 
 ## Screenshots
 

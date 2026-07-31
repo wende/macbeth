@@ -1,3 +1,4 @@
+@preconcurrency import ApplicationServices
 import CoreGraphics
 import Foundation
 
@@ -9,6 +10,14 @@ private enum ParsedKeyPressKind {
 private struct ParsedKeyPress {
     let kind: ParsedKeyPressKind
     let delayMs: Int
+
+    /// Key-down events this item asks for: one per key, one per character of text.
+    var keyDownCount: Int {
+        switch kind {
+        case .key: return 1
+        case .text(let text): return text.count
+        }
+    }
 }
 
 private func parseKeyPress(_ value: JSONValue) throws -> ParsedKeyPress {
@@ -74,16 +83,12 @@ func registerPressKey(dispatcher: Dispatcher, appManager: AppConnectionManager, 
                 window: targetWindow,
                 scoped: &glowScoped
             )
-            switch parsed.kind {
-            case .key(let keyCode, let flags):
-                postKeyEvent(keyCode: keyCode, flags: flags)
-            case .text(let text):
-                for char in text {
-                    typeCharacter(char)
-                }
-            }
 
-            return .object(["success": .bool(true)])
+            return try await dispatchAndReport(
+                strokes: [parsed],
+                connection: connection,
+                targetWindow: targetWindow
+            )
         }
     }
 }
@@ -118,24 +123,78 @@ func registerPressKeys(dispatcher: Dispatcher, appManager: AppConnectionManager,
                 window: targetWindow,
                 scoped: &glowScoped
             )
-            for parsed in parsedKeys {
-                switch parsed.kind {
-                case .key(let keyCode, let flags):
-                    postKeyEvent(keyCode: keyCode, flags: flags)
-                case .text(let text):
-                    for char in text {
-                        typeCharacter(char)
-                    }
-                }
-                if parsed.delayMs > 0 {
-                    try await Task.sleep(for: .milliseconds(parsed.delayMs))
-                }
-            }
-
-            return .object([
-                "success": .bool(true),
-                "count": .number(Double(parsedKeys.count)),
-            ])
+            return try await dispatchAndReport(
+                strokes: parsedKeys,
+                connection: connection,
+                targetWindow: targetWindow,
+                extra: ["count": .number(Double(parsedKeys.count))]
+            )
         }
     }
+}
+
+// MARK: - Dispatch + reporting
+
+/// Post a parsed key sequence and report what could actually be established about it.
+///
+/// The dispatch itself is unchanged from the original fire-and-forget path: every
+/// stroke is posted the same way, in the same order, with the same delays. Only the
+/// bookkeeping around it is new — a target snapshot taken just before the first
+/// event, a session key-down counter read on both sides, and the per-event
+/// creation results. Nothing here can prevent a keystroke from being sent.
+private func dispatchAndReport(
+    strokes: [ParsedKeyPress],
+    connection: AppConnectionManager.Connection?,
+    targetWindow: AXUIElement?,
+    extra: [String: JSONValue] = [:]
+) async throws -> JSONValue {
+    let requested = strokes.reduce(0) { $0 + $1.keyDownCount }
+    let target = connection.map {
+        captureKeyTargetSnapshot(
+            pid: $0.pid,
+            appName: $0.appName,
+            bundleId: $0.bundleId,
+            window: targetWindow
+        )
+    } ?? .unknown
+
+    let counterBefore = sessionKeyDownCounter()
+    var posted = 0
+
+    for stroke in strokes {
+        switch stroke.kind {
+        case .key(let keyCode, let flags):
+            if postKeyEvent(keyCode: keyCode, flags: flags) { posted += 1 }
+        case .text(let text):
+            for char in text {
+                if typeCharacter(char) { posted += 1 }
+            }
+        }
+        if stroke.delayMs > 0 {
+            try await Task.sleep(for: .milliseconds(stroke.delayMs))
+        }
+    }
+
+    try? await Task.sleep(for: .milliseconds(keyDispatchSettleMs))
+    let delta = sessionKeyDownDelta(before: counterBefore, after: sessionKeyDownCounter())
+    let trusted = checkAccessibilityPermissions()
+    let diagnosis = diagnoseKeyDispatch(
+        requestedKeyDowns: requested,
+        postedKeyDowns: posted,
+        sessionKeyDownDelta: delta,
+        accessibilityTrusted: trusted,
+        targetFrontmost: target.frontmost,
+        hasFocusedElement: target.focusedElement != nil
+    )
+
+    return keyDispatchResultJSON(
+        diagnosis: diagnosis,
+        requestedKeyDowns: requested,
+        postedKeyDowns: posted,
+        sessionKeyDownDelta: delta,
+        accessibilityTrusted: trusted,
+        target: target,
+        extraWarnings: connection == nil ? [KeyDispatchWarning.appHandleUnknown.rawValue] : [],
+        extra: extra
+    )
 }

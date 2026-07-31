@@ -242,28 +242,40 @@ private func fillSlider(element: AXUIElement, target: Double) throws -> JSONValu
 /// (`CGEvent.postToPid`) rather than the global HID tap, so input can reach a
 /// background target without depending on it being frontmost — important for
 /// Electron web content.
-func typeCharacter(_ char: Character, toPid pid: pid_t? = nil) {
+///
+/// Returns whether the key-down event was created and posted. Event creation is
+/// the one failure the caller can observe locally; posting itself is fire-and-forget,
+/// which is why `press_key` also reads the session key-down counter for evidence.
+@discardableResult
+func typeCharacter(_ char: Character, toPid pid: pid_t? = nil) -> Bool {
     let str = String(char)
-    guard let event = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: true) else { return }
+    guard let event = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: true) else { return false }
     var utf16 = Array(str.utf16)
     event.keyboardSetUnicodeString(stringLength: utf16.count, unicodeString: &utf16)
     postEvent(event, toPid: pid)
 
-    guard let upEvent = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: false) else { return }
+    guard let upEvent = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: false) else { return true }
     upEvent.keyboardSetUnicodeString(stringLength: utf16.count, unicodeString: &utf16)
     postEvent(upEvent, toPid: pid)
+    return true
 }
 
 /// Post a key event with modifiers. When `pid` is supplied the event is delivered
 /// directly to that process instead of the global HID tap.
-func postKeyEvent(keyCode: CGKeyCode, flags: CGEventFlags = CGEventFlags(), toPid pid: pid_t? = nil) {
-    guard let downEvent = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: true) else { return }
+///
+/// Returns whether the key-down event was created and posted.
+@discardableResult
+func postKeyEvent(
+    keyCode: CGKeyCode, flags: CGEventFlags = CGEventFlags(), toPid pid: pid_t? = nil
+) -> Bool {
+    guard let downEvent = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: true) else { return false }
     downEvent.flags = flags
     postEvent(downEvent, toPid: pid)
 
-    guard let upEvent = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: false) else { return }
+    guard let upEvent = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: false) else { return true }
     upEvent.flags = flags
     postEvent(upEvent, toPid: pid)
+    return true
 }
 
 private func postEvent(_ event: CGEvent, toPid pid: pid_t?) {
