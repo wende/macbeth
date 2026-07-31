@@ -245,7 +245,8 @@ suite("MCP demo steps must not leave the fixture frontmost", () => {
 
   function pidsForName(listText: string, name: string): number[] {
     const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    return [...listText.matchAll(new RegExp(`^${escaped} \\(pid: (\\d+),`, "gm"))].map((m) =>
+    // list_apps indents entries under a connectable / not-connectable heading.
+    return [...listText.matchAll(new RegExp(`^\\s*${escaped} \\(pid: (\\d+),`, "gm"))].map((m) =>
       Number(m[1])
     );
   }

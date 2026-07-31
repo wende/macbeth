@@ -1,3 +1,4 @@
+import type { AppTarget } from "./app-target.js";
 import type { AppWindowInfo, ListWindowsOptions } from "./types.js";
 
 interface WindowLister {
@@ -6,13 +7,13 @@ interface WindowLister {
 
 interface ListWindowsDeps {
   /** Scoped listing: connect to the requested app first. */
-  connect: (app: string | number) => Promise<WindowLister>;
+  connect: (app: AppTarget) => Promise<WindowLister>;
   /** Unscoped listing: every app that owns a window. */
   listAll: WindowLister["listWindows"];
 }
 
 export interface ListWindowsToolParams {
-  app?: string | number;
+  app?: AppTarget;
   includeAllSurfaces?: boolean;
 }
 

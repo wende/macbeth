@@ -55,6 +55,8 @@ await client.close(); // shuts down daemon
 
 `connect()` accepts an app name (fuzzy matched) or a PID.
 
+**The split:** everything app-scoped (`queryTree`, `screenshot`, locators, keyboard input, …) hangs off the `AppHandle` returned by `connect()`, not off `MacbethClient`. The client itself only holds global/cross-app operations — `listApps`, `connect`, `runAppleScript`, `dumpAttributes`, lifecycle (`close`). The one deliberate exception is `client.extractText({ appHandle, ... })`: it stays on `MacbethClient` because it also accepts raw image `data` with no app involved at all, so it can't be a pure `AppHandle` method.
+
 ## Locators
 
 Locators are immutable and lazy. No RPC until a terminal method like `.click()` or `.fill()`.

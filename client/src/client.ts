@@ -1,6 +1,7 @@
 import { DaemonManager } from "./daemon.js";
 import { JsonRpcClient } from "./rpc.js";
 import { Locator } from "./elements.js";
+import { appConnectParams, type AppTarget } from "./app-target.js";
 import type { HealthSnapshot } from "./health.js";
 import {
   clampScriptTimeoutMs,
@@ -264,7 +265,8 @@ export class MacbethClient {
     return this.rpc.health;
   }
 
-  /** List running macOS apps with accessibility support */
+  /** List running macOS apps, each annotated with whether it is currently reachable
+   *  through the Accessibility API. */
   async listApps(): Promise<AppInfo[]> {
     await this.ensureConnected();
     const result = await this.rpc.call<{ apps: AppInfo[] }>("list_apps");
@@ -285,20 +287,25 @@ export class MacbethClient {
     return result.windows;
   }
 
-  /** Connect to a running app by name or PID.
+  /** Connect to a running app by name, PID, or an app handle from a previous connect.
+   *
+   *  Passing a handle (`h_3`) skips name resolution, so a caller that already
+   *  disambiguated a fuzzy name keeps addressing the same process.
    *
    *  For Electron apps the daemon enables Chromium's accessibility tree and waits for
    *  it to build before returning. Pass `readyTimeoutMs` to tune that wait (default 3s). */
   async connect(
-    nameOrPid: string | number,
+    target: AppTarget,
     options?: AppConnectOptions
   ): Promise<AppHandle> {
     await this.ensureConnected();
 
-    const params: { pid?: number; name?: string; readyTimeoutMs?: number } =
-      typeof nameOrPid === "number"
-        ? { pid: nameOrPid }
-        : { name: nameOrPid };
+    const params: {
+      pid?: number;
+      name?: string;
+      appHandle?: string;
+      readyTimeoutMs?: number;
+    } = appConnectParams(target);
     if (options?.readyTimeoutMs !== undefined) {
       params.readyTimeoutMs = options.readyTimeoutMs;
     }

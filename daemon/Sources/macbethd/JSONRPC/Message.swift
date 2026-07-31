@@ -82,8 +82,8 @@ struct JSONRPCErrorData: Sendable, Codable {
         JSONRPCErrorData(code: -32002, message: msg)
     }
 
-    static func appNotFound(_ msg: String = "App not found") -> JSONRPCErrorData {
-        JSONRPCErrorData(code: -32003, message: msg)
+    static func appNotFound(_ msg: String = "App not found", data: JSONValue? = nil) -> JSONRPCErrorData {
+        JSONRPCErrorData(code: -32003, message: msg, data: data)
     }
 
     static func actionFailed(_ msg: String = "Action failed") -> JSONRPCErrorData {

@@ -13,16 +13,35 @@ export type ElementTarget =
 
 export type AppRuntime = "native" | "electron" | "unknown";
 
+/** Whether a running app can currently be driven through the Accessibility API.
+ *  `permission_required` means the API is off for every app because macbeth has not
+ *  been granted Accessibility; `not_connectable` means this specific process refuses
+ *  accessibility requests (launchers, helper processes, apps that never implement AX). */
+export type AXReadiness = "connectable" | "permission_required" | "not_connectable";
+
+export interface AppAccessibility {
+  status: AXReadiness;
+  connectable: boolean;
+  /** Raw AX error code from the probe. Absent when connectable. */
+  axCode?: number;
+  /** Stable snake_case name for the AX error, e.g. "cannot_complete". */
+  axError?: string;
+  explanation?: string;
+  nextAction?: string;
+}
+
 export interface AppInfo {
   name: string;
   pid: number;
   bundleId: string | null;
   aliases: string[];
   runtime: AppRuntime;
+  accessibility: AppAccessibility;
 }
 
 export type AppMatchKind =
   | "pid"
+  | "app_handle"
   | "exact_name"
   | "declared_alias"
   | "bundle_identifier"
