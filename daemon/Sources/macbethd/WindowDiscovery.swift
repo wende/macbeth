@@ -1,7 +1,75 @@
+@preconcurrency import ApplicationServices
 import CoreGraphics
 import Darwin
 import Foundation
 import ScreenCaptureKit
+
+/// Provider-independent view of a WindowServer surface. `SCWindow` cannot be
+/// constructed outside ScreenCaptureKit, so every filtering and serialisation
+/// rule below works on this struct and stays testable.
+struct WindowDescriptor: Sendable, Equatable {
+    var windowID: UInt32
+    var ownerPID: pid_t?
+    var ownerName: String?
+    var bundleID: String?
+    var title: String?
+    var frame: CGRect
+    var layer: Int
+    var isOnScreen: Bool
+    var isActive: Bool
+
+    init(
+        windowID: UInt32,
+        ownerPID: pid_t? = nil,
+        ownerName: String? = nil,
+        bundleID: String? = nil,
+        title: String? = nil,
+        frame: CGRect,
+        layer: Int = 0,
+        isOnScreen: Bool = true,
+        isActive: Bool = false
+    ) {
+        self.windowID = windowID
+        self.ownerPID = ownerPID
+        self.ownerName = ownerName
+        self.bundleID = bundleID
+        self.title = title
+        self.frame = frame
+        self.layer = layer
+        self.isOnScreen = isOnScreen
+        self.isActive = isActive
+    }
+
+    init(_ window: SCWindow) {
+        self.init(
+            windowID: window.windowID,
+            ownerPID: window.owningApplication?.processID,
+            ownerName: window.owningApplication?.applicationName,
+            bundleID: window.owningApplication?.bundleIdentifier,
+            title: window.title.flatMap { $0.isEmpty ? nil : $0 },
+            frame: window.frame,
+            layer: window.windowLayer,
+            isOnScreen: window.isOnScreen,
+            isActive: window.isActive
+        )
+    }
+}
+
+/// Window facts only the accessibility API knows: the role/subrole the app
+/// declares, and whether the window is minimised into the Dock (WindowServer
+/// keeps reporting a frame for minimised windows, so `onScreen` alone cannot
+/// answer "is this window on the desk?").
+struct AXWindowMetadata: Sendable, Equatable {
+    var role: String?
+    var subrole: String?
+    var minimized: Bool
+
+    init(role: String? = nil, subrole: String? = nil, minimized: Bool = false) {
+        self.role = role
+        self.subrole = subrole
+        self.minimized = minimized
+    }
+}
 
 /// ScreenCaptureKit can return tiny offscreen bookkeeping windows when
 /// `onScreenWindowsOnly` is false (Steam, for example, exposes 1×1 windows at
@@ -55,10 +123,14 @@ func windowOwnerPIDs(in content: SCShareableContent, rootedAt pid: pid_t) -> Set
     }).union([pid])
 }
 
-func isCapturableWindow(_ window: SCWindow, displayFrames: [CGRect]) -> Bool {
-    window.windowLayer == 0
+func isCapturableWindow(_ window: WindowDescriptor, displayFrames: [CGRect]) -> Bool {
+    window.layer == 0
         && isUsableCaptureFrame(window.frame)
         && !isDisplayEdgeStrip(window.frame, displayFrames: displayFrames)
+}
+
+func isCapturableWindow(_ window: SCWindow, displayFrames: [CGRect]) -> Bool {
+    isCapturableWindow(WindowDescriptor(window), displayFrames: displayFrames)
 }
 
 func capturableWindows(in content: SCShareableContent, ownedBy pid: pid_t) -> [SCWindow] {
@@ -68,6 +140,15 @@ func capturableWindows(in content: SCShareableContent, ownedBy pid: pid_t) -> [S
         $0.owningApplication.map { ownerPIDs.contains($0.processID) } == true
             && isCapturableWindow($0, displayFrames: displayFrames)
     }
+}
+
+/// Every window owned by an app or one of its helper processes, in the order
+/// ScreenCaptureKit reports them.
+func ownedWindows(in content: SCShareableContent, rootedAt pid: pid_t) -> [WindowDescriptor] {
+    let ownerPIDs = windowOwnerPIDs(in: content, rootedAt: pid)
+    return content.windows
+        .filter { $0.owningApplication.map { ownerPIDs.contains($0.processID) } == true }
+        .map { WindowDescriptor($0) }
 }
 
 /// Choose the default capture target among root-PID candidates.
@@ -80,6 +161,25 @@ func selectDefaultWindowID(
     let capturable = candidates.filter(\.capturable)
     return capturable.first(where: \.isOnScreen)?.windowID
         ?? capturable.first?.windowID
+}
+
+/// Per-owner default targets, for an unfiltered listing where there is no
+/// single connected app. Each owning process gets the window that screenshot
+/// and OCR would capture for it.
+func defaultWindowIDsByOwner(
+    among descriptors: [WindowDescriptor],
+    displayFrames: [CGRect]
+) -> Set<UInt32> {
+    var byOwner: [pid_t: [WindowDescriptor]] = [:]
+    for descriptor in descriptors {
+        guard let pid = descriptor.ownerPID else { continue }
+        byOwner[pid, default: []].append(descriptor)
+    }
+    return Set(byOwner.values.compactMap { group in
+        selectDefaultWindowID(from: group.map {
+            ($0.windowID, $0.isOnScreen, isCapturableWindow($0, displayFrames: displayFrames))
+        })
+    })
 }
 
 func findDefaultRootWindow(
@@ -134,36 +234,132 @@ func resolveDefaultWindow(
     return window
 }
 
-func windowKind(_ window: SCWindow, displayFrames: [CGRect]) -> String {
+func windowKind(_ window: WindowDescriptor, displayFrames: [CGRect]) -> String {
     if !isUsableCaptureFrame(window.frame) { return "bookkeeping" }
     if isDisplayEdgeStrip(window.frame, displayFrames: displayFrames) { return "menu_bar" }
-    if window.windowLayer != 0 { return "overlay" }
+    if window.layer != 0 { return "overlay" }
     return "window"
 }
 
-func windowJSON(
-    _ window: SCWindow,
+/// Drop the surfaces an agent almost never means by "window" — menu-bar strips,
+/// overlays, and bookkeeping sentinels — unless the caller asked for everything.
+func listedWindows(
+    _ descriptors: [WindowDescriptor],
     displayFrames: [CGRect],
-    isDefault: Bool
+    includeAllSurfaces: Bool
+) -> [WindowDescriptor] {
+    guard !includeAllSurfaces else { return descriptors }
+    return descriptors.filter { windowKind($0, displayFrames: displayFrames) == "window" }
+}
+
+func windowJSON(
+    _ window: WindowDescriptor,
+    displayFrames: [CGRect],
+    isDefault: Bool,
+    accessibility: AXWindowMetadata?
 ) -> JSONValue {
     let frame = window.frame
     return .object([
         "windowId": .number(Double(window.windowID)),
-        "ownerPid": window.owningApplication.map { .number(Double($0.processID)) } ?? .null,
-        "ownerName": window.owningApplication.map { .string($0.applicationName) } ?? .null,
-        "bundleId": window.owningApplication.map { .string($0.bundleIdentifier) } ?? .null,
-        "title": window.title.flatMap { $0.isEmpty ? nil : $0 }.map(JSONValue.string) ?? .null,
+        "ownerPid": window.ownerPID.map { .number(Double($0)) } ?? .null,
+        "ownerName": window.ownerName.map(JSONValue.string) ?? .null,
+        "bundleId": window.bundleID.map(JSONValue.string) ?? .null,
+        "title": window.title.map(JSONValue.string) ?? .null,
         "frame": .object([
             "x": .number(frame.origin.x),
             "y": .number(frame.origin.y),
             "width": .number(frame.width),
             "height": .number(frame.height),
         ]),
-        "layer": .number(Double(window.windowLayer)),
+        "layer": .number(Double(window.layer)),
         "onScreen": .bool(window.isOnScreen),
         "active": .bool(window.isActive),
         "capturable": .bool(isCapturableWindow(window, displayFrames: displayFrames)),
         "kind": .string(windowKind(window, displayFrames: displayFrames)),
         "default": .bool(isDefault),
+        // Accessibility-only fields stay null (not false) when the app exposes
+        // no AX window for this surface, so "unknown" never reads as "no".
+        "role": accessibility?.role.map(JSONValue.string) ?? .null,
+        "subrole": accessibility?.subrole.map(JSONValue.string) ?? .null,
+        "minimized": accessibility.map { JSONValue.bool($0.minimized) } ?? .null,
     ])
+}
+
+func listWindowsPayload(
+    _ descriptors: [WindowDescriptor],
+    displayFrames: [CGRect],
+    defaultWindowIDs: Set<UInt32>,
+    accessibility: [UInt32: AXWindowMetadata]
+) -> JSONValue {
+    .object(["windows": .array(descriptors.map {
+        windowJSON(
+            $0,
+            displayFrames: displayFrames,
+            isDefault: defaultWindowIDs.contains($0.windowID),
+            accessibility: accessibility[$0.windowID]
+        )
+    })])
+}
+
+// MARK: - Accessibility enrichment
+
+/// Per-app messaging budget for window enrichment. A hung app must not stall a
+/// listing that is otherwise pure WindowServer bookkeeping, and this listing is
+/// read-only metadata: skipping a slow app costs three nullable fields.
+let axWindowMetadataTimeoutSeconds: Float = 0.35
+
+/// Role, subrole, and minimised state keyed by WindowServer window ID.
+///
+/// `AXWindowNumber` is the same identifier ScreenCaptureKit reports, which is
+/// what lets the two catalogs be joined. Apps that do not expose it (some web
+/// views) simply contribute nothing.
+func accessibilityWindowMetadata(
+    forPIDs pids: [pid_t],
+    timeoutSeconds: Float = axWindowMetadataTimeoutSeconds
+) -> [UInt32: AXWindowMetadata] {
+    var metadata: [UInt32: AXWindowMetadata] = [:]
+    for pid in Set(pids) {
+        let application = AXUIElementCreateApplication(pid)
+        AXUIElementSetMessagingTimeout(application, timeoutSeconds)
+
+        var ref: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(
+            application, kAXWindowsAttribute as CFString, &ref
+        ) == .success,
+            let windows = ref as? [AXUIElement]
+        else { continue }
+
+        for window in windows {
+            guard let windowID = axWindowNumber(of: window) else { continue }
+            metadata[windowID] = AXWindowMetadata(
+                role: axStringAttribute(window, kAXRoleAttribute as String),
+                subrole: axStringAttribute(window, kAXSubroleAttribute as String),
+                minimized: ElementGeometry.isMinimized(window)
+            )
+        }
+    }
+    return metadata
+}
+
+private func axWindowNumber(of window: AXUIElement) -> UInt32? {
+    var ref: CFTypeRef?
+    guard AXUIElementCopyAttributeValue(
+        window, "AXWindowNumber" as CFString, &ref
+    ) == .success,
+        let number = ref as? NSNumber
+    else { return nil }
+    let value = number.intValue
+    guard value > 0, value <= Int(UInt32.max) else { return nil }
+    return UInt32(value)
+}
+
+private func axStringAttribute(_ element: AXUIElement, _ attribute: String) -> String? {
+    var ref: CFTypeRef?
+    guard AXUIElementCopyAttributeValue(
+        element, attribute as CFString, &ref
+    ) == .success,
+        let value = ref as? String,
+        !value.isEmpty
+    else { return nil }
+    return value
 }

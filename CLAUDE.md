@@ -165,6 +165,23 @@ references. `Locator.scope()` pins automatically and rediscovers on expiry. Hand
 are daemon-local — if the daemon crashes, all handles are invalidated (the client
 auto-reconnects and re-spawns the daemon transparently).
 
+`windowId` from `list_windows` is *not* one of these handles: it is a WindowServer ID
+issued by macOS, so it has no TTL, ignores `pin_handle`, survives daemon restarts, and
+stays valid until the window closes. Say so wherever the two appear together — agents
+otherwise assume every opaque ID macbeth returns expires after five minutes.
+
+### Window listing
+
+`list_windows` takes an optional `appHandle`. Without one it enumerates every app that
+owns a window, which is how an agent answers "is app X open?" in a single call instead of
+connecting and walking a tree. Filtering, defaults, and serialisation live on
+`WindowDescriptor` (`WindowDiscovery.swift`) rather than `SCWindow` so they stay testable
+— ScreenCaptureKit types cannot be constructed in tests. Real windows only by default;
+`includeAllSurfaces` adds menu-bar strips, overlays, and bookkeeping sentinels. AX
+role/subrole/minimized are joined in per window via `AXWindowNumber` (the same ID
+ScreenCaptureKit reports), under a short per-app AX messaging timeout so one hung app
+cannot stall the listing.
+
 ### Auto-reconnect
 
 `JsonRpcClient.call()` retries once on connection errors (ECONNREFUSED, connection

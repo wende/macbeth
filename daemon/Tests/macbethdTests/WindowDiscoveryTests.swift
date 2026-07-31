@@ -68,3 +68,145 @@ import Testing
     ]
     #expect(selectDefaultWindowID(from: candidates) == nil)
 }
+
+// MARK: - list_windows payload
+
+private let testDisplays = [CGRect(x: 0, y: 0, width: 1728, height: 1117)]
+
+private func testWindow(
+    _ id: UInt32,
+    pid: pid_t,
+    app: String,
+    bundle: String? = nil,
+    title: String? = nil,
+    frame: CGRect = CGRect(x: 100, y: 100, width: 800, height: 600),
+    layer: Int = 0,
+    onScreen: Bool = true,
+    active: Bool = false
+) -> WindowDescriptor {
+    WindowDescriptor(
+        windowID: id,
+        ownerPID: pid,
+        ownerName: app,
+        bundleID: bundle,
+        title: title,
+        frame: frame,
+        layer: layer,
+        isOnScreen: onScreen,
+        isActive: active
+    )
+}
+
+private func listedWindowIDs(_ payload: JSONValue) -> [UInt32] {
+    (payload["windows"]?.arrayValue ?? []).compactMap {
+        $0["windowId"]?.intValue.map { UInt32($0) }
+    }
+}
+
+@Test func listWindowsPayloadHandlesNoWindows() {
+    let payload = listWindowsPayload(
+        [],
+        displayFrames: testDisplays,
+        defaultWindowIDs: [],
+        accessibility: [:]
+    )
+    #expect(payload["windows"] == JSONValue.array([]))
+}
+
+@Test func listWindowsPayloadReportsWindowsFromMultipleApps() {
+    let windows = [
+        testWindow(1, pid: 100, app: "Unity", bundle: "com.unity3d.UnityEditor", title: "Sample Scene"),
+        testWindow(2, pid: 100, app: "Unity", bundle: "com.unity3d.UnityEditor", title: "Console"),
+        testWindow(3, pid: 200, app: "Finder", bundle: "com.apple.finder", title: "Documents"),
+    ]
+    let payload = listWindowsPayload(
+        windows,
+        displayFrames: testDisplays,
+        defaultWindowIDs: defaultWindowIDsByOwner(among: windows, displayFrames: testDisplays),
+        accessibility: [:]
+    )
+
+    #expect(listedWindowIDs(payload) == [1, 2, 3])
+    let entries = payload["windows"]?.arrayValue ?? []
+    #expect(entries[0]["ownerName"] == JSONValue.string("Unity"))
+    #expect(entries[0]["bundleId"] == JSONValue.string("com.unity3d.UnityEditor"))
+    #expect(entries[0]["title"] == JSONValue.string("Sample Scene"))
+    #expect(entries[0]["kind"] == JSONValue.string("window"))
+    #expect(entries[0]["capturable"] == JSONValue.bool(true))
+    // One default per owning process, so a per-app answer never needs a second call.
+    #expect(entries[0]["default"] == JSONValue.bool(true))
+    #expect(entries[1]["default"] == JSONValue.bool(false))
+    #expect(entries[2]["default"] == JSONValue.bool(true))
+}
+
+@Test func defaultWindowIDsByOwnerPrefersOnScreenWindowPerApp() {
+    let windows = [
+        testWindow(1, pid: 100, app: "Unity", onScreen: false),
+        testWindow(2, pid: 100, app: "Unity"),
+        testWindow(3, pid: 200, app: "Finder", onScreen: false),
+    ]
+    #expect(defaultWindowIDsByOwner(among: windows, displayFrames: testDisplays) == [2, 3])
+}
+
+@Test func listedWindowsFiltersNonWindowSurfacesByDefault() {
+    let windows = [
+        testWindow(1, pid: 100, app: "Steam", title: "Library"),
+        testWindow(2, pid: 100, app: "Steam", frame: CGRect(x: -15000, y: 16116, width: 1, height: 1)),
+        testWindow(3, pid: 300, app: "SystemUIServer", frame: CGRect(x: 0, y: 0, width: 1728, height: 33)),
+        testWindow(4, pid: 400, app: "Dock", layer: 20),
+    ]
+
+    let filtered = listedWindows(windows, displayFrames: testDisplays, includeAllSurfaces: false)
+    #expect(filtered.map(\.windowID) == [1])
+
+    let all = listedWindows(windows, displayFrames: testDisplays, includeAllSurfaces: true)
+    #expect(all.map(\.windowID) == [1, 2, 3, 4])
+
+    let payload = listWindowsPayload(
+        all,
+        displayFrames: testDisplays,
+        defaultWindowIDs: [],
+        accessibility: [:]
+    )
+    let kinds = (payload["windows"]?.arrayValue ?? []).compactMap { $0["kind"]?.stringValue }
+    #expect(kinds == ["window", "bookkeeping", "menu_bar", "overlay"])
+}
+
+@Test func listWindowsPayloadMergesAccessibilityMetadata() {
+    let windows = [
+        testWindow(1, pid: 100, app: "Notes", title: "Notes"),
+        testWindow(2, pid: 100, app: "Notes", title: "Untitled"),
+    ]
+    let payload = listWindowsPayload(
+        windows,
+        displayFrames: testDisplays,
+        defaultWindowIDs: [1],
+        accessibility: [
+            1: AXWindowMetadata(role: "AXWindow", subrole: "AXStandardWindow", minimized: false),
+            2: AXWindowMetadata(role: "AXWindow", subrole: "AXDialog", minimized: true),
+        ]
+    )
+
+    let entries = payload["windows"]?.arrayValue ?? []
+    #expect(entries[0]["role"] == JSONValue.string("AXWindow"))
+    #expect(entries[0]["subrole"] == JSONValue.string("AXStandardWindow"))
+    #expect(entries[0]["minimized"] == JSONValue.bool(false))
+    #expect(entries[1]["subrole"] == JSONValue.string("AXDialog"))
+    #expect(entries[1]["minimized"] == JSONValue.bool(true))
+}
+
+@Test func listWindowsPayloadReportsUnknownAccessibilityStateAsNull() {
+    let payload = listWindowsPayload(
+        [testWindow(9, pid: 100, app: "Unity")],
+        displayFrames: testDisplays,
+        defaultWindowIDs: [],
+        accessibility: [:]
+    )
+
+    let entry = payload["windows"]?[0]
+    #expect(entry?["role"] == JSONValue.null)
+    #expect(entry?["subrole"] == JSONValue.null)
+    // Null, not false: an app with no AX window for this surface has not told us
+    // the window is on the desk.
+    #expect(entry?["minimized"] == JSONValue.null)
+}

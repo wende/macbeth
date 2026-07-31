@@ -9,6 +9,7 @@ import { z } from "zod";
 import { MacbethClient } from "./client.js";
 import { isOperationTimeout, JsonRpcError, RPC_ERROR_NAMES } from "./errors.js";
 import { runScreenshotTool } from "./mcp-screenshot.js";
+import { runListWindowsTool } from "./mcp-windows.js";
 import { saveScreenshotToTempFile } from "./screenshots.js";
 import { resolveElementTarget } from "./mcp-target.js";
 import { runWithActivity } from "./mcp-activity.js";
@@ -188,15 +189,27 @@ server.registerTool("query_tree", {
 });
 
 server.registerTool("list_windows", {
-  description: "List WindowServer surfaces owned by an app or its helper processes across macOS Spaces. Returns window IDs, titles, frames, visibility, and whether each surface is capturable. This is read-only and does not activate windows or switch Spaces.",
+  description:
+    "List open windows across macOS Spaces without touching an accessibility tree. "
+    + "Omit 'app' to list windows for every running app — that answers \"is app X open, and what is it showing?\" in one call; "
+    + "pass 'app' to scope the listing to one app and its helper processes. "
+    + "Each entry has windowId, title, ownerName/ownerPid/bundleId, frame, onScreen/active/minimized, AX role/subrole, kind, and whether it is capturable. "
+    + "windowId is a WindowServer ID, not an element handle: it has no 5-minute TTL, ignores pin_handle, and stays valid until the window closes. "
+    + "Read-only — it does not activate windows or switch Spaces.",
   inputSchema: {
-    app: appTargetSchema,
+    app: appTargetSchema.optional().describe("Optional app name or PID filter. Omit to list windows for every app."),
+    includeAllSurfaces: z.boolean().optional().default(false)
+      .describe("Also return menu-bar strips, overlays, and bookkeeping surfaces (kind != 'window'). Default false."),
   },
   annotations: { readOnlyHint: true },
-}, async ({ app }) => {
-  const handle = await client.connect(app);
-  const windows = await handle.listWindows();
-  return { content: [{ type: "text", text: JSON.stringify({ windows }, null, 2) }] };
+}, async ({ app, includeAllSurfaces }) => {
+  return runListWindowsTool(
+    {
+      connect: (target) => client.connect(target),
+      listAll: (options) => client.listWindows(options),
+    },
+    { app, includeAllSurfaces }
+  );
 });
 
 server.registerTool("click", {
@@ -502,12 +515,20 @@ server.registerTool("list_menu_bar", {
 server.registerTool("run_applescript", {
   description:
     "Run an AppleScript or JavaScript for Automation (JXA) script. Returns the script's output as text. "
+    + "The script goes in 'source' (not 'script' or 'code'), and 'language' is exactly \"AppleScript\" or \"JavaScript\" — "
+    + "JXA is \"JavaScript\", the string \"jxa\" is not accepted. Examples:\n"
+    + "  {\"source\": \"tell application \\\"Finder\\\" to get name of every window\"}\n"
+    + "  {\"source\": \"Application('Finder').windows().map(w => w.name()).join(', ')\", \"language\": \"JavaScript\"}\n"
     + "Set 'timeout' for work that legitimately runs long (e.g. enumerating many apps); the default is 30 seconds. "
     + "A script that overruns its timeout is stopped and reported as a timeout for that call alone — the server stays "
     + "healthy and other tools keep working.",
   inputSchema: {
-    source: z.string().describe("Script source code"),
-    language: z.enum(["AppleScript", "JavaScript"]).optional().default("AppleScript").describe("Script language (default: AppleScript)"),
+    source: z.string().describe(
+      "Script source code. AppleScript example: tell application \"Finder\" to get name of every window. "
+      + "JXA example: Application('Finder').windows().map(w => w.name()).join(', ')"
+    ),
+    language: z.enum(["AppleScript", "JavaScript"]).optional().default("AppleScript")
+      .describe("Script language: \"AppleScript\" or \"JavaScript\" (JXA). Default: AppleScript."),
     interaction: z.enum(["interactive", "read_only"]).optional().default("interactive").describe("Whether the script can control apps/input or only inspect state"),
     timeout: z.number()
       .min(SCRIPT_TIMEOUT.minMs / 1_000)
