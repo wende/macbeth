@@ -14,6 +14,8 @@ import type {
   AppInfo,
   AppRuntime,
   KeyStroke,
+  PressKeyResult,
+  PressKeysResult,
   TreeOptions,
   ScreenshotResult,
   QueryStep,
@@ -163,12 +165,16 @@ export class AppHandle extends Locator {
     return result.selected;
   }
 
-  /** Send a keyboard input */
+  /** Send a keyboard input.
+   *
+   *  Resolves with what could be established about the dispatch — see
+   *  {@link PressKeyResult}. It rejects only on RPC-level failures, so callers
+   *  that ignore the result behave exactly as before. */
   async pressKey(
     key: string,
     modifiers?: string[]
-  ): Promise<void> {
-    await this.rpc.call("press_key", {
+  ): Promise<PressKeyResult> {
+    return await this.rpc.call<PressKeyResult>("press_key", {
       appHandle: this.appHandle,
       key,
       modifiers,
@@ -176,8 +182,8 @@ export class AppHandle extends Locator {
   }
 
   /** Send a sequence of keyboard inputs in one RPC call */
-  async pressKeys(keys: KeyStroke[]): Promise<void> {
-    await this.rpc.call("press_keys", {
+  async pressKeys(keys: KeyStroke[]): Promise<PressKeysResult> {
+    return await this.rpc.call<PressKeysResult>("press_keys", {
       appHandle: this.appHandle,
       keys,
     });

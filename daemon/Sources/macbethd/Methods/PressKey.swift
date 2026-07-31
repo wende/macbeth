@@ -1,3 +1,4 @@
+@preconcurrency import ApplicationServices
 import CoreGraphics
 import Foundation
 
@@ -9,6 +10,14 @@ private enum ParsedKeyPressKind {
 private struct ParsedKeyPress {
     let kind: ParsedKeyPressKind
     let delayMs: Int
+
+    /// Key-down events this item asks for: one per key, one per character of text.
+    var keyDownCount: Int {
+        switch kind {
+        case .key: return 1
+        case .text(let text): return text.count
+        }
+    }
 }
 
 private func parseKeyPress(_ value: JSONValue) throws -> ParsedKeyPress {
@@ -57,10 +66,8 @@ func registerPressKey(dispatcher: Dispatcher, appManager: AppConnectionManager, 
             }
             let parsed = try parseKeyPress(.object(obj))
 
-            let connection = await appManager.get(appHandle)
-            let targetWindow = connection.flatMap {
-                ElementGeometry.preferredWindow(of: $0.appElement.element)
-            }
+            let connection = try await requireConnection(appHandle, appManager)
+            let targetWindow = ElementGeometry.preferredWindow(of: connection.appElement.element)
             // press_key always activates the target so HID events land — outline
             // after activate so background-to-front paths get honest chrome.
             var glowScoped = false
@@ -74,16 +81,12 @@ func registerPressKey(dispatcher: Dispatcher, appManager: AppConnectionManager, 
                 window: targetWindow,
                 scoped: &glowScoped
             )
-            switch parsed.kind {
-            case .key(let keyCode, let flags):
-                postKeyEvent(keyCode: keyCode, flags: flags)
-            case .text(let text):
-                for char in text {
-                    typeCharacter(char)
-                }
-            }
 
-            return .object(["success": .bool(true)])
+            return try await dispatchAndReport(
+                strokes: [parsed],
+                connection: connection,
+                targetWindow: targetWindow
+            )
         }
     }
 }
@@ -103,10 +106,8 @@ func registerPressKeys(dispatcher: Dispatcher, appManager: AppConnectionManager,
 
             let parsedKeys = try keyValues.map(parseKeyPress)
 
-            let connection = await appManager.get(appHandle)
-            let targetWindow = connection.flatMap {
-                ElementGeometry.preferredWindow(of: $0.appElement.element)
-            }
+            let connection = try await requireConnection(appHandle, appManager)
+            let targetWindow = ElementGeometry.preferredWindow(of: connection.appElement.element)
             var glowScoped = false
             defer {
                 if glowScoped { Task { await glow.activityEnded() } }
@@ -118,24 +119,100 @@ func registerPressKeys(dispatcher: Dispatcher, appManager: AppConnectionManager,
                 window: targetWindow,
                 scoped: &glowScoped
             )
-            for parsed in parsedKeys {
-                switch parsed.kind {
-                case .key(let keyCode, let flags):
-                    postKeyEvent(keyCode: keyCode, flags: flags)
-                case .text(let text):
-                    for char in text {
-                        typeCharacter(char)
-                    }
-                }
-                if parsed.delayMs > 0 {
-                    try await Task.sleep(for: .milliseconds(parsed.delayMs))
-                }
-            }
-
-            return .object([
-                "success": .bool(true),
-                "count": .number(Double(parsedKeys.count)),
-            ])
+            return try await dispatchAndReport(
+                strokes: parsedKeys,
+                connection: connection,
+                targetWindow: targetWindow,
+                extra: ["count": .number(Double(parsedKeys.count))]
+            )
         }
     }
+}
+
+// MARK: - Dispatch + reporting
+
+/// Post a parsed key sequence and report what could actually be established about it.
+///
+/// The dispatch itself is unchanged from the original fire-and-forget path: every
+/// stroke is posted the same way, in the same order, with the same delays. Only the
+/// bookkeeping around it is new — a target snapshot taken just before the first
+/// event, a session key-down counter read on both sides, and the per-event
+/// creation results. Nothing here can prevent a keystroke from being sent.
+private func dispatchAndReport(
+    strokes: [ParsedKeyPress],
+    connection: AppConnectionManager.Connection,
+    targetWindow: AXUIElement?,
+    extra: [String: JSONValue] = [:]
+) async throws -> JSONValue {
+    let requested = strokes.reduce(0) { $0 + $1.keyDownCount }
+    let target = captureKeyTargetSnapshot(
+        pid: connection.pid,
+        appName: connection.appName,
+        bundleId: connection.bundleId,
+        window: targetWindow
+    )
+
+    let counterBefore = sessionKeyDownCounter()
+    var posted = 0
+    var dangling = 0
+
+    for stroke in strokes {
+        switch stroke.kind {
+        case .key(let keyCode, let flags):
+            let result = postKeyEvent(keyCode: keyCode, flags: flags)
+            if result.downPosted { posted += 1 }
+            if result.isDangling { dangling += 1 }
+        case .text(let text):
+            for char in text {
+                let result = typeCharacter(char)
+                if result.downPosted { posted += 1 }
+                if result.isDangling { dangling += 1 }
+            }
+        }
+        if stroke.delayMs > 0 {
+            try await Task.sleep(for: .milliseconds(stroke.delayMs))
+        }
+    }
+
+    try? await Task.sleep(for: .milliseconds(keyDispatchSettleMs))
+    let delta = sessionKeyDownDelta(before: counterBefore, after: sessionKeyDownCounter())
+    let trusted = checkAccessibilityPermissions()
+    let diagnosis = diagnoseKeyDispatch(
+        requestedKeyDowns: requested,
+        postedKeyDowns: posted,
+        danglingKeyDowns: dangling,
+        sessionKeyDownDelta: delta,
+        accessibilityTrusted: trusted,
+        targetFrontmost: target.frontmost,
+        hasFocusedElement: target.focusedElement != nil
+    )
+
+    return keyDispatchResultJSON(
+        diagnosis: diagnosis,
+        requestedKeyDowns: requested,
+        postedKeyDowns: posted,
+        sessionKeyDownDelta: delta,
+        accessibilityTrusted: trusted,
+        target: target,
+        extra: extra
+    )
+}
+
+/// Resolve the app handle, or refuse to type.
+///
+/// Every other method rejects an unresolvable handle (`wait_for`, `click`, …), and
+/// keyboard input is the one place where continuing is actively harmful: with no
+/// connection there is nothing to activate, so the events land in whatever app the
+/// user is currently in. Refusing is the honest answer to "send this to that app"
+/// when that app cannot be found.
+private func requireConnection(
+    _ appHandle: String, _ appManager: AppConnectionManager
+) async throws -> AppConnectionManager.Connection {
+    guard let connection = await appManager.get(appHandle) else {
+        throw RPCError.appNotFound(
+            "Invalid or expired app handle: \(appHandle). Reconnect with connect_app — "
+            + "keyboard input is not sent without a resolvable target, because it would "
+            + "reach whichever app is frontmost instead.")
+    }
+    return connection
 }

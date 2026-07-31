@@ -309,6 +309,69 @@ export interface PressKeysParams {
   keys: KeyStroke[];
 }
 
+/**
+ * How far a keyboard call got. Tiers are cumulative:
+ *
+ * - `attempted` — the events could not be shown to have entered the event stream
+ *   (creation failed, or the session key-down counter never advanced).
+ * - `dispatched` — they entered the system event stream. Whether the target app
+ *   consumed them is unknown: nothing in the AX or CoreGraphics APIs reports it.
+ * - `verified` — the app's observable state changed as a result. Reserved; the
+ *   daemon does not produce this yet.
+ */
+export type KeyDispatchOutcome = "attempted" | "dispatched" | "verified";
+
+export interface KeyFocusedElementInfo {
+  role: string | null;
+  subrole: string | null;
+  title: string | null;
+  identifier: string | null;
+  /** Truncated to 120 characters. */
+  value: string | null;
+}
+
+export interface KeyTargetInfo {
+  app: string | null;
+  pid: number | null;
+  bundleId: string | null;
+  /** Whether the target app held keyboard focus when the events were posted. */
+  frontmost: boolean;
+  /** Who actually held keyboard focus — the app that received the events. */
+  focusedApp: { pid: number | null; name: string | null };
+  window: { title: string | null; identity: string | null };
+  /** Null when the app exposes no focused element; many apps still handle keys. */
+  focusedElement: KeyFocusedElementInfo | null;
+}
+
+export interface PressKeyResult {
+  /** False only when no key event could be created at all. */
+  success: boolean;
+  outcome: KeyDispatchOutcome;
+  dispatched: boolean;
+  verified: boolean;
+  /** Human-readable explanation of the outcome and its caveats. */
+  note: string;
+  /** Machine-readable warning codes, e.g. `target-not-frontmost`. */
+  warnings: string[];
+  keysRequested: number;
+  keysPosted: number;
+  evidence: {
+    /**
+     * Session key-down counter delta across the dispatch. Other processes and a
+     * human at the keyboard also advance it, so it confirms dispatch (`>=` the
+     * posted count) and never refutes it.
+     */
+    sessionKeyDownDelta: number | null;
+    accessibilityTrusted: boolean;
+  };
+  target: KeyTargetInfo;
+}
+
+export interface PressKeysResult extends PressKeyResult {
+  /** Number of key/text items in the sequence. */
+  count: number;
+}
+
 // screenshot
 export interface ScreenshotParams {
   appHandle: string;

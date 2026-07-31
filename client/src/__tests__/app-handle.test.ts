@@ -104,6 +104,25 @@ describe("AppHandle", () => {
     });
   });
 
+  it("pressKey returns the daemon's dispatch report", async () => {
+    const report = {
+      success: true,
+      outcome: "dispatched",
+      dispatched: true,
+      verified: false,
+      note: "Keyboard events entered the system event stream.",
+      warnings: ["target-not-frontmost"],
+      keysRequested: 1,
+      keysPosted: 1,
+      evidence: { sessionKeyDownDelta: 1, accessibilityTrusted: true },
+      target: { app: "Finder", pid: 1 },
+    };
+    const rpc = mockRpcWithResult(report);
+    const app = new AppHandle(rpc, "h_0", { name: "Finder", pid: 1, bundleId: null });
+
+    await expect(app.pressKey("return")).resolves.toEqual(report);
+  });
+
   it("pressKeys sends the whole key sequence in one RPC call", async () => {
     const rpc = mockRpc();
     const app = new AppHandle(rpc, "h_0", { name: "Finder", pid: 1, bundleId: null });

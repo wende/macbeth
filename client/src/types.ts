@@ -157,6 +157,60 @@ export type KeyStroke =
       delayMs?: number;
     };
 
+/**
+ * How far a keyboard call got.
+ *
+ * - `attempted` — the events could not be shown to have entered the event stream.
+ * - `dispatched` — they entered the system event stream; app delivery is unproven.
+ * - `verified` — the app's observable state changed. Not produced yet.
+ */
+export type KeyDispatchOutcome = "attempted" | "dispatched" | "verified";
+
+export interface KeyFocusedElementInfo {
+  role: string | null;
+  subrole: string | null;
+  title: string | null;
+  identifier: string | null;
+  value: string | null;
+}
+
+export interface KeyTargetInfo {
+  app: string | null;
+  pid: number | null;
+  bundleId: string | null;
+  /** Whether the target app held keyboard focus when the events were posted. */
+  frontmost: boolean;
+  /** Who actually held keyboard focus — the app that received the events. */
+  focusedApp: { pid: number | null; name: string | null };
+  window: { title: string | null; identity: string | null };
+  focusedElement: KeyFocusedElementInfo | null;
+}
+
+export interface PressKeyResult {
+  /** False only when no key event could be created at all. */
+  success: boolean;
+  outcome: KeyDispatchOutcome;
+  dispatched: boolean;
+  verified: boolean;
+  /** Human-readable explanation of the outcome and its caveats. */
+  note: string;
+  /** Machine-readable warning codes, e.g. `target-not-frontmost`. */
+  warnings: string[];
+  keysRequested: number;
+  keysPosted: number;
+  evidence: {
+    /** Session key-down counter delta across the dispatch. */
+    sessionKeyDownDelta: number | null;
+    accessibilityTrusted: boolean;
+  };
+  target: KeyTargetInfo;
+}
+
+export interface PressKeysResult extends PressKeyResult {
+  /** Number of key/text items in the sequence. */
+  count: number;
+}
+
 export interface FormField {
   handleId: string;
   role: string;

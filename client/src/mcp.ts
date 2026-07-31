@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { MacbethClient } from "./client.js";
 import { isOperationTimeout, JsonRpcError, RPC_ERROR_NAMES } from "./errors.js";
+import { describeKeyPress, describeKeyStrokes, formatKeyDispatch } from "./key-dispatch.js";
 import { runScreenshotTool } from "./mcp-screenshot.js";
 import { runListWindowsTool } from "./mcp-windows.js";
 import { saveScreenshotToTempFile } from "./screenshots.js";
@@ -299,7 +300,7 @@ server.registerTool("wait_for", {
 });
 
 server.registerTool("press_key", {
-  description: 'WARNING: This tool steals focus — it activates the target app window before sending input. Use as a last resort when click/fill cannot achieve the goal (e.g. keyboard shortcuts, arrow-key navigation). Prefer "fill" for text entry and "click" for buttons. Key names: "return", "tab", "escape", "a"-"z", "1"-"9", "f1"-"f12", "up", "down", "left", "right", "space", "delete". Modifiers: "cmd", "shift", "alt", "ctrl".',
+  description: 'WARNING: This tool steals focus — it activates the target app window before sending input. Use as a last resort when click/fill cannot achieve the goal (e.g. keyboard shortcuts, arrow-key navigation). Prefer "fill" for text entry and "click" for buttons. Key names: "return", "tab", "escape", "a"-"z", "1"-"9", "f1"-"f12", "up", "down", "left", "right", "space", "delete". Modifiers: "cmd", "shift", "alt", "ctrl". The result reports how far the input got: outcome=dispatched means the events entered the system event stream (the app may still have ignored them); outcome=attempted means even that could not be confirmed. Neither proves the app acted — confirm real effects with query_tree, wait_for, or screenshot instead of resending.',
   inputSchema: {
     app: appTargetSchema,
     key: z.string().describe("Key name"),
@@ -308,13 +309,15 @@ server.registerTool("press_key", {
 }, async ({ app, key, modifiers }) => {
   return withActivity(async () => {
     const handle = await client.connect(app);
-    await handle.pressKey(key, modifiers);
-    return { content: [{ type: "text" as const, text: `Pressed ${modifiers?.length ? modifiers.join("+") + "+" : ""}${key}` }] };
+    const result = await handle.pressKey(key, modifiers);
+    const label = describeKeyPress(key, modifiers);
+    const report = formatKeyDispatch(label, result, `Pressed ${label}`);
+    return { content: [{ type: "text" as const, text: report.text }], isError: report.isError };
   });
 });
 
 server.registerTool("press_keys", {
-  description: 'WARNING: This tool steals focus — it activates the target app window before sending input. Use as a last resort when click/fill cannot achieve the goal. Prefer "fill" for text entry and "click" for buttons. Sends a sequence of keyboard inputs in one call. Each step accepts either `key` plus optional `modifiers`, or `text` to type literally, plus optional `delayMs`.',
+  description: 'WARNING: This tool steals focus — it activates the target app window before sending input. Use as a last resort when click/fill cannot achieve the goal. Prefer "fill" for text entry and "click" for buttons. Sends a sequence of keyboard inputs in one call. Each step accepts either `key` plus optional `modifiers`, or `text` to type literally, plus optional `delayMs`. Reports the same dispatch outcome as press_key, covering the sequence as a whole.',
   inputSchema: {
     app: appTargetSchema,
     keys: z.array(keyStrokeSchema).min(1).describe("Ordered list of key or text items to send"),
@@ -322,8 +325,14 @@ server.registerTool("press_keys", {
 }, async ({ app, keys }) => {
   return withActivity(async () => {
     const handle = await client.connect(app);
-    await handle.pressKeys(keys as KeyStroke[]);
-    return { content: [{ type: "text" as const, text: `Sent ${keys.length} input item${keys.length === 1 ? "" : "s"}` }] };
+    const strokes = keys as KeyStroke[];
+    const result = await handle.pressKeys(strokes);
+    const report = formatKeyDispatch(
+      describeKeyStrokes(strokes),
+      result,
+      `Sent ${keys.length} input item${keys.length === 1 ? "" : "s"}`
+    );
+    return { content: [{ type: "text" as const, text: report.text }], isError: report.isError };
   });
 });
 

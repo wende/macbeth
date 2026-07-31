@@ -86,8 +86,8 @@ npx macbeth update --check  # report only
 | `click` | Click a UI element (auto-waits) |
 | `fill` | Set a text field value (auto-waits) |
 | `wait_for` | Wait for existence, value, change, or enabled state |
-| `press_key` | Activate target app, send keyboard input |
-| `press_keys` | Activate target app, send a key sequence |
+| `press_key` | Activate target app, send keyboard input, report the dispatch outcome |
+| `press_keys` | Activate target app, send a key sequence, report the dispatch outcome |
 | `screenshot` | Capture the default visible window or a window selected by `list_windows` ID |
 | `extract_text` | OCR the default visible window, a selected window ID, or a supplied PNG |
 | `pin_handle` / `unpin_handle` | Control element-handle expiry |
