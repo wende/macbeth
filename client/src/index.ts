@@ -25,6 +25,21 @@ export async function connect(
 export { MacbethClient, AppHandle } from "./client.js";
 export { Locator } from "./elements.js";
 export { JsonRpcClient, JsonRpcError } from "./rpc.js";
+export {
+  isConnectionError,
+  isOperationTimeout,
+  isTransportFailure,
+  RPC_ERROR_CODES,
+  RPC_ERROR_NAMES,
+} from "./errors.js";
+export { ServerHealth } from "./health.js";
+export type { FailureKind, HealthSnapshot } from "./health.js";
+export {
+  clampScriptTimeoutMs,
+  scriptRequestTimeoutMs,
+  scriptTimeoutFromSeconds,
+  SCRIPT_TIMEOUT,
+} from "./timeouts.js";
 export type {
   ConnectOptions,
   AppConnectOptions,

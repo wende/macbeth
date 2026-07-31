@@ -42,7 +42,12 @@ export interface RunAppleScriptParams {
   language?: "AppleScript" | "JavaScript";
   /** Defaults to true because arbitrary scripts may control applications. */
   interactive?: boolean;
-  /** Hard daemon-side execution timeout in milliseconds. */
+  /**
+   * Hard daemon-side execution timeout in milliseconds. Clamped to 100–300000
+   * (default 30000). Exceeding it stops the script and fails this call with a
+   * typed `timeout` error (-32001); the daemon connection and every other
+   * in-flight or subsequent call are unaffected.
+   */
   timeoutMs?: number;
 }
 

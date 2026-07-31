@@ -200,6 +200,15 @@ pins automatically).
 - Arbitrary `run_applescript` calls still use Apple Events, but run in a killable worker
   with a hard timeout. `permission_denied` points to Privacy & Security → Automation;
   `timeout` identifies either the configured deadline or OSA error -1712.
+- The deadline is per call and configurable: `run_applescript`'s `timeout` is in seconds
+  (default 30, max 300; the daemon clamps to 0.1–300s). Raise it for work that is
+  legitimately slow, such as enumerating the Accessibility tree of a dozen apps —
+  don't retry the same script at the default budget.
+- A timeout stops that script and fails only that call. It is not a server fault: the
+  daemon connection stays up, health is unaffected, and unrelated tools such as
+  `connect_app` keep working, however many scripts time out in a row. If other tools do
+  start failing too, the cause is a transport problem (see the next section), not the
+  script deadline.
 
 ## The daemon crashed / socket errors
 
@@ -239,7 +248,7 @@ RPC errors surface to the agent as `[error_kind]: message`.
 | Kind | Meaning |
 |---|---|
 | `element_not_found` | The locator matched nothing before timeout. |
-| `timeout` | `wait_for` / an auto-wait expired. |
+| `timeout` | `wait_for`, an auto-wait, or a script deadline expired. Scoped to that one call; the server stays healthy. |
 | `permission_denied` | Accessibility (or Screen Recording) not granted — run `doctor`. |
 | `app_not_found` | `connect_app` couldn't match a running app. |
 | `action_failed` | `AXUIElementPerformAction` was rejected by the app. |
