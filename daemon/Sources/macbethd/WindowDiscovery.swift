@@ -175,11 +175,21 @@ func defaultWindowIDsByOwner(
         guard let pid = descriptor.ownerPID else { continue }
         byOwner[pid, default: []].append(descriptor)
     }
-    return Set(byOwner.values.compactMap { group in
-        selectDefaultWindowID(from: group.map {
-            ($0.windowID, $0.isOnScreen, isCapturableWindow($0, displayFrames: displayFrames))
-        })
-    })
+    var defaults: Set<UInt32> = []
+    for group in byOwner.values {
+        var candidates: [(windowID: UInt32, isOnScreen: Bool, capturable: Bool)] = []
+        for descriptor in group {
+            candidates.append((
+                windowID: descriptor.windowID,
+                isOnScreen: descriptor.isOnScreen,
+                capturable: isCapturableWindow(descriptor, displayFrames: displayFrames)
+            ))
+        }
+        if let defaultID = selectDefaultWindowID(from: candidates) {
+            defaults.insert(defaultID)
+        }
+    }
+    return defaults
 }
 
 func findDefaultRootWindow(
@@ -252,6 +262,13 @@ func listedWindows(
     return descriptors.filter { windowKind($0, displayFrames: displayFrames) == "window" }
 }
 
+private func jsonString(_ value: String?) -> JSONValue {
+    guard let value else { return .null }
+    return .string(value)
+}
+
+/// Built field by field rather than as one dictionary literal: a literal this
+/// wide (nested object, several optionals) exceeds the type checker's budget.
 func windowJSON(
     _ window: WindowDescriptor,
     displayFrames: [CGRect],
@@ -259,30 +276,39 @@ func windowJSON(
     accessibility: AXWindowMetadata?
 ) -> JSONValue {
     let frame = window.frame
-    return .object([
-        "windowId": .number(Double(window.windowID)),
-        "ownerPid": window.ownerPID.map { .number(Double($0)) } ?? .null,
-        "ownerName": window.ownerName.map(JSONValue.string) ?? .null,
-        "bundleId": window.bundleID.map(JSONValue.string) ?? .null,
-        "title": window.title.map(JSONValue.string) ?? .null,
-        "frame": .object([
-            "x": .number(frame.origin.x),
-            "y": .number(frame.origin.y),
-            "width": .number(frame.width),
-            "height": .number(frame.height),
-        ]),
-        "layer": .number(Double(window.layer)),
-        "onScreen": .bool(window.isOnScreen),
-        "active": .bool(window.isActive),
-        "capturable": .bool(isCapturableWindow(window, displayFrames: displayFrames)),
-        "kind": .string(windowKind(window, displayFrames: displayFrames)),
-        "default": .bool(isDefault),
-        // Accessibility-only fields stay null (not false) when the app exposes
-        // no AX window for this surface, so "unknown" never reads as "no".
-        "role": accessibility?.role.map(JSONValue.string) ?? .null,
-        "subrole": accessibility?.subrole.map(JSONValue.string) ?? .null,
-        "minimized": accessibility.map { JSONValue.bool($0.minimized) } ?? .null,
-    ])
+    var frameFields: [String: JSONValue] = [:]
+    frameFields["x"] = .number(Double(frame.origin.x))
+    frameFields["y"] = .number(Double(frame.origin.y))
+    frameFields["width"] = .number(Double(frame.width))
+    frameFields["height"] = .number(Double(frame.height))
+
+    var fields: [String: JSONValue] = [:]
+    fields["windowId"] = .number(Double(window.windowID))
+    if let ownerPID = window.ownerPID {
+        fields["ownerPid"] = .number(Double(ownerPID))
+    } else {
+        fields["ownerPid"] = .null
+    }
+    fields["ownerName"] = jsonString(window.ownerName)
+    fields["bundleId"] = jsonString(window.bundleID)
+    fields["title"] = jsonString(window.title)
+    fields["frame"] = .object(frameFields)
+    fields["layer"] = .number(Double(window.layer))
+    fields["onScreen"] = .bool(window.isOnScreen)
+    fields["active"] = .bool(window.isActive)
+    fields["capturable"] = .bool(isCapturableWindow(window, displayFrames: displayFrames))
+    fields["kind"] = .string(windowKind(window, displayFrames: displayFrames))
+    fields["default"] = .bool(isDefault)
+    // Accessibility-only fields stay null (not false) when the app exposes no AX
+    // window for this surface, so "unknown" never reads as "no".
+    fields["role"] = jsonString(accessibility?.role)
+    fields["subrole"] = jsonString(accessibility?.subrole)
+    if let accessibility {
+        fields["minimized"] = .bool(accessibility.minimized)
+    } else {
+        fields["minimized"] = .null
+    }
+    return .object(fields)
 }
 
 func listWindowsPayload(
@@ -291,14 +317,16 @@ func listWindowsPayload(
     defaultWindowIDs: Set<UInt32>,
     accessibility: [UInt32: AXWindowMetadata]
 ) -> JSONValue {
-    .object(["windows": .array(descriptors.map {
-        windowJSON(
-            $0,
+    var entries: [JSONValue] = []
+    for descriptor in descriptors {
+        entries.append(windowJSON(
+            descriptor,
             displayFrames: displayFrames,
-            isDefault: defaultWindowIDs.contains($0.windowID),
-            accessibility: accessibility[$0.windowID]
-        )
-    })])
+            isDefault: defaultWindowIDs.contains(descriptor.windowID),
+            accessibility: accessibility[descriptor.windowID]
+        ))
+    }
+    return .object(["windows": .array(entries)])
 }
 
 // MARK: - Accessibility enrichment
