@@ -47,7 +47,10 @@ export type StaleHandleReason =
   | "expired"
   | "destroyed"
   | "recycled"
-  | "app_terminated";
+  | "app_terminated"
+  /** A concurrent operation raced a table lookup that doesn't check liveness (pin/unpin).
+   *  Not a lifecycle event — recoverable the same way, by re-resolving and retrying. */
+  | "transient";
 
 /**
  * True when a handle-based call failed because the handle can no longer be used, and

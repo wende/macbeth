@@ -186,9 +186,38 @@ describe("Locator", () => {
       "get_element", "pin_handle",   // scope()
       "click",                       // fails: stale handle
       "get_element", "pin_handle",   // rediscover
+      "unpin_handle",                // release the retired handle
       "click",                       // retry
     ]);
     expect(calls.at(-1)?.[1]).toMatchObject({ handleId: "h_2" });
+    const unpinCall = calls.find((c) => c[0] === "unpin_handle");
+    expect(unpinCall?.[1]).toMatchObject({ handleId: "h_1" });
+  });
+
+  it("does not retry a second stale failure — it fails fast instead of recursing forever", async () => {
+    let nextHandle = 1;
+    const rpc = mockRpc((method) => {
+      if (method === "get_element") {
+        return { handleId: `h_${nextHandle++}`, role: "button", enabled: true, focused: false };
+      }
+      if (method === "click") {
+        throw new JsonRpcError(
+          RPC_ERROR_CODES.staleHandle,
+          "Handle is no longer usable (stale-element, reason: recycled).",
+          { reason: "recycled" }
+        );
+      }
+      return { success: true };
+    });
+    const scoped = await new Locator(rpc, "h_0", []).button("Save").scope();
+
+    await expect(scoped.click()).rejects.toThrow("no longer usable");
+
+    const methods = (rpc.call as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]);
+    // Exactly one retry: scope() + first click + one rediscover + retry click. An app
+    // that keeps recycling the element faster than we can resolve it must not hang the
+    // caller in unbounded recursion.
+    expect(methods).toEqual(["get_element", "pin_handle", "click", "get_element", "pin_handle", "unpin_handle", "click"]);
   });
 
   /**
@@ -248,6 +277,7 @@ describe("Locator", () => {
       "click",                       // fails: unknown_handle
       "connect_app",                 // the old app handle is dead too
       "get_element", "pin_handle",   // replay the query against the new app root
+      "unpin_handle",                // release the pre-restart handle
       "click",                       // retry
     ]);
     // Both ids are refreshed — replaying the query against the stale app handle would
@@ -299,9 +329,43 @@ describe("Locator", () => {
       "get_element",                 // replay rejected: app handle is gone
       "connect_app",
       "get_element", "pin_handle",   // replay against the new app root
+      "unpin_handle",                // release the pre-reconnect handle
       "click",
     ]);
     expect(calls.at(-1)?.[1]).toMatchObject({ appHandle: "app_2" });
+  });
+
+  it("does not reacquire the app handle twice within one rediscovery", async () => {
+    // unknown_handle already triggers a reacquire up front. If the replayed query is
+    // rejected too, reconnecting again would not help — it would just waste a redundant
+    // connect_app (which waits for Electron web content on every call).
+    let clicks = 0;
+    let getElementCalls = 0;
+    const rpc = mockRpc((method) => {
+      if (method === "get_element") {
+        getElementCalls++;
+        if (getElementCalls === 1) {
+          return { handleId: "h_1", role: "button", enabled: true, focused: false };
+        }
+        throw new JsonRpcError(RPC_ERROR_CODES.appNotFound, "Invalid app handle: app_2");
+      }
+      if (method === "click" && clicks++ === 0) {
+        throw new JsonRpcError(
+          RPC_ERROR_CODES.unknownHandle,
+          "Unknown handle h_1: this daemon never issued it.",
+          { reason: "never_issued", handleId: "h_1" }
+        );
+      }
+      return { success: true };
+    });
+    const reacquireApp = async () =>
+      (await rpc.call<{ appHandle: string }>("connect_app", { pid: 77 })).appHandle;
+    const scoped = await new Locator(rpc, "app_1", [], { reacquireApp }).button("Save").scope();
+
+    await expect(scoped.click()).rejects.toThrow("Invalid app handle");
+
+    const methods = (rpc.call as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]);
+    expect(methods.filter((m) => m === "connect_app")).toHaveLength(1);
   });
 
   it("does not reconnect on an ordinary TTL re-resolve", async () => {

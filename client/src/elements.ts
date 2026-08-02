@@ -195,53 +195,51 @@ class ScopedLocator extends Locator {
   }
 
   override async click(options?: ClickOptions): Promise<void> {
-    try {
-      await this.rpc.call("click", buildClickParams({
+    await this.withRediscovery(() =>
+      this.rpc.call("click", buildClickParams({
         appHandle: this.appHandle,
         handleId: this.handleId,
         query: this.queryPath,
         defaultTimeout: this.defaultTimeout,
         options,
-      }));
-    } catch (err) {
-      if (isHandleStale(err)) {
-        await this.rediscover(err);
-        return this.click(options);
-      }
-      throw err;
-    }
+      }))
+    );
   }
 
   override async fill(value: string, options?: { timeout?: number; strategy?: FillStrategy }): Promise<void> {
-    try {
-      await this.rpc.call("fill", {
+    await this.withRediscovery(() =>
+      this.rpc.call("fill", {
         appHandle: this.appHandle,
         handleId: this.handleId,
         value,
         timeout: (options?.timeout ?? this.defaultTimeout) / 1000,
         ...(options?.strategy ? { strategy: options.strategy } : {}),
-      });
-    } catch (err) {
-      if (isHandleStale(err)) {
-        await this.rediscover(err);
-        return this.fill(value, options);
-      }
-      throw err;
-    }
+      })
+    );
   }
 
   override async getInfo(): Promise<ElementInfo> {
-    try {
-      return await this.rpc.call<ElementInfo>("get_element", {
+    return this.withRediscovery(() =>
+      this.rpc.call<ElementInfo>("get_element", {
         appHandle: this.appHandle,
         handleId: this.handleId,
-      });
+      })
+    );
+  }
+
+  /**
+   * Run a handle-based call, re-resolving and retrying exactly once if it fails because
+   * the handle went stale. A second stale failure propagates instead of recursing again —
+   * an app that keeps recycling the element faster than we can resolve it (Electron
+   * re-render storms, list virtualisation) must fail fast, not hang the caller forever.
+   */
+  private async withRediscovery<T>(action: () => Promise<T>): Promise<T> {
+    try {
+      return await action();
     } catch (err) {
-      if (isHandleStale(err)) {
-        await this.rediscover(err);
-        return this.getInfo();
-      }
-      throw err;
+      if (!isRecoverableHandleError(err)) throw err;
+      await this.rediscover(err);
+      return action();
     }
   }
 
@@ -257,21 +255,35 @@ class ScopedLocator extends Locator {
    * it must not be on the path of an ordinary TTL re-resolve.
    */
   private async rediscover(cause?: unknown): Promise<void> {
+    let reacquired = false;
     if (isUnknownHandleError(cause)) {
       await this.reacquireAppHandle();
+      reacquired = true;
     }
 
     let info: ElementInfo;
     try {
       info = await this.resolveFromQuery();
     } catch (err) {
-      if (!isAppHandleInvalid(err) || this.reacquireApp === undefined) throw err;
+      // Already reacquired once for this rediscovery: a second app_not_found means
+      // reconnecting didn't help, so retrying it again would only waste a redundant
+      // connect_app (Electron waits for web content on every call) for no benefit.
+      if (reacquired || !isAppHandleInvalid(err) || this.reacquireApp === undefined) throw err;
       await this.reacquireAppHandle();
       info = await this.resolveFromQuery();
     }
 
+    const previousHandleId = this.handleId;
     this.handleId = info.handleId;
     await this.rpc.call("pin_handle", { handleId: this.handleId });
+    if (previousHandleId !== this.handleId) {
+      // Best-effort: the old handle is almost always already invalidated (that's why we're
+      // here), so unpin_handle commonly fails with a stale/unknown error. Swallow it — the
+      // goal is just to release the pin if the entry still happens to be live, not to
+      // require it. Leaving this unhandled would leak a pinned entry on every retry against
+      // a flapping app until the app dies.
+      await this.rpc.call("unpin_handle", { handleId: previousHandleId }).catch(() => {});
+    }
   }
 
   private resolveFromQuery(): Promise<ElementInfo> {
@@ -289,11 +301,4 @@ class ScopedLocator extends Locator {
   async unpin(): Promise<void> {
     await this.rpc.call("unpin_handle", { handleId: this.handleId });
   }
-}
-
-/** True when a handle-based call failed for a reason that re-resolving from the original
- *  query path fixes — a TTL eviction, an element the host destroyed or recycled, or a
- *  handle from a previous daemon process. See `isRecoverableHandleError`. */
-function isHandleStale(err: unknown): boolean {
-  return isRecoverableHandleError(err);
 }

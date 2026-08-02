@@ -283,6 +283,28 @@ private func fingerprint(role: String? = nil, subrole: String? = nil, identifier
     #expect(describe(await table.classify(ids[0])) == "stale:expired")
 }
 
+// MARK: - handleLookupError
+
+@Test func handleLookupErrorReportsARevivedHandleAsRecoverable() async {
+    // pin_handle/unpin_handle look the handle up without a liveness check. If the entry
+    // comes back `.found` on the follow-up classify (a concurrent call revived it between
+    // the failed operation and this lookup), that is still recoverable by re-resolving —
+    // it needs a typed staleHandle code, or a caller on the typed-codes path re-throws
+    // instead of retrying.
+    let table = HandleTable(ttl: 60)
+    let handleId = await table.store(appElement(4242), pid: 4242, fingerprint: fingerprint(role: "AXButton"))
+    let outcome = await table.classify(handleId)
+
+    let error = handleLookupError(handleId, outcome)
+
+    guard case .staleHandle(_, let erroredHandleId, let reason) = error else {
+        Issue.record("expected .staleHandle, got \(error)")
+        return
+    }
+    #expect(erroredHandleId == handleId)
+    #expect(reason == "transient")
+}
+
 // MARK: - Fingerprint semantics
 
 @Test func fingerprintConflictsOnlyOnContradiction() {

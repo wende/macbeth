@@ -62,19 +62,34 @@ struct ElementFingerprint: Sendable, Equatable {
     /// object. Every other failure (a busy app answering `.cannotComplete`, an
     /// unsupported attribute) leaves the element presumed alive with a partial
     /// fingerprint, so a transient AX hiccup can never be mistaken for staleness.
+    ///
+    /// This is checked on each of the three reads, not just the first: the app can
+    /// destroy the element in the gap between them, and `getStringAttribute` folds
+    /// every failure (including `invalidUIElement`) into `nil` indistinguishably from
+    /// "attribute not set". Stopping at the first invalid read and reporting `alive` off
+    /// only that would let a destroy-then-recycle land with a partial fingerprint — the
+    /// missing subrole/identifier would then never contradict a different element reusing
+    /// the same reference, which is exactly the case this fingerprint exists to catch.
     static func captureChecked(_ element: AXUIElement) -> (alive: Bool, fingerprint: ElementFingerprint) {
-        var roleRef: CFTypeRef?
-        let result = AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &roleRef)
-        if result == .invalidUIElement {
-            return (false, .unknown)
+        func readString(_ attribute: String) -> (valid: Bool, value: String?) {
+            var ref: CFTypeRef?
+            let result = AXUIElementCopyAttributeValue(element, attribute as CFString, &ref)
+            if result == .invalidUIElement {
+                return (false, nil)
+            }
+            return (true, result == .success ? ref as? String : nil)
         }
+
+        let role = readString(kAXRoleAttribute)
+        guard role.valid else { return (false, .unknown) }
+        let subrole = readString(kAXSubroleAttribute)
+        guard subrole.valid else { return (false, .unknown) }
+        let identifier = readString(kAXIdentifierAttribute)
+        guard identifier.valid else { return (false, .unknown) }
+
         return (
             true,
-            ElementFingerprint(
-                role: result == .success ? roleRef as? String : nil,
-                subrole: getStringAttribute(element, kAXSubroleAttribute),
-                identifier: getStringAttribute(element, kAXIdentifierAttribute)
-            )
+            ElementFingerprint(role: role.value, subrole: subrole.value, identifier: identifier.value)
         )
     }
 

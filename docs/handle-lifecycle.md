@@ -52,6 +52,7 @@ Two host-app behaviours bound the guarantee:
 | App destroyed the element (re-render, view teardown) | `stale_handle` | `destroyed` |
 | App reused the reference for a different element | `stale_handle` | `recycled` |
 | Owning app quit, or its connection was evicted | `stale_handle` | `app_terminated` |
+| A concurrent call raced a pin/unpin lookup (no liveness check) | `stale_handle` | `transient` |
 | Daemon restarted, or the id was never issued | `unknown_handle` (-32011) | `never_issued` |
 
 What stays valid: unrelated `query_tree` / `get_element` / `read_form` calls, actions on

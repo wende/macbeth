@@ -65,8 +65,17 @@ func handleLookupError(_ handleId: String, _ outcome: HandleTable.Lookup) -> RPC
     case .stale(let reason):
         staleHandleError(handleId, reason: reason)
     case .found:
-        // The handle came back live on the second look — a concurrent call revived it.
-        // Report it as a transient miss rather than inventing a lifecycle reason.
-        RPCError.elementNotFound("Handle \(handleId) could not be updated; retry the call.")
+        // The handle came back live on the second look — a concurrent call between the
+        // failed pin/unpin and this lookup revived it. That is genuinely recoverable by
+        // re-resolving, same as any other stale handle, so it has to carry a code
+        // `isRecoverableHandleError` recognises — the generic elementNotFound this used
+        // to return has no `data.reason` and isn't on that typed-codes path, so a caller
+        // would re-throw instead of retrying.
+        RPCError.staleHandle(
+            "Handle \(handleId) could not be updated (\(staleHandleMarker), reason: transient). "
+            + "A concurrent operation raced this one; re-resolve from the query path and retry.",
+            handleId: handleId,
+            reason: "transient"
+        )
     }
 }

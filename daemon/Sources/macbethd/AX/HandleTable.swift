@@ -160,8 +160,11 @@ actor HandleTable {
     /// id watermark, which costs nothing and cannot grow without bound.
     func expireStale() {
         let cutoff = Date().addingTimeInterval(-ttl)
-        for (id, entry) in handles where !entry.pinned && entry.lastAccessed <= cutoff {
-            handles.removeValue(forKey: id)
+        // Collect ids first: removing from `handles` while iterating it is unsupported —
+        // mutation invalidates the in-progress iterator.
+        let expiredIds = handles.filter { !$0.value.pinned && $0.value.lastAccessed <= cutoff }.keys
+        for id in expiredIds {
+            guard let entry = handles.removeValue(forKey: id) else { continue }
             if index[entry.key] == id { index.removeValue(forKey: entry.key) }
         }
     }
