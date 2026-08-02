@@ -7,9 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.2.4] - 2026-08-02
 
+### Added
+- `press_key` / `press_keys` report a verifiable three-tier outcome (attempted,
+  dispatched, verified) instead of an unconditional `{"success": true}`.
+- `list_windows`'s `app` filter is now optional, so listing every window-owning app
+  is a single call.
+- `connect_app` accepts an `appHandle` to re-address a previously discovered app, and
+  `list_apps` / `connect_app` report real AX failure reasons instead of bare error codes.
+- Element handles from `query_tree` stay stable across repeated tree walks (keyed on
+  AX identity) instead of getting a new id on every call.
+
 ### Fixed
 - Isolated `run_applescript` timeouts from server health tracking, so a script that hits
   its own deadline no longer trips the daemon's health/circuit-breaker state.
+- Kept the interaction glow continuous across app hand-offs instead of blanking out
+  between tool calls that target different apps.
+- `macbeth mcp` (and `serve`/`server`/`start`) now fail with a message pointing at the
+  correct no-argument command instead of a bare "Unknown command".
 
 ## [0.2.3] - 2026-07-30
 
