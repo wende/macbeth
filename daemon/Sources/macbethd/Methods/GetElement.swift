@@ -23,9 +23,7 @@ func registerGetElement(
             }
 
             if let handleId = obj["handleId"]?.stringValue {
-                guard let resolved = await handleTable.resolve(handleId) else {
-                    throw RPCError.elementNotFound("Handle expired: \(handleId)")
-                }
+                let resolved = try await resolveLiveHandle(handleId, in: handleTable)
                 return elementInfoJSON(resolved.element, handleId: handleId)
             }
 

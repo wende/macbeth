@@ -76,11 +76,31 @@ export class AppHandle extends Locator {
     this.matchedValue = info.matchedValue ?? String(info.pid);
     this.manualAccessibility = info.manualAccessibility ?? "unknown";
     this.webContentReadiness = info.webContentReadiness ?? null;
+    this.reacquireApp = () => this.reconnect();
   }
 
   /** Opaque app handle used by subsequent RPC calls. */
   get handle(): string {
     return this.appHandle;
+  }
+
+  /**
+   * Re-connect to this app and adopt its current app handle.
+   *
+   * App handles are daemon-local: a daemon restart invalidates them, and the new process
+   * may hand the same `h_N` to whichever app connects first. Re-connecting by pid pins
+   * this handle back to the right app. Scoped locators derived from this AppHandle call
+   * it when a recovery needs it — see `Locator.rediscover`.
+   *
+   * Throws `app_not_found` if the app itself is gone (a relaunch changes the pid, so the
+   * caller has to connect again by name).
+   */
+  async reconnect(): Promise<string> {
+    const result = await this.rpc.call<{ appHandle: string }>("connect_app", {
+      pid: this.pid,
+    });
+    this.appHandle = result.appHandle;
+    return result.appHandle;
   }
 
   /** Get the AX tree as indented text or JSON */

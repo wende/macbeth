@@ -1,4 +1,20 @@
-import { type JsonRpcClient, JsonRpcError } from "./rpc.js";
+import type { JsonRpcClient } from "./rpc.js";
+import {
+  isAppHandleInvalid,
+  isRecoverableHandleError,
+  isUnknownHandleError,
+} from "./errors.js";
+
+export interface LocatorOptions {
+  timeout?: number;
+  /**
+   * Re-connect to the app this locator belongs to and return its current app handle.
+   * Supplied by `AppHandle`, which knows the pid. Recovery paths use it when the app
+   * handle itself has stopped being valid — chiefly after a daemon restart, which
+   * invalidates element handles and app handles alike.
+   */
+  reacquireApp?: () => Promise<string>;
+}
 import type { QueryStep, ElementInfo, ClickOptions, FillStrategy } from "./types.js";
 
 function buildClickParams(args: {
@@ -29,17 +45,24 @@ export class Locator {
   protected appHandle: string;
   protected queryPath: QueryStep[];
   protected defaultTimeout: number;
+  protected reacquireApp?: () => Promise<string>;
 
   constructor(
     rpc: JsonRpcClient,
     appHandle: string,
     queryPath: QueryStep[],
-    options?: { timeout?: number }
+    options?: LocatorOptions
   ) {
     this.rpc = rpc;
     this.appHandle = appHandle;
     this.queryPath = queryPath;
     this.defaultTimeout = options?.timeout ?? 30_000;
+    this.reacquireApp = options?.reacquireApp;
+  }
+
+  /** Options that derived locators inherit. */
+  protected get inheritedOptions(): LocatorOptions {
+    return { timeout: this.defaultTimeout, reacquireApp: this.reacquireApp };
   }
 
   // --- Narrowing methods (return new Locator with appended step) ---
@@ -48,7 +71,7 @@ export class Locator {
     return new Locator(this.rpc, this.appHandle, [
       ...this.queryPath,
       { role, title, identifier: opts?.identifier },
-    ], { timeout: this.defaultTimeout });
+    ], this.inheritedOptions);
   }
 
   /** Find a child by role, title, and/or identifier */
@@ -56,7 +79,7 @@ export class Locator {
     return new Locator(this.rpc, this.appHandle, [
       ...this.queryPath,
       query,
-    ], { timeout: this.defaultTimeout });
+    ], this.inheritedOptions);
   }
 
   // Convenience shorthand methods for common roles
@@ -151,7 +174,9 @@ export class Locator {
   async scope(): Promise<ScopedLocator> {
     const info = await this.getInfo();
     await this.rpc.call("pin_handle", { handleId: info.handleId });
-    return new ScopedLocator(this.rpc, this.appHandle, this.queryPath, info.handleId, { timeout: this.defaultTimeout });
+    return new ScopedLocator(
+      this.rpc, this.appHandle, this.queryPath, info.handleId, this.inheritedOptions
+    );
   }
 }
 
@@ -163,84 +188,117 @@ class ScopedLocator extends Locator {
     appHandle: string,
     queryPath: QueryStep[],
     handleId: string,
-    options?: { timeout?: number }
+    options?: LocatorOptions
   ) {
     super(rpc, appHandle, queryPath, options);
     this.handleId = handleId;
   }
 
   override async click(options?: ClickOptions): Promise<void> {
-    try {
-      await this.rpc.call("click", buildClickParams({
+    await this.withRediscovery(() =>
+      this.rpc.call("click", buildClickParams({
         appHandle: this.appHandle,
         handleId: this.handleId,
         query: this.queryPath,
         defaultTimeout: this.defaultTimeout,
         options,
-      }));
-    } catch (err) {
-      if (isHandleStale(err)) {
-        await this.rediscover();
-        return this.click(options);
-      }
-      throw err;
-    }
+      }))
+    );
   }
 
   override async fill(value: string, options?: { timeout?: number; strategy?: FillStrategy }): Promise<void> {
-    try {
-      await this.rpc.call("fill", {
+    await this.withRediscovery(() =>
+      this.rpc.call("fill", {
         appHandle: this.appHandle,
         handleId: this.handleId,
         value,
         timeout: (options?.timeout ?? this.defaultTimeout) / 1000,
         ...(options?.strategy ? { strategy: options.strategy } : {}),
-      });
-    } catch (err) {
-      if (isHandleStale(err)) {
-        await this.rediscover();
-        return this.fill(value, options);
-      }
-      throw err;
-    }
+      })
+    );
   }
 
   override async getInfo(): Promise<ElementInfo> {
-    try {
-      return await this.rpc.call<ElementInfo>("get_element", {
+    return this.withRediscovery(() =>
+      this.rpc.call<ElementInfo>("get_element", {
         appHandle: this.appHandle,
         handleId: this.handleId,
-      });
+      })
+    );
+  }
+
+  /**
+   * Run a handle-based call, re-resolving and retrying exactly once if it fails because
+   * the handle went stale. A second stale failure propagates instead of recursing again —
+   * an app that keeps recycling the element faster than we can resolve it (Electron
+   * re-render storms, list virtualisation) must fail fast, not hang the caller forever.
+   */
+  private async withRediscovery<T>(action: () => Promise<T>): Promise<T> {
+    try {
+      return await action();
     } catch (err) {
-      if (isHandleStale(err)) {
-        await this.rediscover();
-        return this.getInfo();
-      }
-      throw err;
+      if (!isRecoverableHandleError(err)) throw err;
+      await this.rediscover(err);
+      return action();
     }
   }
 
-  private async rediscover(): Promise<void> {
-    const info = await this.rpc.call<ElementInfo>("get_element", {
+  /**
+   * Re-resolve the element from the query path this locator was built from.
+   *
+   * The app handle can be dead too. An `unknown_handle` says so outright — the id came
+   * from a previous daemon process, so this one's app handles are unrelated and its
+   * `h_N` may already belong to a *different* app, which would resolve the query against
+   * the wrong window. Re-acquire the app first in that case. For every other stale
+   * reason the app handle is presumed good, and re-acquiring is only attempted if the
+   * query is actually rejected for it — connect_app waits for Electron web content, so
+   * it must not be on the path of an ordinary TTL re-resolve.
+   */
+  private async rediscover(cause?: unknown): Promise<void> {
+    let reacquired = false;
+    if (isUnknownHandleError(cause)) {
+      await this.reacquireAppHandle();
+      reacquired = true;
+    }
+
+    let info: ElementInfo;
+    try {
+      info = await this.resolveFromQuery();
+    } catch (err) {
+      // Already reacquired once for this rediscovery: a second app_not_found means
+      // reconnecting didn't help, so retrying it again would only waste a redundant
+      // connect_app (Electron waits for web content on every call) for no benefit.
+      if (reacquired || !isAppHandleInvalid(err) || this.reacquireApp === undefined) throw err;
+      await this.reacquireAppHandle();
+      info = await this.resolveFromQuery();
+    }
+
+    const previousHandleId = this.handleId;
+    this.handleId = info.handleId;
+    await this.rpc.call("pin_handle", { handleId: this.handleId });
+    if (previousHandleId !== this.handleId) {
+      // Best-effort: the old handle is almost always already invalidated (that's why we're
+      // here), so unpin_handle commonly fails with a stale/unknown error. Swallow it — the
+      // goal is just to release the pin if the entry still happens to be live, not to
+      // require it. Leaving this unhandled would leak a pinned entry on every retry against
+      // a flapping app until the app dies.
+      await this.rpc.call("unpin_handle", { handleId: previousHandleId }).catch(() => {});
+    }
+  }
+
+  private resolveFromQuery(): Promise<ElementInfo> {
+    return this.rpc.call<ElementInfo>("get_element", {
       appHandle: this.appHandle,
       query: this.queryPath,
     });
-    this.handleId = info.handleId;
-    await this.rpc.call("pin_handle", { handleId: this.handleId });
+  }
+
+  private async reacquireAppHandle(): Promise<void> {
+    if (this.reacquireApp === undefined) return;
+    this.appHandle = await this.reacquireApp();
   }
 
   async unpin(): Promise<void> {
     await this.rpc.call("unpin_handle", { handleId: this.handleId });
   }
-}
-
-/** True when a handle-based call failed because the handle expired (TTL) OR because
- *  the underlying element was invalidated by a host re-render (Electron). Both are
- *  recoverable by re-resolving from the original query path. */
-function isHandleStale(err: unknown): boolean {
-  return (
-    err instanceof JsonRpcError &&
-    err.code === -32000 &&
-    (err.message.includes("expired") || err.message.includes("stale-element"))
-  );
 }

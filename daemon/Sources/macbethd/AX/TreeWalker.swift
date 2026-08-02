@@ -24,7 +24,10 @@ func walkTree(
     includeInvisible: Bool = false,
     currentDepth: Int = 0
 ) async -> AXNode {
-    let role = getStringAttribute(root, kAXRoleAttribute) ?? "unknown"
+    // Keep the raw optional for the fingerprint: substituting "unknown" for a failed read
+    // would look like a role change on the next walk and retire a perfectly good handle.
+    let rawRole = getStringAttribute(root, kAXRoleAttribute)
+    let role = rawRole ?? "unknown"
     let subrole = getStringAttribute(root, kAXSubroleAttribute)
     let title = getStringAttribute(root, kAXTitleAttribute)
     let value = getValueAsString(root)
@@ -33,7 +36,13 @@ func walkTree(
     let enabled = getBoolAttribute(root, kAXEnabledAttribute) ?? true
     let focused = getBoolAttribute(root, kAXFocusedAttribute) ?? false
 
-    let handleId = await handleTable.store(SendableElement(root), pid: pid)
+    // The walk already read every attribute the fingerprint needs, so canonicalising the
+    // handle costs no extra AX round-trips.
+    let handleId = await handleTable.store(
+        SendableElement(root),
+        pid: pid,
+        fingerprint: ElementFingerprint(role: rawRole, subrole: subrole, identifier: identifier)
+    )
 
     var childNodes: [AXNode] = []
     if currentDepth < maxDepth {

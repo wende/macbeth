@@ -109,6 +109,18 @@ struct JSONRPCErrorData: Sendable, Codable {
     static func axLookupFailed(_ msg: String = "Accessibility lookup failed") -> JSONRPCErrorData {
         JSONRPCErrorData(code: -32009, message: msg)
     }
+
+    /// A handle that existed but whose element is gone. `data.reason` says which
+    /// lifecycle boundary was crossed (see `HandleInvalidation`).
+    static func staleHandle(_ msg: String, data: JSONValue? = nil) -> JSONRPCErrorData {
+        JSONRPCErrorData(code: -32010, message: msg, data: data)
+    }
+
+    /// A handle id this daemon never issued — distinct from stale, because retrying or
+    /// re-resolving the same id can never succeed.
+    static func unknownHandle(_ msg: String, data: JSONValue? = nil) -> JSONRPCErrorData {
+        JSONRPCErrorData(code: -32011, message: msg, data: data)
+    }
 }
 
 /// A JSON-RPC 2.0 response.

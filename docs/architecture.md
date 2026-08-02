@@ -37,7 +37,7 @@ macbeth/
 
 ## Design notes
 
-- **Handles** — Opaque IDs (`h_0`, …) in a server-side table with 5-minute TTL. Locators re-resolve on `stale-element` (common after Electron re-renders). `pin_handle` / `Locator.scope()` for long-lived refs.
+- **Handles** — Opaque IDs (`h_0`, …) in a server-side table with 5-minute TTL. Canonical: the same element keeps the same ID across queries, and IDs are never reused. A retired handle reports `stale_handle` with a reason; an ID this daemon never issued reports `unknown_handle`. Locators re-resolve and retry on both (common after Electron re-renders). `pin_handle` / `Locator.scope()` for long-lived refs. Contract: [handle-lifecycle.md](handle-lifecycle.md).
 - **Auto-wait** — Click/fill poll until the element appears or timeout (default 30s).
 - **Lazy locators** — Chains do no RPC until a terminal method.
 - **Electron** — Detect stock and branded Electron bundles, enable Chromium’s AX tree with `AXManualAccessibility` only (not `AXEnhancedUserInterface`, which resizes windows), and report whether the web area exposes descendants. Prefer AX actions; synthesize keystrokes or safe mouse clicks when frameworks need real events.

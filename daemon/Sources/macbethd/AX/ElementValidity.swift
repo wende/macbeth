@@ -15,13 +15,15 @@ let staleHandleMarker = "stale-element"
 ///
 /// Handles obtained via `query_tree` (`h_N` ids) carry no query path, so the daemon
 /// cannot re-resolve them itself — the error message says so explicitly.
+///
+/// Elements reached through `resolveLiveHandle` have already been checked; this covers
+/// the query-resolved paths, where the element was found moments ago but the app may have
+/// torn it down in between.
 func ensureElementValid(_ element: AXUIElement) throws {
     var roleRef: CFTypeRef?
     let result = AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &roleRef)
     if result == .invalidUIElement {
-        throw RPCError.elementNotFound(
-            "Element reference is no longer valid (\(staleHandleMarker); the app likely re-rendered). "
-            + "Re-resolve it from a query, or re-run query_tree to obtain a fresh handle.")
+        throw staleHandleError(nil, reason: .destroyed)
     }
     // Any other error (e.g. .cannotComplete on a busy app) is left for the action itself
     // to encounter and report — we only special-case invalidation here.

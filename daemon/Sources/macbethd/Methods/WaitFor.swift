@@ -107,10 +107,7 @@ private func resolveWaitTarget(
     handleTable: HandleTable
 ) async throws -> AXUIElement {
     if let handleId = obj["handleId"]?.stringValue {
-        guard let resolved = await handleTable.resolve(handleId) else {
-            throw RPCError.elementNotFound("Handle expired: \(handleId)")
-        }
-        return resolved.element
+        return try await resolveLiveHandle(handleId, in: handleTable).element
     }
 
     guard let querySteps = QueryStep.fromArray(obj["query"]) else {
@@ -136,10 +133,7 @@ func resolveTarget(
 ) async throws -> SendableElement {
     // Direct handle resolution (no wait)
     if let handleId = obj["handleId"]?.stringValue {
-        guard let resolved = await handleTable.resolve(handleId) else {
-            throw RPCError.elementNotFound("Handle expired: \(handleId)")
-        }
-        return resolved
+        return try await resolveLiveHandle(handleId, in: handleTable)
     }
 
     // Query-based resolution with auto-wait

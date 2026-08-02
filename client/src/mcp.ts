@@ -178,7 +178,7 @@ server.registerTool("connect_app", {
 });
 
 server.registerTool("query_tree", {
-  description: "Get an app's accessibility tree, including its menu hierarchy. Use this first; it connects automatically, so a separate connect_app or list_menu_bar call is unnecessary. If Chromium web content is empty, the result explains available screenshot/OCR/menu/keyboard fallbacks.",
+  description: "Get an app's accessibility tree, including its menu hierarchy. Use this first; it connects automatically, so a separate connect_app or list_menu_bar call is unnecessary. Element handles (h_N) are stable: the same element keeps the same handle across calls, so handles you already have stay valid and you can plan several actions from one tree instead of re-querying between them. A handle that stops working reports stale_handle (re-query for it) or unknown_handle (it was never issued). If Chromium web content is empty, the result explains available screenshot/OCR/menu/keyboard fallbacks.",
   inputSchema: {
     app: appTargetSchema,
     maxDepth: z.number().optional().default(5).describe("Maximum depth to traverse (default: 5)"),

@@ -165,7 +165,8 @@ whatever app happens to be frontmost. See
 
 ### Error codes
 
-RPC errors use codes -32000 to -32009. AppleScript/JXA errors are classified by OSA
+RPC errors use codes -32000 to -32011 (-32010 `stale_handle` and -32011 `unknown_handle`
+carry a `data.reason`; see `docs/handle-lifecycle.md`). AppleScript/JXA errors are classified by OSA
 error number: -1728 → `menuItemNotFound`, -1719 → `menuItemDisabled`, -600/-609 →
 `appBusy`. The MCP layer formats these as `[error_kind]: message` for agent readability.
 Scripts run in an isolated `osascript` process with a daemon-enforced deadline, so a
@@ -196,10 +197,24 @@ unrelated tools down with them.
 
 ### Handle lifecycle
 
+Handles are canonical: `HandleTable` keys a per-element index on AX reference identity
+(`CFEqual`/`CFHash`, see `AX/ElementIdentity.swift`), so the same element gets the same
+`h_N` every time — repeated `query_tree` calls return the ids the caller already holds.
+Ids are never reused. Callers pass an `ElementFingerprint` (role, subrole, `AXIdentifier`)
+when storing; a contradiction on resolve means the app recycled the reference for a
+different element, and the handle is retired instead of resolving to the wrong control.
+Title and value are excluded from identity on purpose.
+
 Handles expire after 5 minutes of inactivity. Use `pin_handle` to exempt long-lived
 references. `Locator.scope()` pins automatically and rediscovers on expiry. Handles
 are daemon-local — if the daemon crashes, all handles are invalidated (the client
 auto-reconnects and re-spawns the daemon transparently).
+
+Resolution goes through `resolveLiveHandle` (`AX/HandleResolution.swift`), which returns
+three outcomes rather than one nil: live, `stale_handle` (-32010, with `data.reason` =
+`expired` / `destroyed` / `recycled` / `app_terminated`), or `unknown_handle` (-32011) for
+an id this daemon never issued. Liveness checks run outside the actor so a slow app can't
+stall unrelated handle operations. Full contract in `docs/handle-lifecycle.md`.
 
 `windowId` from `list_windows` is *not* one of these handles: it is a WindowServer ID
 issued by macOS, so it has no TTL, ignores `pin_handle`, survives daemon restarts, and
@@ -223,7 +238,11 @@ cannot stall the listing.
 `JsonRpcClient.call()` retries once on connection errors (ECONNREFUSED, connection
 closed, socket missing). The retry re-spawns the daemon via `DaemonManager.ensureRunning()`.
 App handles must be re-obtained after a daemon restart since handle IDs are not stable
-across daemon processes.
+across daemon processes — `AppHandle.reconnect()` does that by pid, and locators derived
+from an `AppHandle` call it automatically when a recovery needs it (`unknown_handle`, or a
+re-resolve rejected with `app_not_found`). A restarted daemon can reissue the old app
+handle's id to a different app, so replaying a query without reconnecting can hit the
+wrong app.
 
 ## Key Constraints
 
