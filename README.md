@@ -146,7 +146,7 @@ See [Developing with Macbeth](skills/DEVELOPING_MACBETH.md) for locators, screen
 
 ## Teach Macbeth an application
 
-A Macbeth skill is a `SKILL.md` file, optionally accompanied by runnable scripts, that teaches an agent an application's reliable workflows and pitfalls. Bundled skills cover Calendar, Contacts, Logic Pro, Mail, Maps, Messages, Music, Notes, Reminders, Safari, System Settings, and generic Electron applications.
+A Macbeth skill is a `SKILL.md` file, optionally accompanied by runnable scripts, that teaches an agent reliable workflows and pitfalls. Call `load_skill` with no arguments for the [core Macbeth guide](skills/macbeth/SKILL.md). Bundled app skills cover Calendar, Contacts, Logic Pro, Mail, Maps, Messages, Music, Notes, Reminders, Safari, System Settings, and generic Electron applications.
 
 You can add a skill without changing the Swift daemon. Start with the [contribution guide](CONTRIBUTING.md#contributing-an-application-skill) and include a reproducible prompt, tested application version, expected result, and honest failure modes.
 

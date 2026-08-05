@@ -1,9 +1,8 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { execFile, spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
-import { readdir, readFile } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { readFile } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { MacbethClient } from "./client.js";
@@ -11,6 +10,12 @@ import { isOperationTimeout, JsonRpcError, RPC_ERROR_NAMES } from "./errors.js";
 import { describeKeyPress, describeKeyStrokes, formatKeyDispatch } from "./key-dispatch.js";
 import { runScreenshotTool } from "./mcp-screenshot.js";
 import { runListWindowsTool } from "./mcp-windows.js";
+import {
+  listSkills,
+  loadSkill,
+  resolveSkillScriptPath,
+  resolveSkillsDir,
+} from "./mcp-skills.js";
 import { saveScreenshotToTempFile } from "./screenshots.js";
 import { resolveElementTarget } from "./mcp-target.js";
 import { formatAppList } from "./app-target.js";
@@ -21,11 +26,10 @@ import type { KeyStroke } from "./types.js";
 
 const MODULE_DIR = dirname(fileURLToPath(import.meta.url));
 const INSTALL_DIR = resolve(MODULE_DIR, "..");
-const SKILLS_DIR_CANDIDATES = [
+const SKILLS_DIR = resolveSkillsDir([
   resolve(INSTALL_DIR, "skills"),
   resolve(INSTALL_DIR, "..", "skills"),
-];
-const SKILLS_DIR = SKILLS_DIR_CANDIDATES.find(existsSync) ?? SKILLS_DIR_CANDIDATES[0];
+]);
 
 const client = new MacbethClient({ verbose: false });
 
@@ -663,119 +667,23 @@ server.registerTool("run_shortcut", {
 
 // --- Skills ---
 
-interface ScriptMeta {
-  file: string;
-  name: string;
-  description: string;
-  usage: string;
-}
-
-async function parseScriptMeta(scriptPath: string, fileName: string): Promise<ScriptMeta | null> {
-  try {
-    const content = await readFile(scriptPath, "utf-8");
-    const nameMatch = content.match(/^\/\/\s*@name\s+(.+)$/m);
-    const descMatch = content.match(/^\/\/\s*@description\s+(.+)$/m);
-    const usageMatch = content.match(/^\/\/\s*@usage\s+(.+)$/m);
-    return {
-      file: fileName,
-      name: nameMatch?.[1]?.trim() ?? fileName.replace(/\.mjs$/, ""),
-      description: descMatch?.[1]?.trim() ?? "",
-      usage: usageMatch?.[1]?.trim() ?? `node ${fileName}`,
-    };
-  } catch {
-    return null;
-  }
-}
-
-async function listSkillScripts(skillName: string): Promise<ScriptMeta[]> {
-  const scriptsDir = join(SKILLS_DIR, skillName, "scripts");
-  try {
-    const entries = await readdir(scriptsDir, { withFileTypes: true });
-    const mjsFiles = entries.filter((e) => e.isFile() && e.name.endsWith(".mjs"));
-    const scripts = await Promise.all(
-      mjsFiles.map((f) => parseScriptMeta(join(scriptsDir, f.name), f.name))
-    );
-    return scripts.filter(Boolean) as ScriptMeta[];
-  } catch {
-    return [];
-  }
-}
-
-interface SkillMeta {
-  name: string;
-  description: string;
-  scripts: ScriptMeta[];
-}
-
-async function parseSkillMeta(skillDir: string): Promise<SkillMeta | null> {
-  try {
-    const content = await readFile(join(SKILLS_DIR, skillDir, "SKILL.md"), "utf-8");
-    const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
-    let description = `Skill: ${skillDir}`;
-    if (fmMatch) {
-      const descLine = fmMatch[1].match(/^description:\s*(.+)$/m);
-      if (descLine) description = descLine[1].trim();
-    }
-    const scripts = await listSkillScripts(skillDir);
-    return { name: skillDir, description, scripts };
-  } catch {
-    return null;
-  }
-}
-
-function formatSkillScripts(scripts: ScriptMeta[]): string {
-  if (scripts.length === 0) return "";
-  const lines = scripts.map((s) =>
-    `  - **${s.name}** (${s.file}): ${s.description}${s.usage ? `\n    Usage: \`${s.usage}\`` : ""}`
-  );
-  return "\n  Scripts:\n" + lines.join("\n");
-}
-
 server.registerTool("list_skills", {
-  description: "List available macbeth skills. Each skill has instructions (SKILL.md) and optional runnable scripts.",
+  description: "List available macbeth skills. Each skill has instructions (SKILL.md) and optional runnable scripts. Call load_skill with no arguments for the core macbeth usage guide.",
   annotations: { readOnlyHint: true },
-}, async () => {
-  try {
-    const entries = await readdir(SKILLS_DIR, { withFileTypes: true });
-    const dirs = entries.filter((e) => e.isDirectory());
-    const skills = (await Promise.all(dirs.map((d) => parseSkillMeta(d.name)))).filter(Boolean) as SkillMeta[];
-    if (skills.length === 0) {
-      return { content: [{ type: "text", text: "No skills found in skills/ directory." }] };
-    }
-    const text = skills.map((s) =>
-      `- **${s.name}**: ${s.description}${formatSkillScripts(s.scripts)}`
-    ).join("\n");
-    return { content: [{ type: "text", text }] };
-  } catch {
-    return { content: [{ type: "text", text: "No skills/ directory found. Create skills/<name>/SKILL.md to add skills." }], isError: true };
-  }
-});
+}, async () => listSkills(SKILLS_DIR));
 
 server.registerTool("load_skill", {
-  description: "Load a skill by name. Returns the SKILL.md instructions and lists any runnable scripts.",
+  description:
+    "Load a skill's SKILL.md instructions (and list any runnable scripts). "
+    + "Omit `name` (or pass an empty string) to load the core macbeth skill — how to use the MCP tools themselves. "
+    + "Pass a directory name under skills/ for an app-specific skill (e.g. \"Safari\", \"electron\").",
   inputSchema: {
-    name: z.string().describe("Skill name (directory name under skills/)"),
+    name: z.string().optional().describe(
+      'Skill name (directory under skills/). Omit to load the core "macbeth" skill.'
+    ),
   },
   annotations: { readOnlyHint: true },
-}, async ({ name }) => {
-  try {
-    const content = await readFile(join(SKILLS_DIR, name, "SKILL.md"), "utf-8");
-    const scripts = await listSkillScripts(name);
-
-    let text = content;
-    if (scripts.length > 0) {
-      text += "\n\n---\n\n## Runnable Scripts\n\n";
-      text += "Use the `run_skill_script` tool to execute these:\n\n";
-      text += scripts.map((s) =>
-        `- **${s.name}** (\`${s.file}\`): ${s.description}\n  Usage: \`${s.usage}\``
-      ).join("\n\n");
-    }
-
-    return { content: [{ type: "text", text }] };
-  } catch {
-    return { content: [{ type: "text", text: `Skill "${name}" not found. Run list_skills to see available skills.` }], isError: true };
-  }
-});
+}, async ({ name }) => loadSkill(SKILLS_DIR, name));
 
 server.registerTool("run_skill_script", {
   description: "Run a script from a skill's scripts/ directory. Scripts are .mjs files that automate specific workflows using macbeth.",
@@ -786,13 +694,11 @@ server.registerTool("run_skill_script", {
   },
 }, async ({ skill, script, args }) => {
   return withActivity(async () => {
-    const scriptPath = join(SKILLS_DIR, skill, "scripts", script);
-
-    // Prevent path traversal
-    const resolved = resolve(scriptPath);
-    if (!resolved.startsWith(resolve(SKILLS_DIR))) {
-      return { content: [{ type: "text" as const, text: "Invalid script path." }], isError: true };
+    const resolved = resolveSkillScriptPath(SKILLS_DIR, skill, script);
+    if (!resolved.ok) {
+      return { content: [{ type: "text" as const, text: resolved.error }], isError: true };
     }
+    const scriptPath = resolved.path;
 
     try {
       await readFile(scriptPath);

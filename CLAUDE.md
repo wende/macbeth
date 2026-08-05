@@ -55,7 +55,7 @@ TypeScript Client ←→ macbethd (Swift) ←→ macOS Accessibility API
 
 ### Skills (`skills/<AppName>/`)
 
-Each skill has a `SKILL.md` (documentation for agents) and `scripts/*.mjs` (executable automation scripts). Skills are bundled into the npm package via `prepack`. The MCP tools `list_skills` and `load_skill` make them discoverable.
+Each skill has a `SKILL.md` (documentation for agents) and optional `scripts/*.mjs`. Skills are bundled into the npm package via `prepack`. The MCP tools `list_skills` and `load_skill` make them discoverable — `load_skill` with no arguments loads the core `skills/macbeth/` usage guide.
 
 ### Native bridge (`client/native/apple_data.swift`)
 

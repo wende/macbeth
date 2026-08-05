@@ -94,7 +94,7 @@ npx macbeth update --check  # report only
 | `list_menu_bar` / `select_menu_item` | Compactly inspect and select native menu items through AX; `query_tree` usually makes the list call unnecessary |
 | `run_applescript` | AppleScript or JXA (interactive or read-only), with a per-call `timeout` in seconds (default 30, max 300) |
 | `list_shortcuts` / `run_shortcut` | Inspect and run Apple Shortcuts |
-| `list_skills` / `load_skill` / `run_skill_script` | Discover and run bundled app workflows |
+| `list_skills` / `load_skill` / `run_skill_script` | Discover and run bundled skills. `load_skill` with no arguments loads the core macbeth usage guide |
 
 ## Listing windows
 
@@ -163,8 +163,15 @@ that call. It is deliberately not a transport failure:
 
 ## Skills
 
+Call `load_skill` with **no arguments** to load the [core macbeth skill](../skills/macbeth/SKILL.md) — how agents should use the MCP tools (discovery, locators, actions, handles, fallbacks). Pass `name` for an app-specific skill.
+
+```jsonc
+{ "name": "load_skill" }                          // core usage guide
+{ "name": "load_skill", "arguments": { "name": "Safari" } }
+```
+
 Drop a `SKILL.md` into `skills/<name>/` to teach agents app-specific workflows. Load via `list_skills` / `load_skill`.
 
-Bundled: Calendar, Contacts, Mail, Maps, Messages, Music, Notes, Reminders, Safari, System Settings, Logic Pro, and [Electron](../skills/electron/SKILL.md) (web-area trees, fill/click strategies, gotchas).
+Bundled: [macbeth](../skills/macbeth/SKILL.md) (core), Calendar, Contacts, Mail, Maps, Messages, Music, Notes, Reminders, Safari, System Settings, Logic Pro, and [Electron](../skills/electron/SKILL.md) (web-area trees, fill/click strategies, gotchas).
 
 Client API for scripts and tests: [skills/DEVELOPING_MACBETH.md](../skills/DEVELOPING_MACBETH.md). Interaction chrome: [interaction-glow.md](interaction-glow.md).
