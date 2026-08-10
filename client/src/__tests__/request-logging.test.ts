@@ -125,8 +125,13 @@ describe("request logging (real daemon)", () => {
     }
     const tempRoot = await mkdtemp(join(tmpdir(), "macbeth-nolog-test-"));
     tempDirs.push(tempRoot);
+    const targetLogDir = join(tempRoot, "logs");
     const socketPath = join(tempRoot, "macbeth.sock");
 
+    // Point MACBETH_LOG_DIR at a known temp path. If NO_LOG were ignored, the
+    // daemon would honour this and drop requests.log here — fail loudly in
+    // that case instead of passing on the absence of a default-path side effect.
+    process.env.MACBETH_LOG_DIR = targetLogDir;
     process.env.MACBETH_NO_LOG = "1";
     const manager = new DaemonManager({ socketPath, binaryPath: binary });
     await manager.ensureRunning();
@@ -142,8 +147,45 @@ describe("request logging (real daemon)", () => {
 
       await new Promise((r) => setTimeout(r, 500));
 
+      // Neither the explicit target dir nor any sibling should contain a log.
       const entries = await readdir(tempRoot, { recursive: true });
-      expect(entries.some((p) => p.includes("logs"))).toBe(false);
+      expect(entries).not.toContain("logs");
+      expect(entries.some((p) => p.endsWith("requests.log"))).toBe(false);
+    } finally {
+      await manager.shutdown();
+    }
+  });
+
+  it("writes to MACBETH_LOG_DIR when MACBETH_NO_LOG is unset", async () => {
+    if (!binary) {
+      console.warn("[skip] no macbethd binary available");
+      return;
+    }
+    const tempRoot = await mkdtemp(join(tmpdir(), "macbeth-logdir-test-"));
+    tempDirs.push(tempRoot);
+    const targetLogDir = join(tempRoot, "logs");
+    const socketPath = join(tempRoot, "macbeth.sock");
+
+    // Same target as above but NO_LOG unset: the daemon must create
+    // requests.log inside the explicit dir, not the default Caches path.
+    process.env.MACBETH_LOG_DIR = targetLogDir;
+    delete process.env.MACBETH_NO_LOG;
+    const manager = new DaemonManager({ socketPath, binaryPath: binary });
+    await manager.ensureRunning();
+    try {
+      await waitForSocket(socketPath);
+
+      const client = new MacbethClient({ socketPath, daemonPath: binary });
+      try {
+        await client.listApps();
+      } finally {
+        await client.close();
+      }
+
+      await new Promise((r) => setTimeout(r, 500));
+
+      const files = await readdir(targetLogDir);
+      expect(files).toContain("requests.log");
     } finally {
       await manager.shutdown();
     }

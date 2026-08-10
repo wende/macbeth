@@ -204,7 +204,19 @@ func envInt(_ name: String) -> Int? {
 
 let resolvedLogMaxFileMB = logMaxFileMB ?? envInt("MACBETH_LOG_MAX_FILE_MB") ?? 5
 let resolvedLogMaxFiles = logMaxFiles ?? envInt("MACBETH_LOG_MAX_FILES") ?? 10
-let resolvedLogDir = logDir ?? ProcessInfo.processInfo.environment["MACBETH_LOG_DIR"]
+// Treat empty-string env vars as unset — a missing-key dictionary subscript
+// returns nil, but a present-but-empty one returns Some(""), which `if let`
+// happily unwraps and would otherwise silently point the audit log at the
+// current directory. A Node spawn that forwards "MACBETH_LOG_DIR: \"\"" when
+// the caller hasn't set it is a common way to hit this.
+let resolvedLogDir: String? = {
+    if let explicit = logDir { return explicit }
+    if let raw = ProcessInfo.processInfo.environment["MACBETH_LOG_DIR"] {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+    return nil
+}()
 
 let requestLogger: RequestLogger?
 if noLog || envFlag("MACBETH_NO_LOG") {
