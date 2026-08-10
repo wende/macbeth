@@ -69,6 +69,18 @@ describe("AppHandle", () => {
     });
   });
 
+  it("forwards titlePattern for listWindows", async () => {
+    const rpc = mockRpcWithResult({ windows: [] });
+    const app = new AppHandle(rpc, "h_0", { name: "Finder", pid: 1, bundleId: null });
+
+    await app.listWindows({ titlePattern: "Documents" });
+
+    expect(rpc.call).toHaveBeenCalledWith("list_windows", {
+      appHandle: "h_0",
+      titlePattern: "Documents",
+    });
+  });
+
   it("passes an explicit window ID to screenshots", async () => {
     const rpc = mockRpc();
     vi.mocked(rpc.call).mockResolvedValueOnce({
@@ -166,6 +178,12 @@ describe("AppHandle", () => {
     const listApp = new AppHandle(listRpc, "h_0", { name: "Finder", pid: 1, bundleId: null });
     await expect(listApp.listMenuBar()).resolves.toBe("File\n  Save");
     expect(listRpc.call).toHaveBeenCalledWith("list_menu_bar", { appHandle: "h_0" });
+
+    await expect(listApp.listMenuBar({ titlePattern: "Save" })).resolves.toBe("File\n  Save");
+    expect(listRpc.call).toHaveBeenLastCalledWith("list_menu_bar", {
+      appHandle: "h_0",
+      titlePattern: "Save",
+    });
 
     const selectRpc = mockRpcWithResult({ selected: "File > Save" });
     const selectApp = new AppHandle(selectRpc, "h_0", { name: "Finder", pid: 1, bundleId: null });

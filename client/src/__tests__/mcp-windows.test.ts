@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { parse as parseYaml } from "yaml";
 
 import { runListWindowsTool } from "../mcp-windows.js";
 import type { AppWindowInfo } from "../types.js";
@@ -25,7 +26,7 @@ function windowInfo(overrides: Partial<AppWindowInfo> = {}): AppWindowInfo {
 }
 
 function payload(result: Awaited<ReturnType<typeof runListWindowsTool>>) {
-  return JSON.parse(result.content[0].text) as { count: number; windows: AppWindowInfo[] };
+  return parseYaml(result.content[0].text) as { count: number; windows: AppWindowInfo[] };
 }
 
 describe("runListWindowsTool", () => {
@@ -40,7 +41,7 @@ describe("runListWindowsTool", () => {
     const result = await runListWindowsTool({ connect, listAll }, {});
 
     expect(connect).not.toHaveBeenCalled();
-    expect(listAll).toHaveBeenCalledWith(undefined);
+    expect(listAll).toHaveBeenCalledWith({});
     expect(payload(result)).toEqual({ count: 2, windows });
   });
 
@@ -53,7 +54,7 @@ describe("runListWindowsTool", () => {
     const result = await runListWindowsTool({ connect, listAll }, { app: "Unity" });
 
     expect(connect).toHaveBeenCalledWith("Unity");
-    expect(listWindows).toHaveBeenCalledWith(undefined);
+    expect(listWindows).toHaveBeenCalledWith({});
     expect(listAll).not.toHaveBeenCalled();
     expect(payload(result)).toEqual({ count: 1, windows });
   });
@@ -85,5 +86,24 @@ describe("runListWindowsTool", () => {
 
     expect(listAll).toHaveBeenCalledWith({ includeAllSurfaces: true });
     expect(listWindows).toHaveBeenCalledWith({ includeAllSurfaces: true });
+  });
+
+  it("forwards titlePattern to both listing paths", async () => {
+    const listAll = vi.fn().mockResolvedValue([]);
+    const listWindows = vi.fn().mockResolvedValue([]);
+    const connect = vi.fn().mockResolvedValue({ listWindows });
+
+    await runListWindowsTool({ connect, listAll }, { titlePattern: "Finder" });
+    await runListWindowsTool({ connect, listAll }, { app: "Unity", titlePattern: "Prefs" });
+
+    expect(listAll).toHaveBeenCalledWith({ titlePattern: "Finder" });
+    expect(listWindows).toHaveBeenCalledWith({ titlePattern: "Prefs" });
+  });
+
+  it("does not forward empty titlePattern", async () => {
+    const listAll = vi.fn().mockResolvedValue([]);
+    await runListWindowsTool({ connect: vi.fn(), listAll }, { titlePattern: "" });
+
+    expect(listAll).toHaveBeenCalledWith({});
   });
 });
