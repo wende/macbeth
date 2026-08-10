@@ -137,6 +137,9 @@ await dispatcher.register(method: "pin_handle") { params in
     // Accept either `handleId` (singular) or `handleIds` (bulk). Bulk returns a per-id
     // result map; singular keeps the historical `{pinned, handleId}` shape.
     if let ids = obj["handleIds"]?.arrayValue, !ids.isEmpty {
+        guard ids.allSatisfy({ if case .string = $0 { true } else { false } }) else {
+            throw RPCError.invalidParams("All 'handleIds' entries must be strings")
+        }
         var results: [String: JSONValue] = [:]
         for case .string(let id) in ids {
             if await handleTable.pin(id) {

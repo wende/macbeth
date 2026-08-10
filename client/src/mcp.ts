@@ -450,6 +450,9 @@ server.registerTool("pin_handle", {
   if (!handleId && !handleIds) {
     return { content: [{ type: "text", text: "Provide either handleId or handleIds." }], isError: true };
   }
+  if (handleId && handleIds) {
+    return { content: [{ type: "text", text: "Provide either handleId or handleIds, not both." }], isError: true };
+  }
   const result = await client.pinHandle((handleIds ?? handleId!) as string | string[]);
   if ("results" in result) {
     const lines = Object.entries(result.results).map(([id, v]) =>
