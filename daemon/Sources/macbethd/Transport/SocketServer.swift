@@ -200,9 +200,8 @@ final class SocketServer: Sendable {
         }
     }
 
-    /// Build an `RPCLogRecord` from the per-request bookkeeping and hand it to the
-    /// logger. Fire-and-forget — never awaited on the hot path; the actor inside
-    /// `RequestLogger` serializes appends without locks.
+    // Fire-and-forget — callers wrap this in `Task { … }` and never await;
+    // the RequestLogger actor serializes appends without locks.
     private static func emitLog(
         logger: RequestLogger,
         connectionID: String,

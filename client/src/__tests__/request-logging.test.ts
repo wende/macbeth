@@ -1,11 +1,10 @@
-import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { connect, createConnection } from "node:net";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import { MacbethClient } from "../client.js";
-import { defaultLogDir } from "../paths.js";
 import { DaemonManager } from "../daemon.js";
 
 async function findExecutable(): Promise<string | null> {
@@ -190,8 +189,74 @@ describe("request logging (real daemon)", () => {
       await manager.shutdown();
     }
   });
+
+  it("records a parse-failure entry for malformed JSON", async () => {
+    if (!binary) {
+      console.warn("[skip] no macbethd binary available");
+      return;
+    }
+    const tempRoot = await mkdtemp(join(tmpdir(), "macbeth-parsefail-test-"));
+    tempDirs.push(tempRoot);
+    const targetLogDir = join(tempRoot, "logs");
+    const socketPath = join(tempRoot, "macbeth.sock");
+
+    process.env.MACBETH_LOG_DIR = targetLogDir;
+    delete process.env.MACBETH_NO_LOG;
+    const manager = new DaemonManager({ socketPath, binaryPath: binary });
+    await manager.ensureRunning();
+    try {
+      await waitForSocket(socketPath);
+
+      // Write a malformed JSON line directly to the socket. The daemon should
+      // respond with a -32700 parse error and log a record with method: null
+      // and errorCode: -32700. Using `connect` avoids MacbethClient's normal
+      // framing guarantees — exactly what we want to exercise the parse branch.
+      const sock = createConnection(socketPath, () => {
+        sock.write("not valid json\n");
+      });
+      let buf = "";
+      sock.setEncoding("utf8");
+      await new Promise<void>((resolve, reject) => {
+        sock.on("data", (chunk: string) => {
+          buf += chunk;
+          if (buf.includes("\n")) {
+            sock.destroy();
+            resolve();
+          }
+        });
+        sock.on("error", reject);
+        sock.setTimeout(5000, () => {
+          sock.destroy();
+          reject(new Error("read timed out"));
+        });
+      });
+
+      // Give the actor a moment to flush the audit record.
+      await new Promise((r) => setTimeout(r, 500));
+
+      const lines = (await readFile(join(targetLogDir, "requests.log"), "utf8"))
+        .split("\n")
+        .filter(Boolean);
+      expect(lines.length).toBeGreaterThan(0);
+
+      const records = lines.map((l) => JSON.parse(l));
+      const parseFail = records.find((r) => r.errorCode === -32700);
+
+      expect(parseFail).toBeDefined();
+      expect(parseFail.ok).toBe(false);
+      // method must be present and explicitly null (not omitted) so consumers
+      // don't have to branch on key presence.
+      expect(Object.prototype.hasOwnProperty.call(parseFail, "method")).toBe(true);
+      expect(parseFail.method).toBeNull();
+      expect(parseFail.paramsBytes).toBeGreaterThan(0);
+      expect(parseFail.resultBytes).toBeGreaterThan(0);
+      expect(parseFail.durationMs).toBeGreaterThanOrEqual(0);
+    } finally {
+      await manager.shutdown();
+    }
+  });
 });
 
-// Reference unused imports so the linter doesn't strip them — these are the
-// future-facing helpers if the suite grows.
-void defaultLogDir; void connect; void writeFile;
+// Reference unused imports so the linter doesn't strip them — connect is for
+// a future socket-direct test that would bypass the client wrapper.
+void connect;

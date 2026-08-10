@@ -18,6 +18,31 @@ struct RPCLogRecord: Codable, Sendable {
     let errorCode: Int?       // JSON-RPC error code when ok == false
     let paramsPreview: String // truncated preview, base64 payloads replaced by {bytes: N}
     let resultPreview: String // truncated preview, base64 payloads replaced by {bytes: N}
+
+    // Default Codable synthesis drops Optional keys when they're nil. Keep them
+    // visible — `method: null` distinguishes "the request failed to parse" from
+    // "the parser produced a method we forgot to write", and `errorCode: null`
+    // says "ok=true" without ambiguity. Same line shape for every record means
+    // downstream `jq` queries don't need to branch on key presence.
+    private enum CodingKeys: String, CodingKey {
+        case ts, connectionID, requestID, method, paramsBytes, resultBytes
+        case durationMs, ok, errorCode, paramsPreview, resultPreview
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(ts, forKey: .ts)
+        try c.encode(connectionID, forKey: .connectionID)
+        try c.encode(requestID, forKey: .requestID)
+        try c.encode(method, forKey: .method)
+        try c.encode(paramsBytes, forKey: .paramsBytes)
+        try c.encode(resultBytes, forKey: .resultBytes)
+        try c.encode(durationMs, forKey: .durationMs)
+        try c.encode(ok, forKey: .ok)
+        try c.encode(errorCode, forKey: .errorCode)
+        try c.encode(paramsPreview, forKey: .paramsPreview)
+        try c.encode(resultPreview, forKey: .resultPreview)
+    }
 }
 
 /// Persistent, rotated NDJSON audit log of every RPC call.
@@ -152,7 +177,12 @@ actor RequestLogger {
         let now = Date()
         if now.timeIntervalSince(lastDropWarning) > Self.dropWarningIntervalSeconds {
             lastDropWarning = now
-            vlog("[request-log] dropped \(droppedRecords) record(s) since startup")
+            // fputs to stderr unconditionally — these are user-visible even with
+            // --verbose off so a misconfigured log dir doesn't fail silently.
+            // Rate-limited by `dropWarningIntervalSeconds` (60s default).
+            FileHandle.standardError.write(Data(
+                "[request-log] dropped \(droppedRecords) record(s) since startup (check log dir permissions)\n".utf8
+            ))
         }
     }
 
@@ -176,6 +206,12 @@ enum RPCPreviewBuilder {
     /// `data` field on a screenshot result) are replaced by `{bytes: N}` before
     /// truncation so a screenshot call doesn't turn the log into megabytes of
     /// base64.
+    ///
+    /// Note: previews preserve plain-text fields like `fill.value` and
+    /// `extract_text` results unchanged. Tool calls with sensitive content
+    /// already leave the local box through cloud-backed agents — keeping the
+    /// local audit log faithful to what was actually sent is a deliberate
+    /// decision over a per-method redaction table. See PR #45 review.
     static func preview(of value: JSONValue?, budget: Int = 1024) -> String {
         guard let value else { return "" }
         let sanitized = redactBase64(in: value)
