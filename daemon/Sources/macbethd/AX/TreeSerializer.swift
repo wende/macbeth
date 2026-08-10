@@ -32,6 +32,13 @@ func serializeTreeAsText(_ node: AXNode, indent: Int = 0) -> String {
         result += serializeTreeAsText(child, indent: indent + 1)
     }
 
+    // Truncation marker: emitted as its own indented line so the model can
+    // recognise it without scanning the previous node's tail. The handleId
+    // is the parent — re-querying it walks the budget-exhausted subtree.
+    if let truncated = node.truncatedChildren {
+        result += "\(prefix)[truncated: ~\(truncated) more descendants — re-query with handleId \(node.handleId), maxDepth 5]\n"
+    }
+
     return result
 }
 
@@ -52,6 +59,10 @@ func serializeTreeAsJSON(_ node: AXNode) -> JSONValue {
 
     if !node.children.isEmpty {
         obj["children"] = .array(node.children.map { serializeTreeAsJSON($0) })
+    }
+
+    if let truncated = node.truncatedChildren {
+        obj["truncatedChildren"] = .number(Double(truncated))
     }
 
     return .object(obj)

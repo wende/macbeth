@@ -26,12 +26,26 @@ func registerQueryTree(
             let format = obj["format"]?.stringValue ?? "text"
             let includeInvisible = obj["includeInvisible"]?.boolValue ?? false
 
+            var budget: NodeBudget? = nil
+            if let raw = obj["maxNodes"] {
+                if case .null = raw {
+                    // Omitted as JSON null — treat as no budget (same as missing).
+                } else {
+                    guard let value = raw.intValue, value >= 1 else {
+                        throw RPCError.invalidParams(
+                            "maxNodes must be a positive integer when provided")
+                    }
+                    budget = NodeBudget(value)
+                }
+            }
+
             let tree = await walkTree(
                 root: appElement.element,
                 pid: conn.pid,
                 handleTable: handleTable,
                 maxDepth: maxDepth,
-                includeInvisible: includeInvisible
+                includeInvisible: includeInvisible,
+                budget: budget
             )
 
             let webContent = inspectWebContent(appElement.element)
