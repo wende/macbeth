@@ -159,12 +159,18 @@ final class SocketServer: Sendable {
                             fputs("[macbethd] Failed to encode response: \(error)\n", stderr)
                         }
                         if let logger {
+                            // Encode-failure records must look like failures:
+                            // the client never got a response, but `emitLog`
+                            // derives `ok` from `responseError == nil`, so
+                            // pass a synthetic internal error so the row
+                            // surfaces under `jq 'select(.ok == false)'` and
+                            // downstream alert queries.
                             Self.emitLog(
                                 logger: logger,
                                 connectionID: connectionID,
                                 method: method,
                                 responseID: response.id,
-                                responseError: nil,
+                                responseError: .internalError("encode failed: \(error)"),
                                 params: parsedParams,
                                 paramsBytes: paramsBytes,
                                 result: nil,

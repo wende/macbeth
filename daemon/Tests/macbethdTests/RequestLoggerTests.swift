@@ -198,3 +198,41 @@ private func readNDJSON(in dir: URL, file: String = "requests.log") throws -> [R
     #expect(r.errorCode == -32700)
     #expect(r.paramsBytes == 12)
 }
+
+@Test func encodeFailureRecordShape() async throws {
+    // What SocketServer emits on the response-encoding-failure branch: the
+    // client never received a response, but the audit record must still flag
+    // the failure (ok=false, errorCode=-32603 internal error) so consumers
+    // using `jq 'select(.ok == false)'` surface it.
+    let dir = try makeTempDir()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let logger = try RequestLogger(directory: dir, maxFileBytes: 1024 * 1024, maxFiles: 5)
+
+    let record = makeRecord(
+        method: "list_apps",
+        requestID: "1",
+        paramsBytes: 57,
+        resultBytes: 0,
+        ok: false,
+        errorCode: -32603
+    )
+    await logger.log(record)
+
+    let parsed = try readNDJSON(in: dir)
+    #expect(parsed.count == 1)
+    let r = parsed[0]
+    #expect(r.method == "list_apps")
+    #expect(r.requestID == "1")
+    #expect(r.ok == false)
+    #expect(r.errorCode == -32603)
+    // Sanity-check that the encoder really would have thrown for the result
+    // shape the SocketServer.encode branch would have built — pins the
+    // scenario, not just the log shape.
+    let unencodable: JSONValue = .number(.nan)
+    do {
+        _ = try JSONEncoder().encode(JSONRPCResponse(id: .number(1), result: .object(["data": unencodable])))
+        #expect(Bool(false), "JSONEncoder unexpectedly accepted Double.nan")
+    } catch {
+        // expected
+    }
+}
