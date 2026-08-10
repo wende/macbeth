@@ -18,6 +18,10 @@ Call `load_skill` with **no arguments** (or `name: "macbeth"`) to reload these i
 
 Prefer structured Accessibility actions over screenshots and keystrokes. Prefer menus over `press_key` (menus do not steal focus).
 
+## Output format
+
+Tool **results** are YAML; tool **arguments** remain JSON (MCP input schemas are JSON Schema). Read fields by key path, not by line position — paths and titles never get hard-wrapped.
+
 ## Permissions
 
 - **Accessibility** — required for almost everything. If every app is not-connectable with AX `-25211`, tell the user to grant Accessibility to the host that launched Macbeth, then restart the agent.

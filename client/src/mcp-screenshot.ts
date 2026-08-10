@@ -1,5 +1,6 @@
 import type { ScreenshotResult } from "./types.js";
 import type { SavedScreenshot } from "./screenshots.js";
+import { toModelPayload } from "./mcp-format.js";
 
 type ScreenshotRegion = {
   x: number;
@@ -32,7 +33,7 @@ export async function runScreenshotTool(
   return {
     content: [{
       type: "text" as const,
-      text: JSON.stringify(saved, null, 2),
+      text: toModelPayload(saved),
     }],
   };
 }
