@@ -82,11 +82,10 @@ func walkTree(
     var truncated: Int? = nil
 
     if !rootHasSlot {
-        let visible = includeInvisible ? getChildren(root) : getChildren(root).filter { !shouldSkipElement($0) }
+        let visible = expandPassThrough(getChildren(root), includeInvisible: includeInvisible)
         truncated = visible.count
     } else if currentDepth < maxDepth {
-        let children = getChildren(root)
-        let visibleChildren = includeInvisible ? children : children.filter { !shouldSkipElement($0) }
+        let visibleChildren = expandPassThrough(getChildren(root), includeInvisible: includeInvisible)
         var remainingForEstimate = visibleChildren.count
 
         for child in visibleChildren {
@@ -159,6 +158,41 @@ func getChildren(_ element: AXUIElement) -> [AXUIElement] {
     let result = AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &ref)
     guard result == .success, let children = ref as? [AXUIElement] else { return [] }
     return children
+}
+
+/// Flatten `shouldSkipElement` containers so the walker descends through them
+/// without minting them as nodes or charging them against the budget. Skipped
+/// containers usually hold leaf content the model still needs to discover.
+///
+/// - `includeInvisible == true` returns the input untouched.
+/// - Otherwise, recurse one level past each skipped child to surface its
+///   descendants; children that themselves are skipped get expanded again.
+@inline(__always)
+func expandPassThrough(
+    _ elements: [AXUIElement],
+    includeInvisible: Bool
+) -> [AXUIElement] {
+    guard !includeInvisible else { return elements }
+    var result: [AXUIElement] = []
+    result.reserveCapacity(elements.count)
+    for element in elements {
+        if shouldSkipElement(element) {
+            let grandChildren = getChildren(element)
+            if grandChildren.isEmpty {
+                // No grandchildren — keep the original element so it isn't lost.
+                // Emitting a would-be-skipped node here is consistent with the
+                // previous behaviour (the container was omitted, but its content
+                // was kept); with no content to keep, this branch should not
+                // fire because shouldSkipElement already returns false for
+                // 0-child groups.
+                continue
+            }
+            result.append(contentsOf: expandPassThrough(grandChildren, includeInvisible: false))
+        } else {
+            result.append(element)
+        }
+    }
+    return result
 }
 
 /// Determine if an element should be skipped in the filtered tree.

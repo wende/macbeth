@@ -35,8 +35,12 @@ func serializeTreeAsText(_ node: AXNode, indent: Int = 0) -> String {
     // Truncation marker: emitted as its own indented line so the model can
     // recognise it without scanning the previous node's tail. The handleId
     // is the parent — re-querying it walks the budget-exhausted subtree.
+    // Recommend a higher maxNodes (the budget that ran out), never maxDepth:
+    // telling the model to re-query with maxDepth 5 made it loop on the same
+    // root-only marker.
     if let truncated = node.truncatedChildren {
-        result += "\(prefix)[truncated: ~\(truncated) more descendants — re-query with handleId \(node.handleId), maxDepth 5]\n"
+        let recommended = max(truncated + 1, (node.children.count + 1) * 2)
+        result += "\(prefix)[truncated: ~\(truncated) more descendants — re-query with handleId \(node.handleId), maxNodes \(recommended) or higher]\n"
     }
 
     return result

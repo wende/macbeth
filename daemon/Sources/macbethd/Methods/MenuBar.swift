@@ -234,7 +234,10 @@ private func serializeMenuBar(_ menuBar: AXUIElement, regex: NSRegularExpression
             if let menu = childMenu(of: item) {
                 let before = lines.count
                 appendMenu(menu, depth: 1, lines: &lines, regex: regex)
-                if lines.count > before {
+                // Keep the top-level item if any descendant matched OR its
+                // own title matches — matches-without-descendants would
+                // otherwise be silently lost.
+                if lines.count > before || titleMatches(title, regex: regex) {
                     lines.insert(title, at: before)
                 }
             } else if titleMatches(title, regex: regex) {

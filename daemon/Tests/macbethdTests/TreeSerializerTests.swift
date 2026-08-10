@@ -70,11 +70,48 @@ private func leaf(handle: String, role: String = "AXButton", title: String? = ni
     let text = serializeTreeAsText(root)
     #expect(text.contains("[truncated: ~42 more descendants"))
     #expect(text.contains("re-query with handleId h_0"))
+    // Both reviewers flagged the old marker — it steered the model to
+    // "re-query with maxDepth 5", but the truncation cause is the maxNodes
+    // budget. The new wording recommends a higher maxNodes instead.
+    #expect(text.contains("maxNodes"))
+    #expect(!text.contains("maxDepth 5"))
     // Marker is its own indented line — the parent line should not include
     // the marker so the model can scan for it independently.
     let lines = text.split(separator: "\n").map(String.init)
     let markerLines = lines.filter { $0.contains("[truncated:") }
     #expect(markerLines.count == 1)
+}
+
+@Test func parseMaxNodesRejectsFloatsAndZero() throws {
+    // Integer survives.
+    let ok = try parseMaxNodes(JSONValue.number(5))
+    #expect(ok != nil)
+    #expect(ok?.tryConsume() == true)
+    #expect(ok?.tryConsume() == true)
+
+    // Floats must be rejected — intValue used to silently truncate 1.5 → 1.
+    #expect(throws: RPCError.self) {
+        _ = try parseMaxNodes(JSONValue.number(1.5))
+    }
+    #expect(throws: RPCError.self) {
+        _ = try parseMaxNodes(JSONValue.number(99.9))
+    }
+
+    // Sub-1 integers and JSON null are out.
+    #expect(throws: RPCError.self) {
+        _ = try parseMaxNodes(JSONValue.number(0))
+    }
+    #expect(throws: RPCError.self) {
+        _ = try parseMaxNodes(JSONValue.number(-3))
+    }
+    let stringy = JSONValue.string("5")
+    #expect(throws: RPCError.self) {
+        _ = try parseMaxNodes(stringy)
+    }
+
+    // Missing and null omit budget.
+    #expect(try parseMaxNodes(nil) == nil)
+    #expect(try parseMaxNodes(JSONValue.null) == nil)
 }
 
 @Test func serializeJSONEmitsTruncatedChildrenField() {

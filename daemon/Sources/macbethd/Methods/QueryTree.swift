@@ -1,6 +1,27 @@
 @preconcurrency import ApplicationServices
 import Foundation
 
+/// Parse the `maxNodes` JSON value into a `NodeBudget`. Returns nil when no
+/// budget applies (omitted or JSON null). Floats and sub-1 values throw.
+func parseMaxNodes(_ raw: JSONValue?) throws -> NodeBudget? {
+    guard let raw else { return nil }
+    if case .null = raw { return nil }
+    guard let n = raw.numberValue else {
+        throw RPCError.invalidParams(
+            "maxNodes must be a positive integer when provided")
+    }
+    let value = Int(n)
+    // Reject non-integers up front: intValue does `Int(n)` and silently
+    // truncates 1.5 → 1, so without this guard the daemon would enforce a
+    // value the caller never asked for.
+    guard n.truncatingRemainder(dividingBy: 1) == 0,
+          value >= 1 else {
+        throw RPCError.invalidParams(
+            "maxNodes must be a positive integer when provided")
+    }
+    return NodeBudget(value)
+}
+
 /// Register the query_tree RPC method.
 func registerQueryTree(
     dispatcher: Dispatcher,
@@ -28,15 +49,7 @@ func registerQueryTree(
 
             var budget: NodeBudget? = nil
             if let raw = obj["maxNodes"] {
-                if case .null = raw {
-                    // Omitted as JSON null — treat as no budget (same as missing).
-                } else {
-                    guard let value = raw.intValue, value >= 1 else {
-                        throw RPCError.invalidParams(
-                            "maxNodes must be a positive integer when provided")
-                    }
-                    budget = NodeBudget(value)
-                }
+                budget = try parseMaxNodes(raw)
             }
 
             let tree = await walkTree(
