@@ -118,6 +118,7 @@ export class AppHandle extends Locator {
       maxDepth: options?.maxDepth ?? 5,
       format: options?.format ?? "text",
       includeInvisible: options?.includeInvisible ?? false,
+      ...(options?.pin ? { pin: true } : {}),
     });
     return {
       tree: typeof result.tree === "string"
