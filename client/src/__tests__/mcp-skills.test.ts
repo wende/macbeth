@@ -8,6 +8,8 @@ import {
   DEFAULT_SKILL_NAME,
   listSkills,
   loadSkill,
+  parseFrontmatterDescription,
+  parseSkillMeta,
   resolveSkillName,
   resolveSkillScriptPath,
 } from "../mcp-skills.js";
@@ -132,6 +134,46 @@ describe("listSkills", () => {
     expect(result.isError).toBeUndefined();
     expect(result.content[0]!.text).toContain("**macbeth**: How to use Macbeth MCP tools");
     expect(result.content[0]!.text).toContain("**electron**: Electron apps");
+  });
+
+  it("surfaces YAML block-scalar descriptions in list_skills", async () => {
+    const skillsDir = makeSkillsDir({
+      Notes: {
+        md:
+          "---\nname: notes\ndescription: |\n  Create and append notes.\n  Prefer AX over AppleScript.\n---\n\n# Notes\n",
+      },
+    });
+
+    const meta = await parseSkillMeta(skillsDir, "Notes");
+    expect(meta?.description).toBe("Create and append notes.\nPrefer AX over AppleScript.");
+
+    const result = await listSkills(skillsDir);
+    expect(result.content[0]!.text).toContain(
+      "**Notes**: Create and append notes.\nPrefer AX over AppleScript."
+    );
+  });
+});
+
+describe("parseFrontmatterDescription", () => {
+  it("reads a single-line description", () => {
+    expect(parseFrontmatterDescription("name: x\ndescription: Hello world\n", "fb")).toBe(
+      "Hello world"
+    );
+  });
+
+  it("reads a literal block scalar and stops before the next top-level key", () => {
+    const fm = "name: safari\ndescription: |\n  Line one\n  Line two\nother: value\n";
+    expect(parseFrontmatterDescription(fm, "fb")).toBe("Line one\nLine two");
+  });
+
+  it("folds a `>` block scalar onto one line per paragraph", () => {
+    const fm = "description: >\n  Hello\n  world\n\n  Next para\n";
+    expect(parseFrontmatterDescription(fm, "fb")).toBe("Hello world\nNext para");
+  });
+
+  it("falls back when description is missing or an empty block", () => {
+    expect(parseFrontmatterDescription("name: only\n", "Skill: x")).toBe("Skill: x");
+    expect(parseFrontmatterDescription("description: |\nname: x\n", "Skill: x")).toBe("Skill: x");
   });
 });
 

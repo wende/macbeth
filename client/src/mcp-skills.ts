@@ -70,6 +70,64 @@ export async function listSkillScripts(
   }
 }
 
+/**
+ * Read a skill frontmatter `description`, including YAML block scalars
+ * (`description: |` / `description: >` with indented continuation lines).
+ * Stops at the next top-level key or end of the frontmatter block.
+ */
+export function parseFrontmatterDescription(
+  frontmatter: string,
+  fallback: string
+): string {
+  const lines = frontmatter.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const header = lines[i]!.match(/^description:\s*(.*)$/);
+    if (!header) continue;
+
+    const rest = header[1] ?? "";
+    const block = rest.match(/^([|>])(.*)$/);
+    if (!block) {
+      return rest.trim() || fallback;
+    }
+
+    const indicator = block[1]!;
+    const body: string[] = [];
+    for (let j = i + 1; j < lines.length; j++) {
+      const line = lines[j]!;
+      // Next top-level key (non-empty, non-indented) ends the block.
+      if (line.length > 0 && !/^[ \t]/.test(line)) break;
+      body.push(line);
+    }
+
+    const indents = body
+      .filter((line) => line.trim().length > 0)
+      .map((line) => line.match(/^[ \t]*/)?.[0]?.length ?? 0);
+    const minIndent = indents.length > 0 ? Math.min(...indents) : 0;
+    const dedented = body.map((line) => line.slice(minIndent));
+
+    if (indicator === ">") {
+      const paragraphs: string[] = [];
+      let current: string[] = [];
+      for (const line of dedented) {
+        if (line.trim() === "") {
+          if (current.length > 0) {
+            paragraphs.push(current.join(" "));
+            current = [];
+          }
+        } else {
+          current.push(line.trimEnd());
+        }
+      }
+      if (current.length > 0) paragraphs.push(current.join(" "));
+      return paragraphs.join("\n").trim() || fallback;
+    }
+
+    return dedented.join("\n").trim() || fallback;
+  }
+
+  return fallback;
+}
+
 export async function parseSkillMeta(
   skillsDir: string,
   skillDir: string
@@ -77,11 +135,10 @@ export async function parseSkillMeta(
   try {
     const content = await readFile(join(skillsDir, skillDir, "SKILL.md"), "utf-8");
     const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
-    let description = `Skill: ${skillDir}`;
-    if (fmMatch) {
-      const descLine = fmMatch[1].match(/^description:\s*(.+)$/m);
-      if (descLine) description = descLine[1].trim();
-    }
+    const fallback = `Skill: ${skillDir}`;
+    const description = fmMatch
+      ? parseFrontmatterDescription(fmMatch[1]!, fallback)
+      : fallback;
     const scripts = await listSkillScripts(skillsDir, skillDir);
     return { name: skillDir, description, scripts };
   } catch {
