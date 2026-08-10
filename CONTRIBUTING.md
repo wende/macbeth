@@ -76,7 +76,7 @@ Generic compatibility is not the same as a dedicated skill. Do not mark an appli
 
 ### 4. Validate discovery and execution
 
-Confirm that `list_skills` finds the new directory, `load_skill` renders its instructions and script metadata, and every included script runs from the repository root. Test read-only workflows first, then any mutating workflow against disposable data.
+Confirm that `list_skills` finds the new directory, `load_skill` renders its instructions and script metadata (`load_skill` with no arguments must still return the core macbeth skill), and every included script runs from the repository root. Test read-only workflows first, then any mutating workflow against disposable data.
 
 ## Pull requests
 

@@ -1,6 +1,6 @@
 # Developing with Macbeth
 
-Playwright-style TypeScript client for native macOS and Electron apps. For MCP setup and product overview, see the [root README](../README.md).
+Playwright-style TypeScript client for native macOS and Electron apps. For MCP setup and product overview, see the [root README](../README.md). Agents driving macOS through MCP tools should load the [core macbeth skill](macbeth/SKILL.md) (`load_skill` with no arguments) rather than this TypeScript API guide.
 
 ## Install
 
