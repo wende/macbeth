@@ -25,13 +25,15 @@ func registerQueryTree(
             let maxDepth = obj["maxDepth"]?.intValue ?? 5
             let format = obj["format"]?.stringValue ?? "text"
             let includeInvisible = obj["includeInvisible"]?.boolValue ?? false
+            let pin = obj["pin"]?.boolValue ?? false
 
             let tree = await walkTree(
                 root: appElement.element,
                 pid: conn.pid,
                 handleTable: handleTable,
                 maxDepth: maxDepth,
-                includeInvisible: includeInvisible
+                includeInvisible: includeInvisible,
+                pin: pin
             )
 
             let webContent = inspectWebContent(appElement.element)

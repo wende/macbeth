@@ -35,11 +35,17 @@ struct QueryPath: Sendable {
 
 /// Resolve a query path against the AX tree, returning the matching element and its handle.
 /// Each step searches all descendants recursively (like Playwright's locators).
+///
+/// `pin`: when true, the minted handle uses the longer pinned TTL window (default 60 min,
+/// refreshed on use). Callers that intend to keep using the handle across an agent pause
+/// or multi-step form fill should pin at mint time — cheaper than a separate `pin_handle`
+/// round trip and covers the whole returned handle set at once.
 func resolveQuery(
     path: QueryPath,
     root: AXUIElement,
     pid: pid_t,
-    handleTable: HandleTable
+    handleTable: HandleTable,
+    pin: Bool = false
 ) async throws -> (AXUIElement, String) {
     var current = root
 
@@ -61,7 +67,8 @@ func resolveQuery(
     let handleId = await handleTable.store(
         SendableElement(current),
         pid: pid,
-        fingerprint: ElementFingerprint.capture(current)
+        fingerprint: ElementFingerprint.capture(current),
+        pinned: pin
     )
     return (current, handleId)
 }
@@ -71,9 +78,10 @@ func tryResolveQuery(
     path: QueryPath,
     root: AXUIElement,
     pid: pid_t,
-    handleTable: HandleTable
+    handleTable: HandleTable,
+    pin: Bool = false
 ) async -> (AXUIElement, String)? {
-    try? await resolveQuery(path: path, root: root, pid: pid, handleTable: handleTable)
+    try? await resolveQuery(path: path, root: root, pid: pid, handleTable: handleTable, pin: pin)
 }
 
 // MARK: - Error hints

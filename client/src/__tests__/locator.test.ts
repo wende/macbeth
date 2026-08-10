@@ -185,13 +185,10 @@ describe("Locator", () => {
     expect(calls.map((c) => c[0])).toEqual([
       "get_element", "pin_handle",   // scope()
       "click",                       // fails: stale handle
-      "get_element", "pin_handle",   // rediscover
-      "unpin_handle",                // release the retired handle
+      "get_element", "pin_handle",   // rediscover — previous handle now ages out on its own
       "click",                       // retry
     ]);
     expect(calls.at(-1)?.[1]).toMatchObject({ handleId: "h_2" });
-    const unpinCall = calls.find((c) => c[0] === "unpin_handle");
-    expect(unpinCall?.[1]).toMatchObject({ handleId: "h_1" });
   });
 
   it("does not retry a second stale failure — it fails fast instead of recursing forever", async () => {
@@ -217,7 +214,7 @@ describe("Locator", () => {
     // Exactly one retry: scope() + first click + one rediscover + retry click. An app
     // that keeps recycling the element faster than we can resolve it must not hang the
     // caller in unbounded recursion.
-    expect(methods).toEqual(["get_element", "pin_handle", "click", "get_element", "pin_handle", "unpin_handle", "click"]);
+    expect(methods).toEqual(["get_element", "pin_handle", "click", "get_element", "pin_handle", "click"]);
   });
 
   /**
@@ -277,7 +274,6 @@ describe("Locator", () => {
       "click",                       // fails: unknown_handle
       "connect_app",                 // the old app handle is dead too
       "get_element", "pin_handle",   // replay the query against the new app root
-      "unpin_handle",                // release the pre-restart handle
       "click",                       // retry
     ]);
     // Both ids are refreshed — replaying the query against the stale app handle would
@@ -329,7 +325,6 @@ describe("Locator", () => {
       "get_element",                 // replay rejected: app handle is gone
       "connect_app",
       "get_element", "pin_handle",   // replay against the new app root
-      "unpin_handle",                // release the pre-reconnect handle
       "click",
     ]);
     expect(calls.at(-1)?.[1]).toMatchObject({ appHandle: "app_2" });

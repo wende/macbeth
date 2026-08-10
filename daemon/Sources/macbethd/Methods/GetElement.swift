@@ -31,9 +31,11 @@ func registerGetElement(
                 throw RPCError.invalidParams("Missing 'query' or 'handleId'")
             }
 
+            let pin = obj["pin"]?.boolValue ?? false
             let path = QueryPath(steps: querySteps)
             let (element, handleId) = try await resolveQuery(
-                path: path, root: appElement.element, pid: conn.pid, handleTable: handleTable
+                path: path, root: appElement.element, pid: conn.pid, handleTable: handleTable,
+                pin: pin
             )
 
             return elementInfoJSON(element, handleId: handleId)

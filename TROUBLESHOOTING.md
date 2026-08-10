@@ -210,9 +210,11 @@ it. Locators built through the client re-resolve and retry automatically. If you
 are driving raw `h_N` handles from `query_tree`, they carry no query path — the
 error tells you to re-run `query_tree` and use the fresh handle.
 
-Handles also expire after **5 minutes** of inactivity. For long-lived
-references, `pin_handle` exempts a handle from expiry (and `Locator.scope()`
-pins automatically).
+Handles also expire after **5 minutes** of inactivity (60 minutes when pinned),
+refreshed on every use. For long-lived references, use `pin_handle` (bulk: `handleIds[]`)
+or — preferably — pass `pin: true` to `read_form`, `query_tree`, or `get_element` at
+mint time. `Locator.scope()` pins automatically. Pins are finite: there is no
+`unpin_handle`, abandoned pins age out on their own.
 
 ## Menu automation or AppleScript times out
 

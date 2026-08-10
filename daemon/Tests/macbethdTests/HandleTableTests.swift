@@ -227,19 +227,50 @@ private func fingerprint(role: String? = nil, subrole: String? = nil, identifier
 }
 
 @Test func pinnedHandlesSurviveExpiryAndKeepTheirId() async {
-    let table = HandleTable(ttl: 0)
+    // Pinned TTL is longer than base TTL but still finite: a pinned handle ages out
+    // after the pinned window passes without activity. (There is no `unpin` —
+    // abandoning the pin is the way to release it.)
+    let table = HandleTable(ttl: 0, pinnedTTL: 0.05)
     let element = appElement(4242)
     let handleId = await table.store(element, pid: 4242)
     #expect(await table.pin(handleId))
 
+    // Past the base TTL but within the pinned window — handle is still live.
     try? await Task.sleep(for: .milliseconds(10))
     await table.expireStale()
-
     #expect(describe(await table.classify(handleId)) == "found")
     #expect(await table.store(element, pid: 4242) == handleId)
 
-    #expect(await table.unpin(handleId))
-    try? await Task.sleep(for: .milliseconds(10))
+    // Past the pinned TTL — handle has aged out.
+    try? await Task.sleep(for: .milliseconds(60))
+    await table.expireStale()
+    #expect(describe(await table.classify(handleId)) == "stale:expired")
+}
+
+@Test func pinRefreshesOnUse() async {
+    // The pin window is measured from the most recent activity, not from pin-time —
+    // a lookup past the pinned TTL refreshes the handle and keeps it alive.
+    let table = HandleTable(ttl: 60, pinnedTTL: 0.05)
+    let element = appElement(4242)
+    let handleId = await table.store(element, pid: 4242)
+    #expect(await table.pin(handleId))
+
+    // Past the original pinned TTL: handle is still live because lookup refreshes
+    // both lastAccessed and pinnedUntil. A sweep immediately after the refresh
+    // must not retire it.
+    try? await Task.sleep(for: .milliseconds(60))
+    _ = await table.lookup(handleId)
+    await table.expireStale()
+    #expect(describe(await table.classify(handleId)) == "found")
+}
+
+@Test func storeWithPinnedTrueSetsWindow() async {
+    let table = HandleTable(ttl: 60, pinnedTTL: 0.05)
+    let element = appElement(4242)
+    let handleId = await table.store(element, pid: 4242, pinned: true)
+
+    // Past the pinned TTL the freshly-stored pin window has expired.
+    try? await Task.sleep(for: .milliseconds(60))
     await table.expireStale()
     #expect(describe(await table.classify(handleId)) == "stale:expired")
 }
@@ -247,7 +278,6 @@ private func fingerprint(role: String? = nil, subrole: String? = nil, identifier
 @Test func pinningAnUnknownHandleFails() async {
     let table = HandleTable(ttl: 60)
     #expect(await table.pin("h_999") == false)
-    #expect(await table.unpin("h_999") == false)
 }
 
 @Test func theFirstInvalidationReasonWins() async {
@@ -286,10 +316,10 @@ private func fingerprint(role: String? = nil, subrole: String? = nil, identifier
 // MARK: - handleLookupError
 
 @Test func handleLookupErrorReportsARevivedHandleAsRecoverable() async {
-    // pin_handle/unpin_handle look the handle up without a liveness check. If the entry
-    // comes back `.found` on the follow-up classify (a concurrent call revived it between
-    // the failed operation and this lookup), that is still recoverable by re-resolving —
-    // it needs a typed staleHandle code, or a caller on the typed-codes path re-throws
+    // pin_handle looks the handle up without a liveness check. If the entry comes back
+    // `.found` on the follow-up classify (a concurrent call revived it between the
+    // failed pin and this lookup), that is still recoverable by re-resolving — it
+    // needs a typed staleHandle code, or a caller on the typed-codes path re-throws
     // instead of retrying.
     let table = HandleTable(ttl: 60)
     let handleId = await table.store(appElement(4242), pid: 4242, fingerprint: fingerprint(role: "AXButton"))

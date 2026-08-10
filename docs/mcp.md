@@ -90,7 +90,7 @@ npx macbeth update --check  # report only
 | `press_keys` | Activate target app, send a key sequence, report the dispatch outcome |
 | `screenshot` | Capture the default visible window or a window selected by `list_windows` ID |
 | `extract_text` | OCR the default visible window, a selected window ID, or a supplied PNG |
-| `pin_handle` / `unpin_handle` | Control element-handle expiry |
+| `pin_handle` | Extend a handle's idle TTL to 60 min (refreshed on use). Singular `handleId` or bulk `handleIds[]`. Prefer `pin: true` on `read_form` / `query_tree` / `get_element` when you know at mint time. Pins are finite — there is no unpin. |
 | `list_menu_bar` / `select_menu_item` | Compactly inspect and select native menu items through AX; `query_tree` usually makes the list call unnecessary |
 | `run_applescript` | AppleScript or JXA (interactive or read-only), with a per-call `timeout` in seconds (default 30, max 300) |
 | `list_shortcuts` / `run_shortcut` | Inspect and run Apple Shortcuts |
@@ -122,8 +122,8 @@ register (`kind` explains which is which — useful when a window you expected t
 capture is missing).
 
 **`windowId` is not an element handle.** It is a WindowServer ID issued by
-macOS: it has no 5-minute TTL, is unaffected by `pin_handle` / `unpin_handle`,
-and survives daemon restarts. It stays valid until the window closes; a reopened
+macOS: it has no TTL, is unaffected by `pin_handle`, and survives daemon restarts.
+It stays valid until the window closes; a reopened
 window gets a new ID. Element handles from `query_tree` / `get_element` (`h_0`,
 `h_1`, …) are the ones that expire.
 

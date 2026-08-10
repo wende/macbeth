@@ -16,13 +16,18 @@ struct AXNode: Sendable {
 }
 
 /// Walk the AX element tree starting from a root element.
+///
+/// `pin`: when true, every handle minted in the walk uses the longer pinned TTL window
+/// (default 60 min, refreshed on use). Useful when the caller intends to operate on the
+/// returned handles later rather than immediately.
 func walkTree(
     root: AXUIElement,
     pid: pid_t,
     handleTable: HandleTable,
     maxDepth: Int = 10,
     includeInvisible: Bool = false,
-    currentDepth: Int = 0
+    currentDepth: Int = 0,
+    pin: Bool = false
 ) async -> AXNode {
     // Keep the raw optional for the fingerprint: substituting "unknown" for a failed read
     // would look like a role change on the next walk and retire a perfectly good handle.
@@ -41,7 +46,8 @@ func walkTree(
     let handleId = await handleTable.store(
         SendableElement(root),
         pid: pid,
-        fingerprint: ElementFingerprint(role: rawRole, subrole: subrole, identifier: identifier)
+        fingerprint: ElementFingerprint(role: rawRole, subrole: subrole, identifier: identifier),
+        pinned: pin
     )
 
     var childNodes: [AXNode] = []
@@ -58,7 +64,8 @@ func walkTree(
                         handleTable: handleTable,
                         maxDepth: maxDepth,
                         includeInvisible: includeInvisible,
-                        currentDepth: currentDepth + 1
+                        currentDepth: currentDepth + 1,
+                        pin: pin
                     )
                     childNodes.append(node)
                 }
@@ -69,7 +76,8 @@ func walkTree(
                     handleTable: handleTable,
                     maxDepth: maxDepth,
                     includeInvisible: includeInvisible,
-                    currentDepth: currentDepth + 1
+                    currentDepth: currentDepth + 1,
+                    pin: pin
                 )
                 childNodes.append(node)
             }

@@ -127,6 +127,8 @@ export interface TreeOptions {
   maxDepth?: number;
   format?: "text" | "json";
   includeInvisible?: boolean;
+  /** Pin every minted handle with a 60-min idle TTL (refreshed on use). */
+  pin?: boolean;
 }
 
 export interface ElementInfo {

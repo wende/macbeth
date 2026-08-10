@@ -45,7 +45,7 @@ TypeScript Client ←→ macbethd (Swift) ←→ macOS Accessibility API
 
 ### Daemon (`daemon/Sources/macbethd/`)
 
-- `AX/HandleTable.swift` — Opaque element handles (`h_0`, `h_1`, ...) with 5-min TTL
+- `AX/HandleTable.swift` — Opaque element handles (`h_0`, `h_1`, ...) with 5-min idle TTL (60 min when pinned)
 - `AX/AppConnection.swift` — App connection with fuzzy name matching
 - `AX/TreeWalker.swift` + `TreeSerializer.swift` — Recursive AX tree traversal and output
 - `AX/ElementQuery.swift` — Resolves locator query paths to AX elements
@@ -205,10 +205,13 @@ when storing; a contradiction on resolve means the app recycled the reference fo
 different element, and the handle is retired instead of resolving to the wrong control.
 Title and value are excluded from identity on purpose.
 
-Handles expire after 5 minutes of inactivity. Use `pin_handle` to exempt long-lived
-references. `Locator.scope()` pins automatically and rediscovers on expiry. Handles
-are daemon-local — if the daemon crashes, all handles are invalidated (the client
-auto-reconnects and re-spawns the daemon transparently).
+Handles expire after 5 minutes of inactivity (60 minutes when pinned), refreshed on
+every use. Use `pin_handle` (bulk: `handleIds[]`) or — preferably — pass `pin: true` on
+`read_form`, `query_tree`, or `get_element` when you know at mint time. `Locator.scope()`
+pins automatically and rediscovers on expiry. Pins are *finite*: there is no `unpin_handle`,
+abandoned pins age out on their own. Handles are daemon-local — if the daemon crashes,
+all handles are invalidated (the client auto-reconnects and re-spawns the daemon
+transparently).
 
 Resolution goes through `resolveLiveHandle` (`AX/HandleResolution.swift`), which returns
 three outcomes rather than one nil: live, `stale_handle` (-32010, with `data.reason` =

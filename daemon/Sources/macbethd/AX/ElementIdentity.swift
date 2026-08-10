@@ -142,8 +142,9 @@ enum HandleInvalidation: String, Sendable {
     var recovery: String {
         switch self {
         case .expired:
-            "The handle passed its idle TTL. Re-resolve it from its query path, or pin it "
-            + "with pin_handle if it must outlive the TTL."
+            "The handle passed its idle TTL (5 min, or 60 min when pinned). Re-resolve it "
+            + "from its query path, or pass `pin: true` when minting it (read_form, "
+            + "query_tree, get_element) to extend the TTL."
         case .destroyed:
             "The app destroyed the element (typically a re-render). Re-resolve it from its "
             + "query path, or re-run query_tree."

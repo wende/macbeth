@@ -79,3 +79,14 @@ func handleLookupError(_ handleId: String, _ outcome: HandleTable.Lookup) -> RPC
         )
     }
 }
+
+/// Per-id error code string for a failed entry in a bulk `pin_handle` result. Mirrors
+/// the code path a single failed pin would throw, without the full message — bulk
+/// callers just need to know "this id couldn't be pinned" and the typed reason.
+func bulkPinErrorCode(id: String, classify: HandleTable.Lookup) -> String {
+    switch classify {
+    case .unknown: return "unknown_handle"
+    case .stale(let reason): return "stale_handle: \(reason.rawValue)"
+    case .found: return "stale_handle: transient"
+    }
+}

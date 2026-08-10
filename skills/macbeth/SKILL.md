@@ -128,14 +128,16 @@ Neither proves the app acted. Confirm with `query_tree`, `wait_for`, or `screens
 { "name": "extract_text", "arguments": { "app": "Unity", "windowId": 42 } }
 ```
 
-**`windowId` ≠ element handle.** It is a WindowServer ID: no 5-minute TTL, ignores `pin_handle`, survives daemon restarts, valid until the window closes. Element handles (`h_0`, …) expire.
+**`windowId` ≠ element handle.** It is a WindowServer ID: no TTL, ignores `pin_handle`, survives daemon restarts, valid until the window closes. Element handles (`h_0`, …) expire.
 
 Default listing hides menu-bar strips and overlays; pass `includeAllSurfaces: true` when a surface you need is missing.
 
 ## Handles
 
 - Element handles (`h_N`) are **canonical** — the same element keeps the same id across `query_tree` calls while it lives.
-- Idle TTL is **5 minutes**. `pin_handle` / `unpin_handle` control expiry for long workflows.
+- Idle TTL is **5 minutes** (60 min when pinned), refreshed on every use.
+- Pin handles when you'll return to them later rather than immediately: pass `pin: true` to `read_form` (pins every returned field), `query_tree`, or `get_element` — one call, zero extra tool invocations. Use `pin_handle` with `handleIds: [...]` for the decided-later case.
+- There is **no `unpin_handle`**: pins are finite and age out on their own.
 - Prefer query-based actions (they re-resolve) over caching raw handles, especially in Electron.
 - Errors:
   - `stale_handle` — element gone (`expired` / `destroyed` / `recycled` / `app_terminated`). Re-run `query_tree` or re-resolve the query.

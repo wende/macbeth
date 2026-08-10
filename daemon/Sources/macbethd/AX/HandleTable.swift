@@ -10,6 +10,11 @@ import Foundation
 ///
 /// Ids are never reused: once a handle is invalidated its id stays dead, so a caller
 /// holding a stale id gets a stale-handle error rather than someone else's element.
+///
+/// Pins are *finite*: a pinned handle gets a longer inactivity TTL (default 60 min,
+/// refreshed on every use) instead of being exempt from expiry entirely. Abandoned pins
+/// self-clean, so there is no separate unpin path — `pin_handle` and `pin: true` at the
+/// minting methods are the only entry points.
 actor HandleTable {
     struct Entry {
         let element: SendableElement
@@ -18,7 +23,10 @@ actor HandleTable {
         var fingerprint: ElementFingerprint
         let createdAt: Date
         var lastAccessed: Date
-        var pinned: Bool
+        /// `nil` for a normal handle; otherwise the handle is pinned and uses `pinnedTTL`
+        /// as its inactivity window. `pinnedUntil` itself is informational — the sweep
+        /// works off `lastAccessed + window` so lookups extend the lifetime.
+        var pinnedUntil: Date?
     }
 
     /// The three outcomes a caller must distinguish. `stale` means "this was a real
@@ -41,10 +49,12 @@ actor HandleTable {
     private var invalidationOrder: [String] = []
     private var nextId: UInt64 = 0
     private let ttl: TimeInterval
+    private let pinnedTTL: TimeInterval
     private let maxInvalidationRecords: Int
 
-    init(ttl: TimeInterval = 300, maxInvalidationRecords: Int = 4096) {
+    init(ttl: TimeInterval = 300, pinnedTTL: TimeInterval = 3600, maxInvalidationRecords: Int = 4096) {
         self.ttl = ttl
+        self.pinnedTTL = pinnedTTL
         self.maxInvalidationRecords = max(1, maxInvalidationRecords)
     }
 
@@ -71,7 +81,11 @@ actor HandleTable {
                 invalidate(existingId, reason: .recycled)
             } else {
                 entry.lastAccessed = now
-                entry.pinned = entry.pinned || pinned
+                // Pin is a class marker, not a max — a re-mint with `pinned: true`
+                // refreshes the pin window to "now" (mirroring the lastAccessed
+                // refresh); a re-mint with `pinned: false` preserves any existing pin
+                // (analogous to `pinned = pinned || ...`).
+                if pinned { entry.pinnedUntil = now.addingTimeInterval(pinnedTTL) }
                 // Merge rather than replace: a read where AXIdentifier happened to fail
                 // must not erase the identifier already on record, or a later recycled
                 // reference would have nothing left to contradict.
@@ -90,20 +104,30 @@ actor HandleTable {
             fingerprint: fingerprint,
             createdAt: now,
             lastAccessed: now,
-            pinned: pinned
+            pinnedUntil: pinned ? now.addingTimeInterval(pinnedTTL) : nil
         )
         index[key] = id
         return id
     }
 
-    /// Resolve a handle id, refreshing its last-accessed time on a hit.
+    /// Resolve a handle id, refreshing its activity timestamp on a hit.
+    ///
+    /// On a hit, refreshes `lastAccessed` (drives the base TTL) and — for a pinned
+    /// handle — extends `pinnedUntil` to `now + pinnedTTL` as well. That matches the
+    /// "I'm about to use this" signal: a caller that pins a handle, comes back to
+    /// operate on it past the original pin deadline, and uses it again should see the
+    /// pin window extend, not the handle expire under them.
     ///
     /// This is a pure table lookup — it never talks to the app. Liveness checking lives
     /// in `resolveLiveHandle`, outside the actor, so one unresponsive app cannot stall
     /// every other handle operation.
     func lookup(_ handleId: String) -> Lookup {
+        let now = Date()
         if var entry = handles[handleId] {
-            entry.lastAccessed = Date()
+            entry.lastAccessed = now
+            if entry.pinnedUntil != nil {
+                entry.pinnedUntil = now.addingTimeInterval(pinnedTTL)
+            }
             handles[handleId] = entry
             return .found(entry.element, entry.fingerprint)
         }
@@ -136,33 +160,33 @@ actor HandleTable {
         recordInvalidation(handleId, reason)
     }
 
-    /// Pin a handle so it won't expire.
+    /// Extend a handle's idle TTL to `pinnedTTL` (default 60 min), refreshed on each use.
+    /// Returns `false` if the id is unknown or has already been invalidated.
     func pin(_ handleId: String) -> Bool {
         guard var entry = handles[handleId] else { return false }
-        entry.pinned = true
-        entry.lastAccessed = Date()
+        let now = Date()
+        entry.pinnedUntil = now.addingTimeInterval(pinnedTTL)
+        entry.lastAccessed = now
         handles[handleId] = entry
         return true
     }
 
-    /// Unpin a handle, resuming normal TTL expiry.
-    func unpin(_ handleId: String) -> Bool {
-        guard var entry = handles[handleId] else { return false }
-        entry.pinned = false
-        entry.lastAccessed = Date()
-        handles[handleId] = entry
-        return true
-    }
-
-    /// Remove handles not accessed within the TTL (skips pinned handles).
+    /// Remove handles whose `lastAccessed + window` has passed. Pinned handles use the
+    /// longer `pinnedTTL` window — pinning does not exempt a handle from expiry, it
+    /// just gives it more slack to age out on.
     ///
     /// Expired ids are not recorded individually — `classify` infers `.expired` from the
     /// id watermark, which costs nothing and cannot grow without bound.
     func expireStale() {
-        let cutoff = Date().addingTimeInterval(-ttl)
+        let now = Date()
+        let baseCutoff = now.addingTimeInterval(-ttl)
+        let pinCutoff = now.addingTimeInterval(-pinnedTTL)
         // Collect ids first: removing from `handles` while iterating it is unsupported —
         // mutation invalidates the in-progress iterator.
-        let expiredIds = handles.filter { !$0.value.pinned && $0.value.lastAccessed <= cutoff }.keys
+        let expiredIds = handles.filter { _, entry in
+            let cutoff = entry.pinnedUntil != nil ? pinCutoff : baseCutoff
+            return entry.lastAccessed <= cutoff
+        }.keys
         for id in expiredIds {
             guard let entry = handles.removeValue(forKey: id) else { continue }
             if index[entry.key] == id { index.removeValue(forKey: entry.key) }

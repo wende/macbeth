@@ -228,7 +228,7 @@ Each entry: `windowId`, `title`, `ownerName` / `ownerPid` / `bundleId`, `frame`,
 accessibility API and are `null` when the app exposes no AX window for the
 surface.
 
-`windowId` is a WindowServer ID, not an element handle: it has no 5-minute TTL,
+`windowId` is a WindowServer ID, not an element handle: it has no TTL,
 `pin_handle` does not apply, and it stays valid until the window closes (a
 reopened window gets a new ID). Only `h_N` element handles expire.
 

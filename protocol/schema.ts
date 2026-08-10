@@ -12,12 +12,17 @@
  * never reused — a retired handle fails rather than resolving to a different element.
  *
  * A handle stops working when (see `docs/handle-lifecycle.md`):
- *  - it goes unused past the daemon's idle TTL (5 min) and isn't pinned — `stale_handle`
- *    (-32010) with `data.reason === "expired"`
+ *  - it goes unused past the daemon's idle TTL (5 min, or 60 min when pinned) —
+ *    `stale_handle` (-32010) with `data.reason === "expired"`
  *  - the app destroys or recycles the element — `stale_handle` with `"destroyed"` /
  *    `"recycled"`
  *  - the owning app quits — `stale_handle` with `"app_terminated"`
  *  - the daemon restarts, which clears every handle — `unknown_handle` (-32011)
+ *
+ * Pins are finite: a pinned handle's TTL extends to 60 min, refreshed on every use,
+ * but pins age out on their own. `pin_handle` (bulk: `handleIds[]`) and the `pin: true`
+ * flag on the minting methods (`query_tree`, `get_element`, `read_form`) are the only
+ * ways to pin — there is no unpin.
  *
  * Stale means "re-resolve from the query that produced it"; unknown means the id was
  * never issued and retrying it can't help.
@@ -210,6 +215,9 @@ export interface QueryTreeParams {
   maxDepth?: number;
   format?: "text" | "json";
   includeInvisible?: boolean;
+  /** Pin every handle minted during the walk (60 min idle TTL, refreshed on use).
+   *  Use when you intend to operate on returned handles later rather than immediately. */
+  pin?: boolean;
 }
 
 export interface QueryTreeResult {
@@ -239,6 +247,8 @@ export interface AXNodeJSON {
 export interface GetElementParams {
   appHandle: string;
   query: QueryStep[];
+  /** Pin the returned handle (60 min idle TTL, refreshed on use). */
+  pin?: boolean;
 }
 
 export interface GetElementResult {
@@ -416,6 +426,9 @@ export interface ReadFormParams {
   handleId?: string;
   query?: QueryStep[];
   maxDepth?: number;
+  /** Pin every returned field handle (60 min idle TTL, refreshed on use). This is the
+   *  cheap path for "I'm about to fill this form" — one call, every handle pinned. */
+  pin?: boolean;
 }
 
 export interface FormField {
@@ -453,6 +466,30 @@ export interface TextItem {
 
 export interface ExtractTextResult {
   items: TextItem[];
+}
+
+// pin_handle
+/**
+ * Extend a handle's idle TTL to 60 min (default), refreshed on each use. Pins are
+ * finite — abandoned handles age out, so there is no separate unpin method.
+ *
+ * Use the bulk `handleIds` form when you discover a set of handles together (e.g.
+ * the result of a `read_form(pin: true)` that you instead want to pin after the fact).
+ * Prefer the `pin: true` flag on `query_tree`, `get_element`, and `read_form` when you
+ * know at mint time — it costs zero extra round trips.
+ */
+export interface PinHandleParams {
+  handleId?: string;
+  handleIds?: string[];
+}
+
+export interface PinHandleResult {
+  pinned: true;
+  /** Singular path. Present when the caller used `handleId`. */
+  handleId?: string;
+  /** Bulk path. Maps each requested id to `true` on success or `{ error: code }` on
+   *  failure (`"unknown_handle"`, `"stale_handle: <reason>"`). */
+  results?: Record<string, boolean | { error: string }>;
 }
 
 // dump_attributes
