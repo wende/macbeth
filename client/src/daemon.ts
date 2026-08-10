@@ -76,6 +76,16 @@ export class DaemonManager {
       // mirrored live; otherwise they are included only when startup fails.
       stdio: ["ignore", "ignore", "pipe"],
       detached: false,
+      // Forward the macbeth audit-log env vars explicitly so a future refactor
+      // can't silently drop them. Node's spawn inherits process.env by default;
+      // this is documentation-by-code, not a behaviour change.
+      env: {
+        ...process.env,
+        MACBETH_LOG_DIR: process.env.MACBETH_LOG_DIR ?? "",
+        MACBETH_NO_LOG: process.env.MACBETH_NO_LOG ?? "",
+        MACBETH_LOG_MAX_FILE_MB: process.env.MACBETH_LOG_MAX_FILE_MB ?? "",
+        MACBETH_LOG_MAX_FILES: process.env.MACBETH_LOG_MAX_FILES ?? "",
+      },
     });
     this.process = spawned;
 

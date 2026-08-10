@@ -27,6 +27,10 @@ signal(SIGPIPE, SIG_IGN)
 var socketPath: String?
 var verbose = false
 var glowDisabled = false
+var noLog = false
+var logDir: String?
+var logMaxFileMB: Int?
+var logMaxFiles: Int?
 
 var args = CommandLine.arguments.dropFirst().makeIterator()
 while let arg = args.next() {
@@ -37,6 +41,14 @@ while let arg = args.next() {
         verbose = true
     case "--no-glow":
         glowDisabled = true
+    case "--no-log":
+        noLog = true
+    case "--log-dir":
+        logDir = args.next()
+    case "--log-max-file-mb":
+        if let v = args.next(), let n = Int(v) { logMaxFileMB = n }
+    case "--log-max-files":
+        if let v = args.next(), let n = Int(v) { logMaxFiles = n }
     case "--check-permissions":
         // Already handled above; skip silently.
         continue
@@ -48,8 +60,18 @@ while let arg = args.next() {
           --socket-path <path>  Unix socket path (default: $TMPDIR/macbeth-<uid>.sock)
           --verbose, -v         Enable verbose logging
           --no-glow             Disable window interaction overlays
+          --no-log              Disable persistent RPC request/response audit log
+          --log-dir <path>      Override audit log directory (default: $Caches/macbeth/logs)
+          --log-max-file-mb <n> Rotate the audit log when it exceeds N megabytes (default 5)
+          --log-max-files <n>   Keep at most N rotated audit log files (default 10)
           --check-permissions   Print Accessibility + Screen Recording status, then exit
           --help, -h            Show this help
+
+        Environment variables (CLI flags take precedence):
+          MACBETH_NO_LOG              1|true|yes|on to disable the audit log
+          MACBETH_LOG_DIR             audit log directory
+          MACBETH_LOG_MAX_FILE_MB     per-file size cap before rotation
+          MACBETH_LOG_MAX_FILES       maximum number of rotated files to keep
 
         """, stderr)
         exit(0)
@@ -170,7 +192,48 @@ await dispatcher.register(method: "list_methods") { _ in
 
 // MARK: - Start server
 
-let server = SocketServer(socketPath: resolvedSocketPath, dispatcher: dispatcher, verbose: verbose)
+// Audit log configuration. CLI flags win over env vars, which win over defaults.
+func envFlag(_ name: String) -> Bool {
+    guard let raw = ProcessInfo.processInfo.environment[name]?.lowercased() else { return false }
+    return ["1", "true", "yes", "on"].contains(raw)
+}
+
+func envInt(_ name: String) -> Int? {
+    ProcessInfo.processInfo.environment[name].flatMap { Int($0) }
+}
+
+let resolvedLogMaxFileMB = logMaxFileMB ?? envInt("MACBETH_LOG_MAX_FILE_MB") ?? 5
+let resolvedLogMaxFiles = logMaxFiles ?? envInt("MACBETH_LOG_MAX_FILES") ?? 10
+let resolvedLogDir = logDir ?? ProcessInfo.processInfo.environment["MACBETH_LOG_DIR"]
+
+let requestLogger: RequestLogger?
+if noLog || envFlag("MACBETH_NO_LOG") {
+    requestLogger = nil
+} else {
+    let url: URL?
+    if let dirString = resolvedLogDir {
+        url = URL(fileURLWithPath: dirString, isDirectory: true)
+    } else {
+        url = try? RequestLogger.defaultDirectory()
+    }
+    if let url, let logger = try? RequestLogger(
+        directory: url,
+        maxFileBytes: resolvedLogMaxFileMB * 1024 * 1024,
+        maxFiles: resolvedLogMaxFiles
+    ) {
+        requestLogger = logger
+    } else {
+        fputs("[macbethd] Request log disabled: could not open \(url?.path ?? "<unresolved>")\n", stderr)
+        requestLogger = nil
+    }
+}
+
+let server = SocketServer(
+    socketPath: resolvedSocketPath,
+    dispatcher: dispatcher,
+    verbose: verbose,
+    requestLogger: requestLogger
+)
 
 // Signal handling for graceful shutdown
 let sigintSource = DispatchSource.makeSignalSource(signal: SIGINT, queue: .main)

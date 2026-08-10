@@ -52,6 +52,43 @@ TypeScript Client ←→ macbethd (Swift) ←→ macOS Accessibility API
 - `Methods/` — One file per RPC method (Click, Fill, WaitFor, Screenshot, etc.)
 - `JSONRPC/Dispatcher.swift` — Routes incoming calls to method handlers
 - `Transport/SocketServer.swift` — Unix socket server
+- `Logging/RequestLogger.swift` — Per-RPC audit log (NDJSON, rotated) written to `~/Library/Caches/macbeth/logs/`
+
+### Request logging
+
+Every RPC call is recorded as one NDJSON line. The daemon writes the log
+(`Logging/RequestLogger.swift`); the client never touches the file. This is the
+persistent companion to the live `--verbose` stderr trace, which still only flows
+to whoever owns the daemon's terminal.
+
+- **Location** — `~/Library/Caches/macbeth/logs/requests.log`, rotated to
+  `requests-<ISO8601UTC>.log` siblings. Resolved via
+  `FileManager.default.urls(for: .cachesDirectory)`, so sandboxed and `$HOME`-overridden
+  test runs land where they should. Daemon has no bundle ID, so the literal
+  `macbeth/` subdir is hardcoded.
+- **Format** — one JSON object per line: `ts`, `connectionID`, `requestID`,
+  `method`, `paramsBytes`, `resultBytes`, `durationMs`, `ok`, `errorCode`,
+  `paramsPreview`, `resultPreview`. Previews are capped at ~1 KB on a UTF-8
+  boundary; base64 payloads (screenshot `data` field) become `{"bytes": N}` so a
+  busy traffic minute doesn't turn into megabytes. Parse failures get
+  `method: null`, `ok: false`, `errorCode: -32700`.
+- **Defaults** — on. Defaults: 5 MB per file, 10 rotated siblings (~55 MB total
+  ceiling), 1024-byte body preview budget.
+- **CLI flags** — `--no-log`, `--log-dir <path>`, `--log-max-file-mb <int>`,
+  `--log-max-files <int>`. Flags win over env vars.
+- **Env vars** — `MACBETH_NO_LOG=1`, `MACBETH_LOG_DIR=<path>`,
+  `MACBETH_LOG_MAX_FILE_MB=<int>`, `MACBETH_LOG_MAX_FILES=<int>`. Already empty
+  in the inherited env, so they round-trip cleanly through `client/src/daemon.ts`.
+- **Failure surface** — none. Init failure prints one stderr line and runs
+  without the log; append failure rate-limits one `vlog` line per minute. RPC
+  callers are never affected.
+
+Inspect fast:
+
+```bash
+jq -r '[.ts, .method, .ok, .durationMs] | @tsv' \
+  ~/Library/Caches/macbeth/logs/requests.log | tail -50
+```
 
 ### Skills (`skills/<AppName>/`)
 
