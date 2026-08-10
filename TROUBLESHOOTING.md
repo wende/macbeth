@@ -280,6 +280,41 @@ RPC errors surface to the agent as `[error_kind]: message`.
 | `script_failed` | AppleScript/JXA raised an OSA error. |
 | `ax_lookup_failed` | An AX attribute read failed. |
 
+## Inspecting recent RPC traffic
+
+When the agent's behaviour doesn't match what the daemon should have done, the
+persistent audit log tells you exactly what was sent and how long it took. It
+lives at `~/Library/Caches/macbeth/logs/requests.log` (rotated to
+`requests-<timestamp>.log` siblings, up to 10 of them) and contains one NDJSON
+record per completed RPC: timestamp, method, params and result byte counts,
+duration in milliseconds, success flag, and JSON-RPC error code plus a ~1 KB
+truncated preview of the body.
+
+```bash
+# last 50 calls, one TSV line per row
+jq -r '[.ts, .method, .ok, .durationMs] | @tsv' \
+  ~/Library/Caches/macbeth/logs/requests.log | tail -50
+
+# only the failures
+jq -r 'select(.ok == false) | [.ts, .method, .errorCode, .paramsPreview] | @tsv' \
+  ~/Library/Caches/macbeth/logs/requests.log
+
+# slowest 10 calls
+jq -r '[.ts, .method, .durationMs] | @tsv' \
+  ~/Library/Caches/macbeth/logs/requests.log \
+  | sort -k3 -n -r | head -10
+```
+
+Each line is a single complete JSON object, so `jq` against any field works
+without parsing gymnastics. Base64 payloads (screenshot bodies, OCR results)
+are replaced with `{"bytes": N}` placeholders so a chatty minute doesn't inflate
+the log into megabytes.
+
+The daemon writes the log; the client never does. If the file is missing, the
+daemon likely started with `--no-log` / `MACBETH_NO_LOG=1`, or its log directory
+was unwritable (in which case one stderr line on launch said so). Defaults:
+5 MB per file, 10 rotated siblings, logged by default.
+
 ## Still stuck?
 
 Open an issue at <https://github.com/wende/macbeth/issues> and include:
