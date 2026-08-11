@@ -15,6 +15,7 @@ func registerListWindows(
         await dispatcher.register(method: "list_windows") { params in
             let obj = params?.objectValue
             let includeAllSurfaces = obj?["includeAllSurfaces"]?.boolValue ?? false
+            let titlePattern = obj?["titlePattern"]?.stringValue
 
             var connection: AppConnectionManager.Connection?
             if let appHandle = obj?["appHandle"]?.stringValue {
@@ -49,11 +50,16 @@ func registerListWindows(
                     among: descriptors, displayFrames: displayFrames)
             }
 
-            let listed = listedWindows(
+            var listed = listedWindows(
                 descriptors,
                 displayFrames: displayFrames,
                 includeAllSurfaces: includeAllSurfaces
             )
+            // Filter *before* the AX join: filtered-out owners skip the per-app
+            // round trip entirely (latency win as well as byte win). Compile once.
+            if let pattern = titlePattern, !pattern.isEmpty {
+                listed = try windowsMatchingTitlePattern(listed, pattern: pattern)
+            }
             // Enrich only what is being returned: each unique owner costs one
             // bounded round trip to a possibly busy app.
             let accessibility = accessibilityWindowMetadata(

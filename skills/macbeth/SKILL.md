@@ -18,6 +18,10 @@ Call `load_skill` with **no arguments** (or `name: "macbeth"`) to reload these i
 
 Prefer structured Accessibility actions over screenshots and keystrokes. Prefer menus over `press_key` (menus do not steal focus).
 
+## Output format
+
+Tool **results** are YAML; tool **arguments** remain JSON (MCP input schemas are JSON Schema). Read fields by key path, not by line position — paths and titles never get hard-wrapped.
+
 ## Permissions
 
 - **Accessibility** — required for almost everything. If every app is not-connectable with AX `-25211`, tell the user to grant Accessibility to the host that launched Macbeth, then restart the agent.
@@ -88,7 +92,7 @@ Each step may set `role`, `title`, `identifier`, `titlePattern` (regex), and `in
 
 Common roles: `window`, `button`, `text_field`, `text_area`, `checkbox`, `radio`, `menu`, `menu_item`, `toolbar`, `scroll_area`, `table`, `row`, `cell`, `group`, `dialog`, `link`, `heading`, `web_area`, `static_text`, `slider`, `pop_up_button`.
 
-Always `query_tree` before inventing locators. Keep `maxDepth` modest (4–6) on huge trees; raise it only for the subtree you care about.
+Always `query_tree` before inventing locators. Keep `maxDepth` modest (4–6) on huge trees; raise it only for the subtree you care about. When a `query_tree` result shows a `[truncated: …] re-query with handleId h_X` marker, pass that `handleId` back with a higher `maxNodes` to drill into the named subtree (root resets to depth 0 under the handle, so the same `maxDepth` reaches deeper).
 
 ## Actions
 

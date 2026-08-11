@@ -69,6 +69,18 @@ describe("AppHandle", () => {
     });
   });
 
+  it("forwards titlePattern for listWindows", async () => {
+    const rpc = mockRpcWithResult({ windows: [] });
+    const app = new AppHandle(rpc, "h_0", { name: "Finder", pid: 1, bundleId: null });
+
+    await app.listWindows({ titlePattern: "Documents" });
+
+    expect(rpc.call).toHaveBeenCalledWith("list_windows", {
+      appHandle: "h_0",
+      titlePattern: "Documents",
+    });
+  });
+
   it("passes an explicit window ID to screenshots", async () => {
     const rpc = mockRpc();
     vi.mocked(rpc.call).mockResolvedValueOnce({
@@ -167,6 +179,12 @@ describe("AppHandle", () => {
     await expect(listApp.listMenuBar()).resolves.toBe("File\n  Save");
     expect(listRpc.call).toHaveBeenCalledWith("list_menu_bar", { appHandle: "h_0" });
 
+    await expect(listApp.listMenuBar({ titlePattern: "Save" })).resolves.toBe("File\n  Save");
+    expect(listRpc.call).toHaveBeenLastCalledWith("list_menu_bar", {
+      appHandle: "h_0",
+      titlePattern: "Save",
+    });
+
     const selectRpc = mockRpcWithResult({ selected: "File > Save" });
     const selectApp = new AppHandle(selectRpc, "h_0", { name: "Finder", pid: 1, bundleId: null });
     await expect(selectApp.selectMenuItem(["File", "Save"])).resolves.toBe("File > Save");
@@ -212,5 +230,46 @@ describe("AppHandle", () => {
       diagnostics: { runtime: "native", webContent: "no_web_area" },
     });
     expect(app.handle).toBe("h_0");
+  });
+
+  it("forwards handleId to query_tree so maxNodes drill-down works", async () => {
+    const rpc = mockRpcWithResult({
+      tree: "[button \"Save\"] h:h_1\n",
+      diagnostics: { runtime: "native", webContent: "no_web_area" },
+    });
+    const app = new AppHandle(rpc, "h_0", {
+      name: "Finder",
+      pid: 1,
+      bundleId: "com.apple.finder",
+    });
+
+    await app.queryTreeDetailed({ handleId: "h_1", maxNodes: 100 });
+
+    expect(rpc.call).toHaveBeenCalledWith("query_tree", {
+      appHandle: "h_0",
+      handleId: "h_1",
+      maxDepth: 5,
+      maxNodes: 100,
+      format: "text",
+      includeInvisible: false,
+    });
+  });
+
+  it("omits handleId key when not set so the schema stays clean", async () => {
+    const rpc = mockRpcWithResult({
+      tree: "[window \"Demo\"]\n",
+      diagnostics: { runtime: "native", webContent: "no_web_area" },
+    });
+    const app = new AppHandle(rpc, "h_0", {
+      name: "Demo",
+      pid: 1,
+      bundleId: null,
+    });
+
+    await app.queryTreeDetailed({ maxNodes: 50 });
+
+    const payload = vi.mocked(rpc.call).mock.calls[0][1] as Record<string, unknown>;
+    expect(payload).not.toHaveProperty("handleId");
+    expect(payload.maxNodes).toBe(50);
   });
 });

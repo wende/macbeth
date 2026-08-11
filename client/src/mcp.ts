@@ -20,6 +20,8 @@ import { saveScreenshotToTempFile } from "./screenshots.js";
 import { resolveElementTarget } from "./mcp-target.js";
 import { formatAppList } from "./app-target.js";
 import { runWithActivity } from "./mcp-activity.js";
+import { toModelPayload } from "./mcp-format.js";
+import { createUsageTracker } from "./mcp-usage-log.js";
 import { SCRIPT_TIMEOUT, scriptTimeoutFromSeconds } from "./timeouts.js";
 import { readInstalledVersion } from "./update.js";
 import type { KeyStroke } from "./types.js";
@@ -127,7 +129,7 @@ server.registerTool("list_daemon_methods", {
   annotations: { readOnlyHint: true },
 }, async () => {
   const methods = await client.listDaemonMethods();
-  return { content: [{ type: "text", text: JSON.stringify({ methods }, null, 2) }] };
+  return { content: [{ type: "text", text: toModelPayload({ methods }) }] };
 });
 
 server.registerTool("begin_activity", {
@@ -135,7 +137,7 @@ server.registerTool("begin_activity", {
     "Turn on the on-screen interaction indicator before you control the computer through some OTHER tool (a different MCP server, computer-use, a shell script) that Macbeth cannot see. Macbeth's own click/fill/press_key/run_applescript tools already show the indicator, so you do NOT need this for them. Returns a token; you MUST call end_activity with that token when the external work finishes (a crashed or disconnected client is cleaned up automatically after a timeout). Scopes nest safely: overlapping activities keep the indicator on until the last one ends.",
 }, async () => {
   const token = await activityControl.begin();
-  return { content: [{ type: "text", text: JSON.stringify({ token }) }] };
+  return { content: [{ type: "text", text: toModelPayload({ token }) }] };
 });
 
 server.registerTool("end_activity", {
@@ -145,7 +147,7 @@ server.registerTool("end_activity", {
   },
 }, async ({ token }) => {
   await activityControl.end(token);
-  return { content: [{ type: "text", text: JSON.stringify({ ended: true }) }] };
+  return { content: [{ type: "text", text: toModelPayload({ ended: true }) }] };
 });
 
 server.registerTool("connect_app", {
@@ -182,16 +184,20 @@ server.registerTool("connect_app", {
 });
 
 server.registerTool("query_tree", {
-  description: "Get an app's accessibility tree, including its menu hierarchy. Use this first; it connects automatically, so a separate connect_app or list_menu_bar call is unnecessary. Element handles (h_N) are stable: the same element keeps the same handle across calls, so handles you already have stay valid and you can plan several actions from one tree instead of re-querying between them. A handle that stops working reports stale_handle (re-query for it) or unknown_handle (it was never issued). If Chromium web content is empty, the result explains available screenshot/OCR/menu/keyboard fallbacks.",
+  description: "Get an app's accessibility tree, including its menu hierarchy. Use this first; it connects automatically, so a separate connect_app or list_menu_bar call is unnecessary. Element handles (h_N) are stable: the same element keeps the same handle across calls, so handles you already have stay valid and you can plan several actions from one tree instead of re-querying between them. A handle that stops working reports stale_handle (re-query for it) or unknown_handle (it was never issued). If Chromium web content is empty, the result explains available screenshot/OCR/menu/keyboard fallbacks. Start with maxDepth 2–3 + maxNodes ~300 to orient, then drill in by re-querying a parent handleId when you see a truncation marker.",
   inputSchema: {
     app: appTargetSchema,
+    handleId: z.string().optional()
+      .describe("Element handle to root the walk at (from a prior query_tree truncation marker). Omit to walk from the app."),
     maxDepth: z.number().optional().default(5).describe("Maximum depth to traverse (default: 5)"),
+    maxNodes: z.number().int().positive().optional()
+      .describe("Cap breadth (visible nodes the walker emits). When the budget runs out, the parent is emitted with a truncation marker that cites its handleId — re-query that handleId with a higher maxNodes to drill deeper. Must be >= 1 when set."),
     format: z.enum(["text", "json"]).optional().default("text").describe("Tree output format (default: text)"),
     includeInvisible: z.boolean().optional().default(false).describe("Include structural elements normally filtered from the tree"),
   },
-}, async ({ app, maxDepth, format, includeInvisible }) => {
+}, async ({ app, handleId, maxDepth, maxNodes, format, includeInvisible }) => {
   const handle = await client.connect(app);
-  const result = await handle.queryTreeDetailed({ maxDepth, format, includeInvisible });
+  const result = await handle.queryTreeDetailed({ handleId, maxDepth, maxNodes, format, includeInvisible });
   const warning = result.diagnostics?.warning
     ? `Warning [degraded_accessibility]: ${result.diagnostics.warning}\n\n`
     : "";
@@ -210,15 +216,17 @@ server.registerTool("list_windows", {
     app: appTargetSchema.optional().describe('Optional filter: app name (fuzzy), PID, or an app handle (e.g. "h_3"). Omit to list windows for every app.'),
     includeAllSurfaces: z.boolean().optional().default(false)
       .describe("Also return menu-bar strips, overlays, and bookkeeping surfaces (kind != 'window'). Default false."),
+    titlePattern: z.string().optional()
+      .describe("Case-insensitive regex; a window matches if any of title / ownerName / bundleId matches. Filtering runs before the per-app AX join so filtered-out apps skip that round trip. Invalid pattern returns -32602."),
   },
   annotations: { readOnlyHint: true },
-}, async ({ app, includeAllSurfaces }) => {
+}, async ({ app, includeAllSurfaces, titlePattern }) => {
   return runListWindowsTool(
     {
       connect: (target) => client.connect(target),
       listAll: (options) => client.listWindows(options),
     },
-    { app, includeAllSurfaces }
+    { app, includeAllSurfaces, titlePattern }
   );
 });
 
@@ -422,7 +430,7 @@ server.registerTool("get_element", {
   return {
     content: [{
       type: "text",
-      text: JSON.stringify(info, null, 2),
+      text: toModelPayload(info),
     }],
   };
 });
@@ -435,7 +443,7 @@ server.registerTool("dump_attributes", {
   annotations: { readOnlyHint: true },
 }, async ({ handleId }) => {
   const attributes = await client.dumpAttributes(handleId);
-  return { content: [{ type: "text", text: JSON.stringify(attributes, null, 2) }] };
+  return { content: [{ type: "text", text: toModelPayload(attributes) }] };
 });
 
 server.registerTool("pin_handle", {
@@ -515,15 +523,19 @@ server.registerTool("select_menu_item", {
 });
 
 server.registerTool("list_menu_bar", {
-  description: "Return a menu-only Accessibility view. query_tree already includes menus, so use this only when that menu section was omitted, truncated, or a compact menu-only result is needed.",
+  description: "Return a menu-only Accessibility view. query_tree already includes menus, so use this only when that menu section was omitted, truncated, or a compact menu-only result is needed. Pass titlePattern to prune non-matching branches (case-insensitive regex); ancestors of matches are kept.",
   inputSchema: {
     app: appTargetSchema,
+    titlePattern: z.string().optional()
+      .describe("Case-insensitive regex; matches against each menu item's AX title. Ancestors of matches are kept. Invalid pattern returns -32602."),
   },
   annotations: { readOnlyHint: true },
-}, async ({ app }) => {
+}, async ({ app, titlePattern }) => {
   try {
     const handle = await client.connect(app);
-    const output = await handle.listMenuBar();
+    const output = await handle.listMenuBar(
+      titlePattern ? { titlePattern } : undefined
+    );
     return { content: [{ type: "text", text: output || "No menu items found." }] };
   } catch (err: unknown) {
     return { content: [{ type: "text", text: formatError("Failed to list menu bar", err) }], isError: true };
@@ -655,11 +667,11 @@ server.registerTool("run_shortcut", {
     return {
       content: [{
         type: "text" as const,
-        text: JSON.stringify({
+        text: toModelPayload({
           ok: true,
           shortcut: resolved,
           output: stdout || "Shortcut completed.",
-        }, null, 2),
+        }),
       }],
     };
   });
@@ -724,9 +736,48 @@ server.registerTool("run_skill_script", {
 
 // --- Start ---
 
+/**
+ * Record what each tool call actually costs the model, from the last point
+ * before the payload leaves this process.
+ *
+ * This has to wrap the transport rather than the tool handlers: the handlers
+ * return content blocks, but the byte and token cost is a property of the
+ * serialized payload, and several tools produce theirs through shared helpers
+ * (`toModelPayload`, `runListWindowsTool`) that no single handler owns. Wrapping
+ * `send`/`onmessage` measures every tool once, including ones added later, and
+ * cannot drift out of sync with the handlers.
+ *
+ * `server.connect()` installs its own `onmessage`, so this must run after it.
+ */
+function attachUsageLogging(transport: StdioServerTransport): void {
+  const usage = createUsageTracker();
+  if (!usage) return;
+
+  const { tracker, writer } = usage;
+  const originalSend = transport.send.bind(transport);
+  const originalOnMessage = transport.onmessage?.bind(transport);
+
+  transport.onmessage = (message) => {
+    tracker.noteRequest(message);
+    originalOnMessage?.(message);
+  };
+
+  transport.send = async (message) => {
+    // Log after the send resolves: a payload that failed to reach the host
+    // never entered its context, and counting it would inflate the totals.
+    await originalSend(message);
+    tracker.noteResponse(message);
+  };
+
+  const flush = () => writer.flush();
+  process.on("exit", flush);
+  process.on("beforeExit", flush);
+}
+
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
+  attachUsageLogging(transport);
 
   process.on("SIGINT", async () => {
     await client.close();

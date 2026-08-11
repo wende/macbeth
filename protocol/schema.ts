@@ -91,6 +91,13 @@ export interface RunAppleScriptResult {
 
 export interface ListMenuBarParams {
   appHandle: string;
+  /**
+   * Optional case-insensitive regex. Matched against each menu item's AX title;
+   * non-matching branches are pruned but ancestors of matches are kept so paths
+   * stay usable. Invalid regex returns `-32602 invalidParams` with the regex
+   * error text. No effect on the daemon's `Apple` skip rule or the depth cap.
+   */
+  titlePattern?: string;
 }
 
 export interface ListMenuBarResult {
@@ -168,6 +175,14 @@ export interface ListWindowsParams {
   /** Include menu-bar strips, overlays, and bookkeeping sentinels
    *  (`kind !== "window"`). Default false. */
   includeAllSurfaces?: boolean;
+  /**
+   * Optional case-insensitive regex. A window matches if the regex matches
+   * *any* of `title`, `ownerName`, or `bundleId` (one pattern, three fields,
+   * OR-match). Filtering runs *before* the per-owner AX join so filtered-out
+   * owners skip that round trip. Invalid regex returns `-32602 invalidParams`
+   * with the regex error text.
+   */
+  titlePattern?: string;
 }
 
 export type WindowKind = "window" | "bookkeeping" | "menu_bar" | "overlay";
@@ -207,7 +222,17 @@ export interface ListWindowsResult {
 // query_tree
 export interface QueryTreeParams {
   appHandle: string;
+  /** Optional walk root. When set, the tree starts at this element instead of
+   *  the app — used to drill into a subtree named by a truncation marker.
+   *  Resolved via the same live-handle path as read_form / get_element. */
+  handleId?: ElementHandle;
   maxDepth?: number;
+  /** Cap the breadth of the walked tree. Omit for unbounded (current behavior).
+   *  When the budget runs out, the parent is emitted with `truncatedChildren`
+   *  set to a rough estimate of remaining descendants. Re-querying that
+   *  handleId with a higher maxNodes drills deeper into the same subtree.
+   *  Must be >= 1 if provided. */
+  maxNodes?: number;
   format?: "text" | "json";
   includeInvisible?: boolean;
 }
@@ -233,6 +258,9 @@ export interface AXNodeJSON {
   enabled: boolean;
   focused: boolean;
   children: AXNodeJSON[];
+  /** Approximate remaining descendants under this node that the walker skipped
+   *  because a `maxNodes` budget ran out. Present only when non-zero. */
+  truncatedChildren?: number;
 }
 
 // get_element

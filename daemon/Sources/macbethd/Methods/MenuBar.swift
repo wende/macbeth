@@ -15,7 +15,14 @@ func registerMenuBarMethods(
                 appManager: appManager
             )
             let menuBar = try findMenuBar(in: appElement, connection: connection)
-            let output = serializeMenuBar(menuBar)
+            let titlePattern = params?.objectValue?["titlePattern"]?.stringValue
+            let regex: NSRegularExpression?
+            if let pattern = titlePattern, !pattern.isEmpty {
+                regex = try compileTitlePattern(pattern)
+            } else {
+                regex = nil
+            }
+            let output = serializeMenuBar(menuBar, regex: regex)
             return .object(["menu": .string(output)])
         }
 
@@ -214,14 +221,37 @@ private func menuNotFound(
     )
 }
 
-private func serializeMenuBar(_ menuBar: AXUIElement) -> String {
+/// Render the menu bar to indented text. When `regex` is set, prune non-matching
+/// branches but keep ancestors of matches so the path remains readable.
+/// "Apple" is always skipped regardless of filter, and the depth cap (4) is
+/// preserved. Empty-result message unchanged.
+private func serializeMenuBar(_ menuBar: AXUIElement, regex: NSRegularExpression? = nil) -> String {
     var lines: [String] = []
-    for item in menuBarItems(menuBar) {
-        guard let title = getStringAttribute(item, kAXTitleAttribute),
-              !title.isEmpty, title != "Apple" else { continue }
-        lines.append(title)
-        if let menu = childMenu(of: item) {
-            appendMenu(menu, depth: 1, lines: &lines)
+    if let regex {
+        for item in menuBarItems(menuBar) {
+            guard let title = getStringAttribute(item, kAXTitleAttribute),
+                  !title.isEmpty, title != "Apple" else { continue }
+            if let menu = childMenu(of: item) {
+                let before = lines.count
+                appendMenu(menu, depth: 1, lines: &lines, regex: regex)
+                // Keep the top-level item if any descendant matched OR its
+                // own title matches — matches-without-descendants would
+                // otherwise be silently lost.
+                if lines.count > before || titleMatches(title, regex: regex) {
+                    lines.insert(title, at: before)
+                }
+            } else if titleMatches(title, regex: regex) {
+                lines.append(title)
+            }
+        }
+    } else {
+        for item in menuBarItems(menuBar) {
+            guard let title = getStringAttribute(item, kAXTitleAttribute),
+                  !title.isEmpty, title != "Apple" else { continue }
+            lines.append(title)
+            if let menu = childMenu(of: item) {
+                appendMenu(menu, depth: 1, lines: &lines)
+            }
         }
     }
     return lines.isEmpty ? "No menu items found." : lines.joined(separator: "\n")
@@ -242,6 +272,35 @@ private func appendMenu(_ menu: AXUIElement, depth: Int, lines: inout [String]) 
             appendMenu(submenu, depth: depth + 1, lines: &lines)
         }
     }
+}
+
+/// Filtered walker. Returns true if this subtree produced any kept line.
+/// Empty-title separators are dropped (they cannot match a meaningful filter).
+/// Disabled decoration is stripped before matching so users can search "Copy"
+/// without typing "Copy [disabled]".
+@discardableResult
+private func appendMenu(
+    _ menu: AXUIElement, depth: Int, lines: inout [String], regex: NSRegularExpression
+) -> Bool {
+    guard depth <= 4 else { return false }
+    let indent = String(repeating: "  ", count: depth)
+    var keptAny = false
+    for item in menuItems(menu) {
+        let rawTitle = getStringAttribute(item, kAXTitleAttribute) ?? ""
+        if rawTitle.isEmpty { continue }
+        let disabled = getBoolAttribute(item, kAXEnabledAttribute) == false
+        var keptChild = false
+        if let submenu = childMenu(of: item) {
+            keptChild = appendMenu(submenu, depth: depth + 1, lines: &lines, regex: regex)
+        }
+        let selfMatches = titleMatches(rawTitle, regex: regex)
+        if keptChild || selfMatches {
+            let suffix = disabled ? " [disabled]" : ""
+            lines.append("\(indent)\(rawTitle)\(suffix)")
+            keptAny = true
+        }
+    }
+    return keptAny
 }
 
 private func menuIdentity(_ connection: AppConnectionManager.Connection) -> String {

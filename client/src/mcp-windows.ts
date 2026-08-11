@@ -1,5 +1,6 @@
 import type { AppTarget } from "./app-target.js";
 import type { AppWindowInfo, ListWindowsOptions } from "./types.js";
+import { toModelPayload } from "./mcp-format.js";
 
 interface WindowLister {
   listWindows(options?: ListWindowsOptions): Promise<AppWindowInfo[]>;
@@ -15,6 +16,7 @@ interface ListWindowsDeps {
 export interface ListWindowsToolParams {
   app?: AppTarget;
   includeAllSurfaces?: boolean;
+  titlePattern?: string;
 }
 
 /**
@@ -26,7 +28,10 @@ export async function runListWindowsTool(
   deps: ListWindowsDeps,
   params: ListWindowsToolParams
 ) {
-  const options = params.includeAllSurfaces ? { includeAllSurfaces: true } : undefined;
+  const options: ListWindowsOptions = {
+    ...(params.includeAllSurfaces ? { includeAllSurfaces: true } : {}),
+    ...(params.titlePattern ? { titlePattern: params.titlePattern } : {}),
+  };
   const windows = params.app === undefined
     ? await deps.listAll(options)
     : await (await deps.connect(params.app)).listWindows(options);
@@ -34,7 +39,7 @@ export async function runListWindowsTool(
   return {
     content: [{
       type: "text" as const,
-      text: JSON.stringify({ count: windows.length, windows }, null, 2),
+      text: toModelPayload({ count: windows.length, windows }),
     }],
   };
 }

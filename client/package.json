@@ -52,6 +52,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.28.0",
+    "yaml": "^2.9.0",
     "zod": "^3.24.0"
   },
   "devDependencies": {
@@ -62,6 +63,8 @@
   "engines": {
     "node": ">=20"
   },
-  "os": ["darwin"],
+  "os": [
+    "darwin"
+  ],
   "license": "MIT"
 }
