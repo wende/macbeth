@@ -455,8 +455,8 @@ server.registerTool("pin_handle", {
     handleIds: z.array(z.string()).optional().describe("Bulk pin — returns a per-id result map with `true` on success or `{ error: 'stale_handle: <reason>' | 'unknown_handle' }` on failure."),
   },
 }, async ({ handleId, handleIds }) => {
-  if (!handleId && !handleIds) {
-    return { content: [{ type: "text", text: "Provide either handleId or handleIds." }], isError: true };
+  if (!handleId && (!handleIds || handleIds.length === 0)) {
+    return { content: [{ type: "text", text: "Provide either handleId or a non-empty handleIds." }], isError: true };
   }
   if (handleId && handleIds) {
     return { content: [{ type: "text", text: "Provide either handleId or handleIds, not both." }], isError: true };

@@ -87,6 +87,11 @@ func bulkPinErrorCode(id: String, classify: HandleTable.Lookup) -> String {
     switch classify {
     case .unknown: return "unknown_handle"
     case .stale(let reason): return "stale_handle: \(reason.rawValue)"
-    case .found: return "stale_handle: transient"
+    case .found:
+        // Reached only in the narrow race where `pin(id)` returned false and the
+        // classify lookup immediately after found the handle live again (e.g. an
+        // unrelated op repinned it). Surface the same transient code a single-id
+        // caller would see, so bulk consumers can branch on the string.
+        return "stale_handle: transient"
     }
 }

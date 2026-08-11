@@ -275,9 +275,6 @@ class ScopedLocator extends Locator {
     }
 
     this.handleId = info.handleId;
-    // `previousHandleId` was used to release the previous pin via `unpin_handle`,
-    // which no longer exists: pins are finite and age out on their own, so the
-    // old handle releases itself once its idle TTL passes.
     await this.rpc.call("pin_handle", { handleId: this.handleId });
   }
 
