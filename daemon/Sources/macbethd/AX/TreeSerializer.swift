@@ -32,6 +32,24 @@ func serializeTreeAsText(_ node: AXNode, indent: Int = 0) -> String {
         result += serializeTreeAsText(child, indent: indent + 1)
     }
 
+    // Truncation marker: emitted as its own indented line so the model can
+    // recognise it without scanning the previous node's tail. The handleId
+    // is the parent — re-querying it walks the budget-exhausted subtree.
+    // Recommend a higher maxNodes (the budget that ran out), never maxDepth:
+    // telling the model to re-query with maxDepth 5 made it loop on the same
+    // root-only marker.
+    //
+    // `truncated` is only a rough estimate of immediate children lost (the
+    // walker doesn't recursively count), so a multiplicative formula would
+    // either wildly over- or under-budget. Recommend `truncated + 1` (the
+    // budget that would have walked one more node) floored at 50 so a wide
+    // shallow subtree doesn't get told to re-query with a tiny budget that
+    // truncates again immediately. "or higher" makes the floor explicit.
+    if let truncated = node.truncatedChildren {
+        let recommended = max(truncated + 1, 50)
+        result += "\(prefix)[truncated: ~\(truncated) more descendants — re-query with handleId \(node.handleId), maxNodes \(recommended) or higher]\n"
+    }
+
     return result
 }
 
@@ -52,6 +70,10 @@ func serializeTreeAsJSON(_ node: AXNode) -> JSONValue {
 
     if !node.children.isEmpty {
         obj["children"] = .array(node.children.map { serializeTreeAsJSON($0) })
+    }
+
+    if let truncated = node.truncatedChildren {
+        obj["truncatedChildren"] = .number(Double(truncated))
     }
 
     return .object(obj)

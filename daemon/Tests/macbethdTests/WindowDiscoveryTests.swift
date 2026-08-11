@@ -210,3 +210,52 @@ private func listedWindowIDs(_ payload: JSONValue) -> [UInt32] {
     // the window is on the desk.
     #expect(entry?["minimized"] == JSONValue.null)
 }
+
+// MARK: - titlePattern filter
+
+@Test func titlePatternMatchesAcrossTitleOwnerAndBundle() {
+    let windows = [
+        testWindow(1, pid: 100, app: "Unity", bundle: "com.unity3d.UnityEditor", title: "Sample Scene"),
+        testWindow(2, pid: 200, app: "Finder", bundle: "com.apple.finder", title: "Documents"),
+        testWindow(3, pid: 300, app: "Notes", bundle: "com.apple.notes", title: "Untitled"),
+    ]
+    // Match only via bundleId.
+    let byBundle = try! windowsMatchingTitlePattern(windows, pattern: "apple\\.finder$")
+    #expect(byBundle.map(\.windowID) == [2])
+    // Match only via title (case-insensitive).
+    let byTitle = try! windowsMatchingTitlePattern(windows, pattern: "SAMPLE")
+    #expect(byTitle.map(\.windowID) == [1])
+    // Match only via ownerName.
+    let byOwner = try! windowsMatchingTitlePattern(windows, pattern: "notes")
+    #expect(byOwner.map(\.windowID) == [3])
+}
+
+@Test func titlePatternIsCaseInsensitive() throws {
+    let windows = [
+        testWindow(1, pid: 100, app: "Finder", title: "Documents"),
+    ]
+    #expect(try windowsMatchingTitlePattern(windows, pattern: "DOCUMENTS").map(\.windowID) == [1])
+    #expect(try windowsMatchingTitlePattern(windows, pattern: "documents").map(\.windowID) == [1])
+}
+
+@Test func titlePatternReturnsEmptyWhenNothingMatches() throws {
+    let windows = [
+        testWindow(1, pid: 100, app: "Finder", title: "Documents"),
+    ]
+    #expect(try windowsMatchingTitlePattern(windows, pattern: "ZZZ").map(\.windowID).isEmpty)
+}
+
+@Test func titlePatternIgnoresEmptyFields() throws {
+    // title=nil, ownerName non-nil — should still match via ownerName.
+    let windows = [
+        testWindow(1, pid: 100, app: "Finder", bundle: nil, title: nil),
+    ]
+    #expect(try windowsMatchingTitlePattern(windows, pattern: "finder").map(\.windowID) == [1])
+}
+
+@Test func invalidTitlePatternThrows() {
+    let windows: [WindowDescriptor] = []
+    #expect(throws: RPCError.self) {
+        _ = try windowsMatchingTitlePattern(windows, pattern: "[")
+    }
+}

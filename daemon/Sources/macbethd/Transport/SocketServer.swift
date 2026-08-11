@@ -5,11 +5,13 @@ final class SocketServer: Sendable {
     let socketPath: String
     private let dispatcher: Dispatcher
     private let verbose: Bool
+    private let requestLogger: RequestLogger?
 
-    init(socketPath: String, dispatcher: Dispatcher, verbose: Bool = false) {
+    init(socketPath: String, dispatcher: Dispatcher, verbose: Bool = false, requestLogger: RequestLogger? = nil) {
         self.socketPath = socketPath
         self.dispatcher = dispatcher
         self.verbose = verbose
+        self.requestLogger = requestLogger
     }
 
     /// Start listening for connections. Blocks until cancelled.
@@ -105,13 +107,20 @@ final class SocketServer: Sendable {
 
                 let dispatcher = self.dispatcher
                 let verbose = self.verbose
+                let logger = self.requestLogger
+                let started = Date()
+                let paramsBytes = data.count
                 group.addTask { [connection] in
                     let decoder = JSONDecoder()
                     let encoder = JSONEncoder()
 
                     let response: JSONRPCResponse
+                    var method: String?
+                    var parsedParams: JSONValue?
                     do {
                         let request = try decoder.decode(JSONRPCRequest.self, from: data)
+                        method = request.method
+                        parsedParams = request.params
                         response = await dispatcher.dispatch(
                             request: request,
                             connectionID: connectionID
@@ -130,10 +139,44 @@ final class SocketServer: Sendable {
                                 fputs("[macbethd] → \(responseStr)\n", stderr)
                             }
                             connection.writeLine(responseStr)
+                            if let logger {
+                                Self.emitLog(
+                                    logger: logger,
+                                    connectionID: connectionID,
+                                    method: method,
+                                    responseID: response.id,
+                                    responseError: response.error,
+                                    params: parsedParams,
+                                    paramsBytes: paramsBytes,
+                                    result: response.result,
+                                    resultBytes: responseData.count,
+                                    started: started
+                                )
+                            }
                         }
                     } catch {
                         if verbose {
                             fputs("[macbethd] Failed to encode response: \(error)\n", stderr)
+                        }
+                        if let logger {
+                            // Encode-failure records must look like failures:
+                            // the client never got a response, but `emitLog`
+                            // derives `ok` from `responseError == nil`, so
+                            // pass a synthetic internal error so the row
+                            // surfaces under `jq 'select(.ok == false)'` and
+                            // downstream alert queries.
+                            Self.emitLog(
+                                logger: logger,
+                                connectionID: connectionID,
+                                method: method,
+                                responseID: response.id,
+                                responseError: .internalError("encode failed: \(error)"),
+                                params: parsedParams,
+                                paramsBytes: paramsBytes,
+                                result: nil,
+                                resultBytes: 0,
+                                started: started
+                            )
                         }
                     }
                 }
@@ -161,6 +204,43 @@ final class SocketServer: Sendable {
         if verbose {
             fputs("[macbethd] \(message)\n", stderr)
         }
+    }
+
+    // Fire-and-forget — callers wrap this in `Task { … }` and never await;
+    // the RequestLogger actor serializes appends without locks.
+    private static func emitLog(
+        logger: RequestLogger,
+        connectionID: String,
+        method: String?,
+        responseID: JSONRPCId?,
+        responseError: JSONRPCErrorData?,
+        params: JSONValue?,
+        paramsBytes: Int,
+        result: JSONValue?,
+        resultBytes: Int,
+        started: Date
+    ) {
+        let elapsedMs = Int(Date().timeIntervalSince(started) * 1000)
+        let record = RPCLogRecord(
+            ts: Self.timestampString(),
+            connectionID: connectionID,
+            requestID: responseID?.requestIDString,
+            method: method,
+            paramsBytes: paramsBytes,
+            resultBytes: resultBytes,
+            durationMs: elapsedMs,
+            ok: responseError == nil,
+            errorCode: responseError?.code,
+            paramsPreview: RPCPreviewBuilder.preview(of: params),
+            resultPreview: RPCPreviewBuilder.preview(of: result)
+        )
+        Task { await logger.log(record) }
+    }
+
+    private static func timestampString() -> String {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f.string(from: Date())
     }
 }
 

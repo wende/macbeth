@@ -29,6 +29,7 @@ import type {
   TreeDiagnostics,
   AppWindowInfo,
   ListWindowsOptions,
+  ListMenuBarOptions,
 } from "./types.js";
 
 /**
@@ -115,7 +116,9 @@ export class AppHandle extends Locator {
       diagnostics?: TreeDiagnostics;
     }>("query_tree", {
       appHandle: this.appHandle,
+      ...(options?.handleId !== undefined ? { handleId: options.handleId } : {}),
       maxDepth: options?.maxDepth ?? 5,
+      ...(options?.maxNodes !== undefined ? { maxNodes: options.maxNodes } : {}),
       format: options?.format ?? "text",
       includeInvisible: options?.includeInvisible ?? false,
       ...(options?.pin ? { pin: true } : {}),
@@ -137,6 +140,7 @@ export class AppHandle extends Locator {
     const result = await this.rpc.call<{ windows: AppWindowInfo[] }>("list_windows", {
       appHandle: this.appHandle,
       ...(options?.includeAllSurfaces ? { includeAllSurfaces: true } : {}),
+      ...(options?.titlePattern ? { titlePattern: options.titlePattern } : {}),
     });
     return result.windows;
   }
@@ -170,9 +174,10 @@ export class AppHandle extends Locator {
   }
 
   /** List the native menu bar hierarchy through Accessibility. */
-  async listMenuBar(): Promise<string> {
+  async listMenuBar(options?: ListMenuBarOptions): Promise<string> {
     const result = await this.rpc.call<{ menu: string }>("list_menu_bar", {
       appHandle: this.appHandle,
+      ...(options?.titlePattern ? { titlePattern: options.titlePattern } : {}),
     });
     return result.menu;
   }
@@ -312,7 +317,10 @@ export class MacbethClient {
     await this.ensureConnected();
     const result = await this.rpc.call<{ windows: AppWindowInfo[] }>(
       "list_windows",
-      options?.includeAllSurfaces ? { includeAllSurfaces: true } : {}
+      {
+        ...(options?.includeAllSurfaces ? { includeAllSurfaces: true } : {}),
+        ...(options?.titlePattern ? { titlePattern: options.titlePattern } : {}),
+      }
     );
     return result.windows;
   }

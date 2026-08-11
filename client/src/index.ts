@@ -46,6 +46,7 @@ export type {
   AppInfo,
   AppWindowInfo,
   ListWindowsOptions,
+  ListMenuBarOptions,
   AppRuntime,
   AppMatchKind,
   AppAccessibility,

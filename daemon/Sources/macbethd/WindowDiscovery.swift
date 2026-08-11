@@ -262,6 +262,23 @@ func listedWindows(
     return descriptors.filter { windowKind($0, displayFrames: displayFrames) == "window" }
 }
 
+/// Filter windows by a regex matched against any of `title`, `ownerName`,
+/// `bundleId`. Pure helper so the caller can prune owners before paying for the
+/// per-app AX join. Nil/empty fields never match; one pattern matches across
+/// three fields with OR semantics.
+func windowsMatchingTitlePattern(
+    _ descriptors: [WindowDescriptor],
+    pattern: String
+) throws -> [WindowDescriptor] {
+    let regex = try compileTitlePattern(pattern)
+    return descriptors.filter { descriptor in
+        if let title = descriptor.title, titleMatches(title, regex: regex) { return true }
+        if let ownerName = descriptor.ownerName, titleMatches(ownerName, regex: regex) { return true }
+        if let bundleID = descriptor.bundleID, titleMatches(bundleID, regex: regex) { return true }
+        return false
+    }
+}
+
 private func jsonString(_ value: String?) -> JSONValue {
     guard let value else { return .null }
     return .string(value)

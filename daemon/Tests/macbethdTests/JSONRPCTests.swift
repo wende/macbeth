@@ -100,3 +100,11 @@ private actor ConnectionProbe {
     #expect(await probe.dispatchedID == "client-42")
     #expect(await probe.closedIDs == ["client-42"])
 }
+
+// Socket-level integration is verified end-to-end in the manual smoke tests
+// (build the daemon, run a client, inspect `~/Library/Caches/macbeth/logs/`).
+// The daemon test suite has no other socket-level tests because the Swift
+// Testing framework's task lifecycle races with `Task.detached` server loops
+// in ways that make deterministic timing hard. Logger behaviour itself is
+// covered by `RequestLoggerTests`; the wiring (`emitLog` → `RequestLogger.log`)
+// is a one-line call site that gets exercised every time anyone hits the daemon.

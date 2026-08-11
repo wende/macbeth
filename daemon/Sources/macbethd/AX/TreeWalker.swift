@@ -13,6 +13,26 @@ struct AXNode: Sendable {
     let enabled: Bool
     let focused: Bool
     let children: [AXNode]
+    /// Approximate count of descendants the walker skipped because a `maxNodes`
+    /// budget ran out. nil means the subtree was walked to completion.
+    let truncatedChildren: Int?
+}
+
+/// Call-local budget that bounds the number of *visible* (non-skipped) nodes
+/// the walker emits. Sequential DFS only — passing this across concurrent
+/// walks would race. Hard-code that constraint in any future fan-out change.
+final class NodeBudget: @unchecked Sendable {
+    private var remaining: Int
+    init(_ maxNodes: Int) { self.remaining = maxNodes }
+    /// Try to reserve a node slot. Returns true while budget remains. The caller
+    /// (the parent of a not-yet-minted child, or the walker itself for the root)
+    /// mints exactly one node per accepted call. Does not go negative.
+    func tryConsume() -> Bool {
+        guard remaining > 0 else { return false }
+        remaining -= 1
+        return true
+    }
+    var isExhausted: Bool { remaining <= 0 }
 }
 
 /// Walk the AX element tree starting from a root element.
@@ -20,6 +40,18 @@ struct AXNode: Sendable {
 /// `pin`: when true, every handle minted in the walk uses the longer pinned TTL window
 /// (default 60 min, refreshed on use). Useful when the caller intends to operate on the
 /// returned handles later rather than immediately.
+///
+/// Budget semantics:
+///   * The walker always mints a handle for the node it was called on, *before*
+///     descending (preserving the canonical "every visible node gets a handle"
+///     invariant).
+///   * When `budget` is non-nil, the walker consumes one slot at entry, and
+///     each child consumes one more from the parent's loop. Skip-pass-through
+///     elements (no title/identifier anonymous groups) cost nothing — they
+///     emit no `AXNode` and mint no handle.
+///   * When the budget runs out, the parent sets `truncatedChildren` to a
+///     cheap estimate of remaining visible descendants so the model can
+///     re-query the parent's handle to drill deeper.
 func walkTree(
     root: AXUIElement,
     pid: pid_t,
@@ -27,10 +59,14 @@ func walkTree(
     maxDepth: Int = 10,
     includeInvisible: Bool = false,
     currentDepth: Int = 0,
+    budget: NodeBudget? = nil,
     pin: Bool = false
 ) async -> AXNode {
-    // Keep the raw optional for the fingerprint: substituting "unknown" for a failed read
-    // would look like a role change on the next walk and retire a perfectly good handle.
+    // Root consumes its own slot before we read any children. If the caller
+    // set maxNodes=1, the root is the only node and the marker covers every
+    // descendant.
+    let rootHasSlot = (budget?.tryConsume() ?? true)
+
     let rawRole = getStringAttribute(root, kAXRoleAttribute)
     let role = rawRole ?? "unknown"
     let subrole = getStringAttribute(root, kAXSubroleAttribute)
@@ -41,8 +77,6 @@ func walkTree(
     let enabled = getBoolAttribute(root, kAXEnabledAttribute) ?? true
     let focused = getBoolAttribute(root, kAXFocusedAttribute) ?? false
 
-    // The walk already read every attribute the fingerprint needs, so canonicalising the
-    // handle costs no extra AX round-trips.
     let handleId = await handleTable.store(
         SendableElement(root),
         pid: pid,
@@ -51,35 +85,35 @@ func walkTree(
     )
 
     var childNodes: [AXNode] = []
-    if currentDepth < maxDepth {
-        let children = getChildren(root)
-        for child in children {
-            if !includeInvisible && shouldSkipElement(child) {
-                // Still recurse into children of skipped elements (pass-through)
-                let grandchildren = getChildren(child)
-                for grandchild in grandchildren {
-                    let node = await walkTree(
-                        root: grandchild,
-                        pid: pid,
-                        handleTable: handleTable,
-                        maxDepth: maxDepth,
-                        includeInvisible: includeInvisible,
-                        currentDepth: currentDepth + 1,
-                        pin: pin
-                    )
-                    childNodes.append(node)
-                }
-            } else {
-                let node = await walkTree(
-                    root: child,
-                    pid: pid,
-                    handleTable: handleTable,
-                    maxDepth: maxDepth,
-                    includeInvisible: includeInvisible,
-                    currentDepth: currentDepth + 1,
-                    pin: pin
-                )
-                childNodes.append(node)
+    var truncated: Int? = nil
+
+    if !rootHasSlot {
+        let visible = expandPassThrough(getChildren(root), includeInvisible: includeInvisible)
+        truncated = visible.count
+    } else if currentDepth < maxDepth {
+        let visibleChildren = expandPassThrough(getChildren(root), includeInvisible: includeInvisible)
+        var remainingForEstimate = visibleChildren.count
+
+        for child in visibleChildren {
+            if let budget, budget.isExhausted {
+                truncated = remainingForEstimate
+                break
+            }
+            remainingForEstimate -= 1
+            let node = await walkTree(
+                root: child,
+                pid: pid,
+                handleTable: handleTable,
+                maxDepth: maxDepth,
+                includeInvisible: includeInvisible,
+                currentDepth: currentDepth + 1,
+                budget: budget,
+                pin: pin
+            )
+            childNodes.append(node)
+            if let childTruncated = node.truncatedChildren {
+                truncated = remainingForEstimate + childTruncated
+                break
             }
         }
     }
@@ -94,7 +128,8 @@ func walkTree(
         label: label,
         enabled: enabled,
         focused: focused,
-        children: childNodes
+        children: childNodes,
+        truncatedChildren: truncated
     )
 }
 
@@ -130,6 +165,41 @@ func getChildren(_ element: AXUIElement) -> [AXUIElement] {
     let result = AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &ref)
     guard result == .success, let children = ref as? [AXUIElement] else { return [] }
     return children
+}
+
+/// Flatten `shouldSkipElement` containers so the walker descends through them
+/// without minting them as nodes or charging them against the budget. Skipped
+/// containers usually hold leaf content the model still needs to discover.
+///
+/// - `includeInvisible == true` returns the input untouched.
+/// - Otherwise, recurse one level past each skipped child to surface its
+///   descendants; children that themselves are skipped get expanded again.
+@inline(__always)
+func expandPassThrough(
+    _ elements: [AXUIElement],
+    includeInvisible: Bool
+) -> [AXUIElement] {
+    guard !includeInvisible else { return elements }
+    var result: [AXUIElement] = []
+    result.reserveCapacity(elements.count)
+    for element in elements {
+        if shouldSkipElement(element) {
+            let grandChildren = getChildren(element)
+            if grandChildren.isEmpty {
+                // No grandchildren — keep the original element so it isn't lost.
+                // Emitting a would-be-skipped node here is consistent with the
+                // previous behaviour (the container was omitted, but its content
+                // was kept); with no content to keep, this branch should not
+                // fire because shouldSkipElement already returns false for
+                // 0-child groups.
+                continue
+            }
+            result.append(contentsOf: expandPassThrough(grandChildren, includeInvisible: false))
+        } else {
+            result.append(element)
+        }
+    }
+    return result
 }
 
 /// Determine if an element should be skipped in the filtered tree.

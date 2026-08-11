@@ -1,6 +1,27 @@
 @preconcurrency import ApplicationServices
 import Foundation
 
+/// Parse the `maxNodes` JSON value into a `NodeBudget`. Returns nil when no
+/// budget applies (omitted or JSON null). Floats and sub-1 values throw.
+func parseMaxNodes(_ raw: JSONValue?) throws -> NodeBudget? {
+    guard let raw else { return nil }
+    if case .null = raw { return nil }
+    guard let n = raw.numberValue else {
+        throw RPCError.invalidParams(
+            "maxNodes must be a positive integer when provided")
+    }
+    let value = Int(n)
+    // Reject non-integers up front: intValue does `Int(n)` and silently
+    // truncates 1.5 → 1, so without this guard the daemon would enforce a
+    // value the caller never asked for.
+    guard n.truncatingRemainder(dividingBy: 1) == 0,
+          value >= 1 else {
+        throw RPCError.invalidParams(
+            "maxNodes must be a positive integer when provided")
+    }
+    return NodeBudget(value)
+}
+
 /// Register the query_tree RPC method.
 func registerQueryTree(
     dispatcher: Dispatcher,
@@ -14,29 +35,49 @@ func registerQueryTree(
                 throw RPCError.invalidParams("Missing 'appHandle'")
             }
 
-            guard let appElement = await appManager.getElement(appHandle) else {
-                throw RPCError.appNotFound("Invalid app handle: \(appHandle)")
+            // Choose walk root: handleId (drill into a prior subtree) or app.
+            // appHandle is still required either way — handleTable.store needs
+            // a pid, and the diagnostics stay scoped to the app connection.
+            // Mirrors read_form's resolution branch (ReadForm.swift:25-44).
+            let root: AXUIElement
+            if let handleId = obj["handleId"]?.stringValue {
+                root = try await resolveLiveHandle(handleId, in: handleTable).element
+            } else {
+                guard let appElement = await appManager.getElement(appHandle) else {
+                    throw RPCError.appNotFound("Invalid app handle: \(appHandle)")
+                }
+                root = appElement.element
             }
 
             guard let conn = await appManager.get(appHandle) else {
                 throw RPCError.appNotFound("Invalid app handle: \(appHandle)")
             }
 
+            // For diagnostics + warn-on-degraded-web-content we still want the
+            // app element — the walk root may be deep in a subtree.
+            let appElement = await appManager.getElement(appHandle)
+
             let maxDepth = obj["maxDepth"]?.intValue ?? 5
             let format = obj["format"]?.stringValue ?? "text"
             let includeInvisible = obj["includeInvisible"]?.boolValue ?? false
             let pin = obj["pin"]?.boolValue ?? false
 
+            var budget: NodeBudget? = nil
+            if let raw = obj["maxNodes"] {
+                budget = try parseMaxNodes(raw)
+            }
+
             let tree = await walkTree(
-                root: appElement.element,
+                root: root,
                 pid: conn.pid,
                 handleTable: handleTable,
                 maxDepth: maxDepth,
                 includeInvisible: includeInvisible,
+                budget: budget,
                 pin: pin
             )
 
-            let webContent = inspectWebContent(appElement.element)
+            let webContent = appElement.map { inspectWebContent($0.element) } ?? .noWebArea
             var diagnostics: [String: JSONValue] = [
                 "runtime": .string(conn.runtime.rawValue),
                 "webContent": .string(webContent.rawValue),

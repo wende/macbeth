@@ -89,6 +89,15 @@ export interface ListWindowsOptions {
   /** Include menu-bar strips, overlays, and bookkeeping surfaces
    *  (`kind !== "window"`). Default false. */
   includeAllSurfaces?: boolean;
+  /** Case-insensitive regex matched against any of title/ownerName/bundleId.
+   *  Filtering runs before the per-owner AX join so filtered-out apps skip it. */
+  titlePattern?: string;
+}
+
+export interface ListMenuBarOptions {
+  /** Case-insensitive regex. Matched against each menu item's AX title;
+   *  non-matching branches are pruned but ancestors of matches stay. */
+  titlePattern?: string;
 }
 
 export interface ConnectOptions {
@@ -125,6 +134,14 @@ export type FillStrategy = "auto" | "ax" | "keyboard";
 
 export interface TreeOptions {
   maxDepth?: number;
+  /** Cap breadth of the walked tree. When the budget runs out, the parent
+   *  node is emitted with a `truncatedChildren` marker carrying the handleId
+   *  to re-query for a deeper walk. Must be >= 1 when set. */
+  maxNodes?: number;
+  /** Optional walk root (element handle from a prior query_tree). When set,
+   *  the tree starts at this element instead of the app — used to drill into
+   *  a subtree named by a truncation marker. */
+  handleId?: string;
   format?: "text" | "json";
   includeInvisible?: boolean;
   /** Pin every minted handle with a 60-min idle TTL (refreshed on use). */

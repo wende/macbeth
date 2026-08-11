@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { parse as parseYaml } from "yaml";
 
 import { runScreenshotTool } from "../mcp-screenshot.js";
 
@@ -38,16 +39,18 @@ describe("runScreenshotTool", () => {
       height: 480,
       format: "png",
     });
-    expect(result).toEqual({
-      content: [{
-        type: "text",
-        text: JSON.stringify({
-          path: "/tmp/macbeth-screenshots/screenshot-123.png",
-          width: 640,
-          height: 480,
-          format: "png",
-        }, null, 2),
-      }],
+    expect(result.content[0].type).toBe("text");
+    const parsed = parseYaml(result.content[0].text) as {
+      path: string;
+      width: number;
+      height: number;
+      format: string;
+    };
+    expect(parsed).toEqual({
+      path: "/tmp/macbeth-screenshots/screenshot-123.png",
+      width: 640,
+      height: 480,
+      format: "png",
     });
   });
 

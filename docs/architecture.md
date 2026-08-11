@@ -42,6 +42,7 @@ macbeth/
 - **Lazy locators** — Chains do no RPC until a terminal method.
 - **Electron** — Detect stock and branded Electron bundles, enable Chromium’s AX tree with `AXManualAccessibility` only (not `AXEnhancedUserInterface`, which resizes windows), and report whether the web area exposes descendants. Prefer AX actions; synthesize keystrokes or safe mouse clicks when frameworks need real events.
 - **Daemon lifecycle** — Client spawns as subprocess; shuts down on `close()`. Auto-reconnect re-spawns on connection errors; app handles must be re-obtained after a restart.
+- **Request audit log** — Daemon-side persistent NDJSON at `~/Library/Caches/macbeth/logs/requests.log`, rotated by size + count. Each line carries timestamp, method, byte counts, duration, success, error code, and a ~1 KB truncated body preview (base64 payloads replaced by `{"bytes": N}`). Written only by the daemon process so the unix-socket single-writer property holds across MCP clients and concurrent CLI scripts; the verbose stderr trace is the live companion, the audit log is the persistent one. Defaults to on; opt out with `--no-log` / `MACBETH_NO_LOG=1`.
 - **Zero external Swift deps** — Foundation, ApplicationServices, ScreenCaptureKit, CoreGraphics, Vision.
 - **Swift 6 strict concurrency** — Sendable-compliant; `AXUIElement` wrapped as `@unchecked Sendable`.
 
