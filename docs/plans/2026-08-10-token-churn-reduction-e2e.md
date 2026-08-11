@@ -107,9 +107,13 @@ The two misses are threshold misses, not direction misses — both payloads shra
 - `maxNodes` only pays off when the tree exceeds the budget: capped scenarios at depth 8 save 8–47%, while uncapped depth-8 calls are unchanged (−0.1%). The orient case (depth 8, `maxNodes: 300`) is where the cap earns its keep at −47.3%.
 - The MCP SDK's stdio client strips all but an allowlist (`HOME`/`PATH`/`SHELL`/`TERM`/`USER`) from the child env. That is a harness detail, not a product issue — the default log path needs no env var — but it silently swallowed `MACBETH_LOG_DIR` during verification and cost a debugging round.
 
-## Open questions for the reviewer
+## 7. Reviewer feedback flagged after push
 
-- The `expandPassThrough` recursion change needs a scope decision (keep as a quality win, or split out).
-- The JSON-format +3.1% is unexplained.
-- `get_element` misses the plan's ≤60%-of-previous-bytes target at 75%.
-- New `mcp.log` instrumentation lives on the same branch — fold it in or split into a separate PR?
+The original PR's truncation marker — `[truncated: ~N more descendants — re-query with handleId h_X, maxNodes M or higher]` — advertises a drill-down workflow the daemon does not implement. `query_tree` accepts only `appHandle` (`daemon/Sources/macbethd/Methods/QueryTree.swift:34`); there is no `handleId` parameter and no handle-rooted walk path. The model reads the marker, calls `query_tree(handleId: h_X)`, and gets an `invalidParams` error. Three reviewer comments landed on this:
+
+- `client/src/mcp.ts:187` — tool description promises the drill-down; schema does not support it.
+- `client/src/mcp.ts:192` — `maxNodes` description repeats the same promise.
+- `protocol/schema.ts:229` — docstring says "re-querying the parent's handleId drills deeper"; `QueryTreeParams` has no such field.
+- `daemon/Sources/macbethd/AX/TreeSerializer.swift:43` — the recommended `maxNodes` formula `max(truncated + 1, (children + 1) * 2)` overcounts shallow children and undercounts deep ones.
+
+**Two ways to fix it.** Either land the handle-rooted walk (add `handleId?: ElementHandle` to `QueryTreeParams`, route through `resolveLiveHandle`, dispatch to `walkTree(root: handle, ...)`) — the plan's intent — or remove the drill-down hint from the description, docstring, and marker, and recommend "raise `maxNodes`" instead. Both are real work; the marker is wrong in its current form either way.
