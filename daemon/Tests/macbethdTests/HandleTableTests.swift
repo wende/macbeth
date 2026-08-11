@@ -230,27 +230,40 @@ private func fingerprint(role: String? = nil, subrole: String? = nil, identifier
     // Pinned TTL is longer than base TTL but still finite: a pinned handle ages out
     // after the pinned window passes without activity. (There is no `unpin` —
     // abandoning the pin is the way to release it.)
-    let table = HandleTable(ttl: 0, pinnedTTL: 0.05)
+    //
+    // Both windows are driven by their cutoffs, not by sleeping: `ttl: 0` makes an
+    // unpinned handle due on the very next sweep while `pinnedTTL: 60` keeps a pinned one
+    // safe from it, and the reverse table retires it. Sleeping past a 50ms TTL instead
+    // raced the scheduler — a loaded CI runner overshoots the window and the survival
+    // assertion fails.
+    let survives = HandleTable(ttl: 0, pinnedTTL: 60)
     let element = appElement(4242)
-    let handleId = await table.store(element, pid: 4242)
-    #expect(await table.pin(handleId))
+    let handleId = await survives.store(element, pid: 4242)
+    #expect(await survives.pin(handleId))
 
-    // Past the base TTL but within the pinned window — handle is still live.
-    try? await Task.sleep(for: .milliseconds(10))
-    await table.expireStale()
-    #expect(describe(await table.classify(handleId)) == "found")
-    #expect(await table.store(element, pid: 4242) == handleId)
+    // The sweep that would retire an unpinned handle leaves this one alone, and the
+    // element keeps its id — a re-store returns the same handle rather than minting one.
+    await survives.expireStale()
+    #expect(describe(await survives.classify(handleId)) == "found")
+    #expect(await survives.store(element, pid: 4242) == handleId)
 
-    // Past the pinned TTL — handle has aged out.
-    try? await Task.sleep(for: .milliseconds(60))
-    await table.expireStale()
-    #expect(describe(await table.classify(handleId)) == "stale:expired")
+    // Same handle, pinned window already elapsed: the pin delays expiry, it does not
+    // exempt the handle from it.
+    let ages = HandleTable(ttl: 60, pinnedTTL: 0)
+    let pinnedId = await ages.store(element, pid: 4242)
+    #expect(await ages.pin(pinnedId))
+    await ages.expireStale()
+    #expect(describe(await ages.classify(pinnedId)) == "stale:expired")
 }
 
 @Test func pinRefreshesOnUse() async {
     // The pin window is measured from the most recent activity, not from pin-time —
     // a lookup past the pinned TTL refreshes the handle and keeps it alive.
-    let table = HandleTable(ttl: 60, pinnedTTL: 0.05)
+    // The refresh is only observable across a real interval, so this one has to sleep.
+    // The margin matters: the assertion is that `lookup` → `expireStale` runs inside the
+    // pinned window, so that gap (two actor hops) must stay well under `pinnedTTL`. A 50ms
+    // window was tight enough for a loaded CI runner to overshoot; 250ms is not.
+    let table = HandleTable(ttl: 60, pinnedTTL: 0.25)
     let element = appElement(4242)
     let handleId = await table.store(element, pid: 4242)
     #expect(await table.pin(handleId))
@@ -258,19 +271,20 @@ private func fingerprint(role: String? = nil, subrole: String? = nil, identifier
     // Past the original pinned TTL: handle is still live because lookup refreshes
     // both lastAccessed and pinnedUntil. A sweep immediately after the refresh
     // must not retire it.
-    try? await Task.sleep(for: .milliseconds(60))
+    try? await Task.sleep(for: .milliseconds(300))
     _ = await table.lookup(handleId)
     await table.expireStale()
     #expect(describe(await table.classify(handleId)) == "found")
 }
 
 @Test func storeWithPinnedTrueSetsWindow() async {
-    let table = HandleTable(ttl: 60, pinnedTTL: 0.05)
+    // `ttl: 0` alone would retire the handle whether or not `pinned: true` took effect, so
+    // the base TTL is long and the pinned one is zero: the handle can only be swept if the
+    // store-time flag actually moved it onto the pinned window.
+    let table = HandleTable(ttl: 60, pinnedTTL: 0)
     let element = appElement(4242)
     let handleId = await table.store(element, pid: 4242, pinned: true)
 
-    // Past the pinned TTL the freshly-stored pin window has expired.
-    try? await Task.sleep(for: .milliseconds(60))
     await table.expireStale()
     #expect(describe(await table.classify(handleId)) == "stale:expired")
 }
