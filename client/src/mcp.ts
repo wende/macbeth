@@ -187,15 +187,17 @@ server.registerTool("query_tree", {
   description: "Get an app's accessibility tree, including its menu hierarchy. Use this first; it connects automatically, so a separate connect_app or list_menu_bar call is unnecessary. Element handles (h_N) are stable: the same element keeps the same handle across calls, so handles you already have stay valid and you can plan several actions from one tree instead of re-querying between them. A handle that stops working reports stale_handle (re-query for it) or unknown_handle (it was never issued). If Chromium web content is empty, the result explains available screenshot/OCR/menu/keyboard fallbacks. Start with maxDepth 2–3 + maxNodes ~300 to orient, then drill in by re-querying a parent handleId when you see a truncation marker.",
   inputSchema: {
     app: appTargetSchema,
+    handleId: z.string().optional()
+      .describe("Element handle to root the walk at (from a prior query_tree truncation marker). Omit to walk from the app."),
     maxDepth: z.number().optional().default(5).describe("Maximum depth to traverse (default: 5)"),
     maxNodes: z.number().int().positive().optional()
-      .describe("Cap breadth (visible nodes the walker emits). When the budget runs out, the parent is emitted with a truncation marker that cites its handleId — re-query that handleId to drill deeper. Must be >= 1 when set."),
+      .describe("Cap breadth (visible nodes the walker emits). When the budget runs out, the parent is emitted with a truncation marker that cites its handleId — re-query that handleId with a higher maxNodes to drill deeper. Must be >= 1 when set."),
     format: z.enum(["text", "json"]).optional().default("text").describe("Tree output format (default: text)"),
     includeInvisible: z.boolean().optional().default(false).describe("Include structural elements normally filtered from the tree"),
   },
-}, async ({ app, maxDepth, maxNodes, format, includeInvisible }) => {
+}, async ({ app, handleId, maxDepth, maxNodes, format, includeInvisible }) => {
   const handle = await client.connect(app);
-  const result = await handle.queryTreeDetailed({ maxDepth, maxNodes, format, includeInvisible });
+  const result = await handle.queryTreeDetailed({ handleId, maxDepth, maxNodes, format, includeInvisible });
   const warning = result.diagnostics?.warning
     ? `Warning [degraded_accessibility]: ${result.diagnostics.warning}\n\n`
     : "";

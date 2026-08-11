@@ -138,6 +138,10 @@ export interface TreeOptions {
    *  node is emitted with a `truncatedChildren` marker carrying the handleId
    *  to re-query for a deeper walk. Must be >= 1 when set. */
   maxNodes?: number;
+  /** Optional walk root (element handle from a prior query_tree). When set,
+   *  the tree starts at this element instead of the app — used to drill into
+   *  a subtree named by a truncation marker. */
+  handleId?: string;
   format?: "text" | "json";
   includeInvisible?: boolean;
 }

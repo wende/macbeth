@@ -116,6 +116,7 @@ export class AppHandle extends Locator {
       diagnostics?: TreeDiagnostics;
     }>("query_tree", {
       appHandle: this.appHandle,
+      ...(options?.handleId !== undefined ? { handleId: options.handleId } : {}),
       maxDepth: options?.maxDepth ?? 5,
       ...(options?.maxNodes !== undefined ? { maxNodes: options.maxNodes } : {}),
       format: options?.format ?? "text",

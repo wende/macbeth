@@ -35,13 +35,27 @@ func registerQueryTree(
                 throw RPCError.invalidParams("Missing 'appHandle'")
             }
 
-            guard let appElement = await appManager.getElement(appHandle) else {
-                throw RPCError.appNotFound("Invalid app handle: \(appHandle)")
+            // Choose walk root: handleId (drill into a prior subtree) or app.
+            // appHandle is still required either way — handleTable.store needs
+            // a pid, and the diagnostics stay scoped to the app connection.
+            // Mirrors read_form's resolution branch (ReadForm.swift:25-44).
+            let root: AXUIElement
+            if let handleId = obj["handleId"]?.stringValue {
+                root = try await resolveLiveHandle(handleId, in: handleTable).element
+            } else {
+                guard let appElement = await appManager.getElement(appHandle) else {
+                    throw RPCError.appNotFound("Invalid app handle: \(appHandle)")
+                }
+                root = appElement.element
             }
 
             guard let conn = await appManager.get(appHandle) else {
                 throw RPCError.appNotFound("Invalid app handle: \(appHandle)")
             }
+
+            // For diagnostics + warn-on-degraded-web-content we still want the
+            // app element — the walk root may be deep in a subtree.
+            let appElement = await appManager.getElement(appHandle)
 
             let maxDepth = obj["maxDepth"]?.intValue ?? 5
             let format = obj["format"]?.stringValue ?? "text"
@@ -53,7 +67,7 @@ func registerQueryTree(
             }
 
             let tree = await walkTree(
-                root: appElement.element,
+                root: root,
                 pid: conn.pid,
                 handleTable: handleTable,
                 maxDepth: maxDepth,
@@ -61,7 +75,7 @@ func registerQueryTree(
                 budget: budget
             )
 
-            let webContent = inspectWebContent(appElement.element)
+            let webContent = appElement.map { inspectWebContent($0.element) } ?? .noWebArea
             var diagnostics: [String: JSONValue] = [
                 "runtime": .string(conn.runtime.rawValue),
                 "webContent": .string(webContent.rawValue),

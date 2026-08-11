@@ -222,11 +222,16 @@ export interface ListWindowsResult {
 // query_tree
 export interface QueryTreeParams {
   appHandle: string;
+  /** Optional walk root. When set, the tree starts at this element instead of
+   *  the app — used to drill into a subtree named by a truncation marker.
+   *  Resolved via the same live-handle path as read_form / get_element. */
+  handleId?: ElementHandle;
   maxDepth?: number;
   /** Cap the breadth of the walked tree. Omit for unbounded (current behavior).
    *  When the budget runs out, the parent is emitted with `truncatedChildren`
-   *  set to a rough estimate of remaining descendants and re-querying the
-   *  parent's handleId drills deeper. Must be >= 1 if provided. */
+   *  set to a rough estimate of remaining descendants. Re-querying that
+   *  handleId with a higher maxNodes drills deeper into the same subtree.
+   *  Must be >= 1 if provided. */
   maxNodes?: number;
   format?: "text" | "json";
   includeInvisible?: boolean;

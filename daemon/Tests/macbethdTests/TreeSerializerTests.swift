@@ -82,6 +82,36 @@ private func leaf(handle: String, role: String = "AXButton", title: String? = ni
     #expect(markerLines.count == 1)
 }
 
+@Test func truncationMarkerRecommendsHonestBudgetFloor() {
+    // Reviewer flagged: max(truncated + 1, (children + 1) * 2) overcounts
+    // shallow children and undercounts deep ones (truncated is an immediate-
+    // child estimate, not a full subtree count). The new formula floors at
+    // `truncated + 1` (budget that would have walked one more node) with
+    // a minimum of 50, and the marker text says "or higher" so the model
+    // knows the floor is not a target.
+
+    // Small truncation: floor dominates.
+    let small = AXNode(
+        handleId: "h_0", role: "AXWindow", subrole: nil,
+        title: nil, value: nil, identifier: nil, label: nil,
+        enabled: true, focused: false, children: [],
+        truncatedChildren: 5
+    )
+    let smallText = serializeTreeAsText(small)
+    #expect(smallText.contains("maxNodes 50 or higher"))
+
+    // Larger truncation: truncated + 1 dominates.
+    let big = AXNode(
+        handleId: "h_0", role: "AXWindow", subrole: nil,
+        title: nil, value: nil, identifier: nil, label: nil,
+        enabled: true, focused: false, children: [],
+        truncatedChildren: 200
+    )
+    let bigText = serializeTreeAsText(big)
+    #expect(bigText.contains("maxNodes 201 or higher"))
+    #expect(!bigText.contains("maxNodes 50"))
+}
+
 @Test func parseMaxNodesRejectsFloatsAndZero() throws {
     // Integer survives.
     let ok = try parseMaxNodes(JSONValue.number(5))

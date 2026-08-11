@@ -231,4 +231,45 @@ describe("AppHandle", () => {
     });
     expect(app.handle).toBe("h_0");
   });
+
+  it("forwards handleId to query_tree so maxNodes drill-down works", async () => {
+    const rpc = mockRpcWithResult({
+      tree: "[button \"Save\"] h:h_1\n",
+      diagnostics: { runtime: "native", webContent: "no_web_area" },
+    });
+    const app = new AppHandle(rpc, "h_0", {
+      name: "Finder",
+      pid: 1,
+      bundleId: "com.apple.finder",
+    });
+
+    await app.queryTreeDetailed({ handleId: "h_1", maxNodes: 100 });
+
+    expect(rpc.call).toHaveBeenCalledWith("query_tree", {
+      appHandle: "h_0",
+      handleId: "h_1",
+      maxDepth: 5,
+      maxNodes: 100,
+      format: "text",
+      includeInvisible: false,
+    });
+  });
+
+  it("omits handleId key when not set so the schema stays clean", async () => {
+    const rpc = mockRpcWithResult({
+      tree: "[window \"Demo\"]\n",
+      diagnostics: { runtime: "native", webContent: "no_web_area" },
+    });
+    const app = new AppHandle(rpc, "h_0", {
+      name: "Demo",
+      pid: 1,
+      bundleId: null,
+    });
+
+    await app.queryTreeDetailed({ maxNodes: 50 });
+
+    const payload = vi.mocked(rpc.call).mock.calls[0][1] as Record<string, unknown>;
+    expect(payload).not.toHaveProperty("handleId");
+    expect(payload.maxNodes).toBe(50);
+  });
 });
