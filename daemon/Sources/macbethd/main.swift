@@ -136,14 +136,19 @@ await dispatcher.register(method: "pin_handle") { params in
     }
     // Accept either `handleId` (singular) or `handleIds` (bulk). Bulk returns a per-id
     // result map; singular keeps the historical `{pinned, handleId}` shape.
+    if obj["handleId"]?.stringValue != nil && obj["handleIds"]?.arrayValue != nil {
+        throw RPCError.invalidParams("Provide either 'handleId' or 'handleIds', not both")
+    }
     if let ids = obj["handleIds"]?.arrayValue, !ids.isEmpty {
         guard ids.allSatisfy({ if case .string = $0 { true } else { false } }) else {
             throw RPCError.invalidParams("All 'handleIds' entries must be strings")
         }
         var results: [String: JSONValue] = [:]
+        var anyPinned = false
         for case .string(let id) in ids {
             if await handleTable.pin(id) {
                 results[id] = .bool(true)
+                anyPinned = true
             } else {
                 results[id] = .object([
                     "error": .string(bulkPinErrorCode(id: id, classify: await handleTable.classify(id)))
@@ -151,7 +156,7 @@ await dispatcher.register(method: "pin_handle") { params in
             }
         }
         return .object([
-            "pinned": .bool(true),
+            "pinned": .bool(anyPinned),
             "results": .object(results)
         ])
     }

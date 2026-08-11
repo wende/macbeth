@@ -428,7 +428,7 @@ export class MacbethClient {
   ): Promise<
     | { pinned: true; handleId: string }
     | {
-        pinned: true;
+        pinned: boolean;
         results: Record<string, boolean | { error: string }>;
       }
   > {
