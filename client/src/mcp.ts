@@ -21,6 +21,7 @@ import { resolveElementTarget } from "./mcp-target.js";
 import { formatAppList } from "./app-target.js";
 import { runWithActivity } from "./mcp-activity.js";
 import { toModelPayload } from "./mcp-format.js";
+import { createUsageTracker } from "./mcp-usage-log.js";
 import { SCRIPT_TIMEOUT, scriptTimeoutFromSeconds } from "./timeouts.js";
 import { readInstalledVersion } from "./update.js";
 import type { KeyStroke } from "./types.js";
@@ -733,9 +734,48 @@ server.registerTool("run_skill_script", {
 
 // --- Start ---
 
+/**
+ * Record what each tool call actually costs the model, from the last point
+ * before the payload leaves this process.
+ *
+ * This has to wrap the transport rather than the tool handlers: the handlers
+ * return content blocks, but the byte and token cost is a property of the
+ * serialized payload, and several tools produce theirs through shared helpers
+ * (`toModelPayload`, `runListWindowsTool`) that no single handler owns. Wrapping
+ * `send`/`onmessage` measures every tool once, including ones added later, and
+ * cannot drift out of sync with the handlers.
+ *
+ * `server.connect()` installs its own `onmessage`, so this must run after it.
+ */
+function attachUsageLogging(transport: StdioServerTransport): void {
+  const usage = createUsageTracker();
+  if (!usage) return;
+
+  const { tracker, writer } = usage;
+  const originalSend = transport.send.bind(transport);
+  const originalOnMessage = transport.onmessage?.bind(transport);
+
+  transport.onmessage = (message) => {
+    tracker.noteRequest(message);
+    originalOnMessage?.(message);
+  };
+
+  transport.send = async (message) => {
+    // Log after the send resolves: a payload that failed to reach the host
+    // never entered its context, and counting it would inflate the totals.
+    await originalSend(message);
+    tracker.noteResponse(message);
+  };
+
+  const flush = () => writer.flush();
+  process.on("exit", flush);
+  process.on("beforeExit", flush);
+}
+
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
+  attachUsageLogging(transport);
 
   process.on("SIGINT", async () => {
     await client.close();
