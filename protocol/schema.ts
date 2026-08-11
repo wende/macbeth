@@ -512,10 +512,10 @@ export interface PinHandleParams {
 }
 
 export interface PinHandleResult {
-  /** `true` when the requested handle was pinned (singular path), or when at
-   *  least one entry in the bulk path succeeded. `false` when every entry in
-   *  a bulk request failed — read `results` for per-id outcomes. */
-  pinned: boolean;
+  /** Singular path only. `true` when the requested handle was pinned; a failure
+   *  throws rather than returning `false`. The bulk path omits this field —
+   *  one boolean cannot describe a mixed batch, so `results` is the truth. */
+  pinned?: true;
   /** Singular path. Present when the caller used `handleId`. */
   handleId?: string;
   /** Bulk path. Maps each requested id to `true` on success or `{ error: code }` on

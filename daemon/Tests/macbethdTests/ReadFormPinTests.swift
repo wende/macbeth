@@ -3,12 +3,12 @@ import Foundation
 @preconcurrency import ApplicationServices
 @testable import macbethd
 
-/// Locks the wire-level contract that `read_form`'s `pin: true` plumbs through
-/// to `handleTable.store(..., pinned: true)`: a handle minted that way must
-/// survive the base 5-min idle sweep and only age out once the pinned window
-/// has elapsed. Reaches the same code path `buildFormField` uses, without
-/// needing a live AX element to drive through the full form walker.
-@Test func readFormPinPlumbsThroughToHandleTable() async {
+/// Locks the store-time half of `read_form`'s `pin: true` contract: a handle minted
+/// with `pinned: true` survives the base 5-min idle sweep and only ages out once the
+/// pinned window elapses. This drives `HandleTable` at the same call site
+/// `buildFormField` uses; it does not exercise param decoding in the handler, which
+/// would need a live AX element and a full form walk.
+@Test func pinnedAtStoreSurvivesBaseTTLThenExpires() async {
     let table = HandleTable(ttl: 0, pinnedTTL: 0.05)
     let element = SendableElement(AXUIElementCreateSystemWide())
 

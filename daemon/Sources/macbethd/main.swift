@@ -166,21 +166,19 @@ await dispatcher.register(method: "pin_handle") { params in
             throw RPCError.invalidParams("All 'handleIds' entries must be strings")
         }
         var results: [String: JSONValue] = [:]
-        var anyPinned = false
         for case .string(let id) in ids {
             if await handleTable.pin(id) {
                 results[id] = .bool(true)
-                anyPinned = true
             } else {
                 results[id] = .object([
                     "error": .string(bulkPinErrorCode(id: id, classify: await handleTable.classify(id)))
                 ])
             }
         }
-        return .object([
-            "pinned": .bool(anyPinned),
-            "results": .object(results)
-        ])
+        // No top-level `pinned` on the bulk path on purpose: one boolean cannot describe a
+        // mixed batch, and the two candidate meanings (any / all) both mislead half the
+        // callers. `results` is the only source of truth here.
+        return .object(["results": .object(results)])
     }
     guard let handleId = obj["handleId"]?.stringValue else {
         throw RPCError.invalidParams("Missing 'handleId' or 'handleIds'")

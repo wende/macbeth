@@ -52,7 +52,7 @@ Two host-app behaviours bound the guarantee:
 | App destroyed the element (re-render, view teardown) | `stale_handle` | `destroyed` |
 | App reused the reference for a different element | `stale_handle` | `recycled` |
 | Owning app quit, or its connection was evicted | `stale_handle` | `app_terminated` |
-| A concurrent call raced a pin_handle lookup (no liveness check) | `stale_handle` | `transient` |
+| Defensive only — not reachable today (see note below) | `stale_handle` | `transient` |
 | Daemon restarted, or the id was never issued | `unknown_handle` (-32011) | `never_issued` |
 
 What stays valid: unrelated `query_tree` / `get_element` / `read_form` calls, actions on
@@ -133,7 +133,16 @@ app and Accessibility permission.
   pinned window. Each lookup (and `pin_handle`) extends the window. No `unpin_handle`
   exists — abandoned pins release themselves.
   (`pinnedHandlesSurviveExpiryAndKeepTheirId`, `pinRefreshesOnUse`,
-  `storeWithPinnedTrueSetsWindow`)
+  `storeWithPinnedTrueSetsWindow`, `pinnedAtStoreSurvivesBaseTTLThenExpires`)
+
+  Bulk `pin_handle` (`handleIds[]`) returns only a per-id `results` map — no batch-wide
+  `pinned` boolean, because a mixed batch has no single answer. The singular path keeps
+  `{pinned: true, handleId}` and throws on failure.
+
+  `transient` is defensive: `pin` fails exactly when the id is absent from the table, which
+  is exactly when the follow-up `classify` cannot report it live. Nothing re-adds a retired
+  id (`store` mints from a monotonic counter), so the reason cannot fire today. It exists so
+  that a future path which does revive ids surfaces a retryable code instead of a fatal one.
 - [x] **AC7 — Bounded memory.** Invalidation records stay under their cap, and dropped
   records degrade to `expired` rather than `unknown`. (`invalidationRecordsStayBounded`)
 - [x] **AC8 — Recovery still works end to end.** A scoped locator re-resolves and retries

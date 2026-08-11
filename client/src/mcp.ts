@@ -10,6 +10,7 @@ import { isOperationTimeout, JsonRpcError, RPC_ERROR_NAMES } from "./errors.js";
 import { describeKeyPress, describeKeyStrokes, formatKeyDispatch } from "./key-dispatch.js";
 import { runScreenshotTool } from "./mcp-screenshot.js";
 import { runListWindowsTool } from "./mcp-windows.js";
+import { runPinHandleTool } from "./mcp-pin.js";
 import {
   listSkills,
   loadSkill,
@@ -454,22 +455,8 @@ server.registerTool("pin_handle", {
     handleId: z.string().optional().describe("Single handle ID to pin (e.g. 'h_42'). Mutually exclusive with handleIds."),
     handleIds: z.array(z.string()).optional().describe("Bulk pin — returns a per-id result map with `true` on success or `{ error: 'stale_handle: <reason>' | 'unknown_handle' }` on failure."),
   },
-}, async ({ handleId, handleIds }) => {
-  if (!handleId && (!handleIds || handleIds.length === 0)) {
-    return { content: [{ type: "text", text: "Provide either handleId or a non-empty handleIds." }], isError: true };
-  }
-  if (handleId && handleIds) {
-    return { content: [{ type: "text", text: "Provide either handleId or handleIds, not both." }], isError: true };
-  }
-  const result = await client.pinHandle((handleIds ?? handleId!) as string | string[]);
-  if ("results" in result) {
-    const lines = Object.entries(result.results).map(([id, v]) =>
-      v === true ? `${id}: pinned` : `${id}: ${(v as { error: string }).error}`
-    );
-    return { content: [{ type: "text", text: lines.join("\n") }] };
-  }
-  return { content: [{ type: "text", text: `Pinned handle: ${result.handleId}` }] };
-});
+}, async ({ handleId, handleIds }) =>
+  runPinHandleTool({ pinHandle: (ids) => client.pinHandle(ids) }, { handleId, handleIds }));
 
 server.registerTool("read_form", {
   description: "Read all form-like controls (text fields, sliders, checkboxes, popups, etc.) from a subtree. Returns each control's label, current value, type, editability, and handle. Use this to inspect panel contents without parsing the full tree. Pass `pin: true` to pin every returned field handle in one call — the cheap path for 'I'm about to fill this form'.",

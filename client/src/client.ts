@@ -429,16 +429,14 @@ export class MacbethClient {
   }
 
   /** Extend a handle's idle TTL to 60 min (refreshed on use). Accepts a single id
-   *  (returns `{pinned, handleId}`) or a batch (returns `{pinned, results}` with
-   *  per-id success/error codes). Pins are finite — there is no unpin. */
+   *  (returns `{pinned, handleId}`, throws on failure) or a batch (returns
+   *  `{results}` with per-id success/error codes — no batch-wide boolean, since a
+   *  mixed batch has no single answer). Pins are finite — there is no unpin. */
   async pinHandle(
     ids: string | string[],
   ): Promise<
     | { pinned: true; handleId: string }
-    | {
-        pinned: boolean;
-        results: Record<string, boolean | { error: string }>;
-      }
+    | { results: Record<string, boolean | { error: string }> }
   > {
     await this.ensureConnected();
     const params = Array.isArray(ids)
