@@ -65,17 +65,32 @@ func handleLookupError(_ handleId: String, _ outcome: HandleTable.Lookup) -> RPC
     case .stale(let reason):
         staleHandleError(handleId, reason: reason)
     case .found:
-        // The handle came back live on the second look — a concurrent call between the
-        // failed pin/unpin and this lookup revived it. That is genuinely recoverable by
-        // re-resolving, same as any other stale handle, so it has to carry a code
-        // `isRecoverableHandleError` recognises — the generic elementNotFound this used
-        // to return has no `data.reason` and isn't on that typed-codes path, so a caller
-        // would re-throw instead of retrying.
+        // Unreachable by construction: a lookup only misses when the id is absent from
+        // `handles`, and nothing puts an id back — `store` always mints a fresh id from a
+        // monotonic counter. The branch exists because the switch must be exhaustive, and
+        // it reports a recoverable code rather than a generic one so that if some future
+        // code path *does* revive ids, callers retry instead of hard-failing.
+        // `isRecoverableHandleError` keys off `data.reason`, which elementNotFound lacks.
         RPCError.staleHandle(
             "Handle \(handleId) could not be updated (\(staleHandleMarker), reason: transient). "
             + "A concurrent operation raced this one; re-resolve from the query path and retry.",
             handleId: handleId,
             reason: "transient"
         )
+    }
+}
+
+/// Per-id error code string for a failed entry in a bulk `pin_handle` result. Mirrors
+/// the code path a single failed pin would throw, without the full message — bulk
+/// callers just need to know "this id couldn't be pinned" and the typed reason.
+func bulkPinErrorCode(id: String, classify: HandleTable.Lookup) -> String {
+    switch classify {
+    case .unknown: return "unknown_handle"
+    case .stale(let reason): return "stale_handle: \(reason.rawValue)"
+    case .found:
+        // Unreachable: the caller only reaches this after `pin(id)` returned false, which
+        // means the id is absent from `handles` — exactly when `classify` cannot return
+        // `.found`. Kept for switch exhaustiveness; mirrors `handleLookupError`'s code.
+        return "stale_handle: transient"
     }
 }

@@ -170,7 +170,8 @@ export class Locator {
   }
 
   /** Resolve this locator once and return a scoped locator that uses the handle directly.
-   *  Falls back to re-querying if the handle expires. Pins the handle to prevent TTL expiry. */
+   *  Falls back to re-querying if the handle expires. Pins the handle so the agent has
+   *  a 60-min (refreshed-on-use) window to operate on the returned reference. */
   async scope(): Promise<ScopedLocator> {
     const info = await this.getInfo();
     await this.rpc.call("pin_handle", { handleId: info.handleId });
@@ -273,17 +274,8 @@ class ScopedLocator extends Locator {
       info = await this.resolveFromQuery();
     }
 
-    const previousHandleId = this.handleId;
     this.handleId = info.handleId;
     await this.rpc.call("pin_handle", { handleId: this.handleId });
-    if (previousHandleId !== this.handleId) {
-      // Best-effort: the old handle is almost always already invalidated (that's why we're
-      // here), so unpin_handle commonly fails with a stale/unknown error. Swallow it — the
-      // goal is just to release the pin if the entry still happens to be live, not to
-      // require it. Leaving this unhandled would leak a pinned entry on every retry against
-      // a flapping app until the app dies.
-      await this.rpc.call("unpin_handle", { handleId: previousHandleId }).catch(() => {});
-    }
   }
 
   private resolveFromQuery(): Promise<ElementInfo> {
@@ -296,9 +288,5 @@ class ScopedLocator extends Locator {
   private async reacquireAppHandle(): Promise<void> {
     if (this.reacquireApp === undefined) return;
     this.appHandle = await this.reacquireApp();
-  }
-
-  async unpin(): Promise<void> {
-    await this.rpc.call("unpin_handle", { handleId: this.handleId });
   }
 }

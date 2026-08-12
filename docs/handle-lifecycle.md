@@ -48,17 +48,17 @@ Two host-app behaviours bound the guarantee:
 
 | Boundary | Error | `data.reason` |
 |---|---|---|
-| Unused past the idle TTL (5 min) and not pinned | `stale_handle` (-32010) | `expired` |
+| Unused past the idle TTL (5 min, or 60 min when pinned) | `stale_handle` (-32010) | `expired` |
 | App destroyed the element (re-render, view teardown) | `stale_handle` | `destroyed` |
 | App reused the reference for a different element | `stale_handle` | `recycled` |
 | Owning app quit, or its connection was evicted | `stale_handle` | `app_terminated` |
-| A concurrent call raced a pin/unpin lookup (no liveness check) | `stale_handle` | `transient` |
+| Defensive only — not reachable today (see note below) | `stale_handle` | `transient` |
 | Daemon restarted, or the id was never issued | `unknown_handle` (-32011) | `never_issued` |
 
 What stays valid: unrelated `query_tree` / `get_element` / `read_form` calls, actions on
-other elements, app re-connects, and any interval shorter than the TTL. `pin_handle` (and
-`Locator.scope()`, which pins automatically) exempts a handle from TTL expiry — nothing
-else.
+other elements, app re-connects, and any interval shorter than the (pinned) TTL. Pinning
+extends the idle window from 5 min to 60 min, refreshed on every use; there is no separate
+unpin — pins are finite and age out on their own.
 
 ### Stale vs unknown
 
@@ -128,9 +128,21 @@ app and Accessibility permission.
   late-landing liveness probe. (`expiredHandlesAreStaleNotUnknown`,
   `neverIssuedHandlesAreUnknown`, `terminatedAppsReportTheirOwnReason`,
   `theFirstInvalidationReasonWins`, `handle lifecycle errors` suite)
-- [x] **AC6 — Pinning is the only TTL exemption.** A pinned handle survives expiry and
-  keeps its id; unpinning restores normal expiry.
-  (`pinnedHandlesSurviveExpiryAndKeepTheirId`)
+- [x] **AC6 — Pinning extends the TTL to 60 min, refreshed on use; there is no
+  unpin.** A pinned handle survives the base 5-min TTL but ages out past its 60-min
+  pinned window. Each lookup (and `pin_handle`) extends the window. No `unpin_handle`
+  exists — abandoned pins release themselves.
+  (`pinnedHandlesSurviveExpiryAndKeepTheirId`, `pinRefreshesOnUse`,
+  `storeWithPinnedTrueSetsWindow`, `pinnedAtStoreSurvivesBaseTTLThenExpires`)
+
+  Bulk `pin_handle` (`handleIds[]`) returns only a per-id `results` map — no batch-wide
+  `pinned` boolean, because a mixed batch has no single answer. The singular path keeps
+  `{pinned: true, handleId}` and throws on failure.
+
+  `transient` is defensive: `pin` fails exactly when the id is absent from the table, which
+  is exactly when the follow-up `classify` cannot report it live. Nothing re-adds a retired
+  id (`store` mints from a monotonic counter), so the reason cannot fire today. It exists so
+  that a future path which does revive ids surfaces a retryable code instead of a fatal one.
 - [x] **AC7 — Bounded memory.** Invalidation records stay under their cap, and dropped
   records degrade to `expired` rather than `unknown`. (`invalidationRecordsStayBounded`)
 - [x] **AC8 — Recovery still works end to end.** A scoped locator re-resolves and retries

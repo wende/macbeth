@@ -37,6 +37,10 @@ final class NodeBudget: @unchecked Sendable {
 
 /// Walk the AX element tree starting from a root element.
 ///
+/// `pin`: when true, every handle minted in the walk uses the longer pinned TTL window
+/// (default 60 min, refreshed on use). Useful when the caller intends to operate on the
+/// returned handles later rather than immediately.
+///
 /// Budget semantics:
 ///   * The walker always mints a handle for the node it was called on, *before*
 ///     descending (preserving the canonical "every visible node gets a handle"
@@ -55,7 +59,8 @@ func walkTree(
     maxDepth: Int = 10,
     includeInvisible: Bool = false,
     currentDepth: Int = 0,
-    budget: NodeBudget? = nil
+    budget: NodeBudget? = nil,
+    pin: Bool = false
 ) async -> AXNode {
     // Root consumes its own slot before we read any children. If the caller
     // set maxNodes=1, the root is the only node and the marker covers every
@@ -75,7 +80,8 @@ func walkTree(
     let handleId = await handleTable.store(
         SendableElement(root),
         pid: pid,
-        fingerprint: ElementFingerprint(role: rawRole, subrole: subrole, identifier: identifier)
+        fingerprint: ElementFingerprint(role: rawRole, subrole: subrole, identifier: identifier),
+        pinned: pin
     )
 
     var childNodes: [AXNode] = []
@@ -101,7 +107,8 @@ func walkTree(
                 maxDepth: maxDepth,
                 includeInvisible: includeInvisible,
                 currentDepth: currentDepth + 1,
-                budget: budget
+                budget: budget,
+                pin: pin
             )
             childNodes.append(node)
             if let childTruncated = node.truncatedChildren {

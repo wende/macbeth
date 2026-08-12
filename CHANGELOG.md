@@ -5,6 +5,14 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- `pin_handle` is now a finite operation: pins live for 60 minutes (refreshed on use)
+  and age out automatically, so the `unpin_handle` RPC was removed and mints are
+  pinned by default. `pin: true` is plumbed through `read_form`, `query_tree`, and
+  `get_element` for the "I know at mint time" path. ([#46](https://github.com/wende/macbeth/pull/46))
+
 ## [0.2.4] - 2026-08-02
 
 ### Added

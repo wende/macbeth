@@ -68,7 +68,7 @@ guiDescribe("Macbeth packaged test harness", () => {
 
     const scopedName = await name.scope();
     expect((await scopedName.getInfo()).value).toBe("Macbeth GUI Test");
-    await scopedName.unpin();
+    // Pins are finite — no unpin. The scoped handle ages out on its own.
 
     const fields = await app.readForm({ maxDepth: 5 });
     expect(fields).toEqual(expect.arrayContaining([

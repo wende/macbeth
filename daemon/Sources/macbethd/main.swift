@@ -153,23 +153,39 @@ registerExtractText(dispatcher: dispatcher, appManager: appManager, handleTable:
 registerGlowActivity(dispatcher: dispatcher, glow: glow)
 
 await dispatcher.register(method: "pin_handle") { params in
-    guard let obj = params?.objectValue,
-          let handleId = obj["handleId"]?.stringValue else {
-        throw RPCError.invalidParams("Missing 'handleId'")
+    guard let obj = params?.objectValue else {
+        throw RPCError.invalidParams("Missing params")
+    }
+    // Accept either `handleId` (singular) or `handleIds` (bulk). Bulk returns a per-id
+    // result map; singular keeps the historical `{pinned, handleId}` shape.
+    if obj["handleId"]?.stringValue != nil && obj["handleIds"]?.arrayValue != nil {
+        throw RPCError.invalidParams("Provide either 'handleId' or 'handleIds', not both")
+    }
+    if let ids = obj["handleIds"]?.arrayValue, !ids.isEmpty {
+        guard ids.allSatisfy({ if case .string = $0 { true } else { false } }) else {
+            throw RPCError.invalidParams("All 'handleIds' entries must be strings")
+        }
+        var results: [String: JSONValue] = [:]
+        for case .string(let id) in ids {
+            if await handleTable.pin(id) {
+                results[id] = .bool(true)
+            } else {
+                results[id] = .object([
+                    "error": .string(bulkPinErrorCode(id: id, classify: await handleTable.classify(id)))
+                ])
+            }
+        }
+        // No top-level `pinned` on the bulk path on purpose: one boolean cannot describe a
+        // mixed batch, and the two candidate meanings (any / all) both mislead half the
+        // callers. `results` is the only source of truth here.
+        return .object(["results": .object(results)])
+    }
+    guard let handleId = obj["handleId"]?.stringValue else {
+        throw RPCError.invalidParams("Missing 'handleId' or 'handleIds'")
     }
     let pinned = await handleTable.pin(handleId)
     if !pinned { throw handleLookupError(handleId, await handleTable.classify(handleId)) }
     return .object(["pinned": .bool(true), "handleId": .string(handleId)])
-}
-
-await dispatcher.register(method: "unpin_handle") { params in
-    guard let obj = params?.objectValue,
-          let handleId = obj["handleId"]?.stringValue else {
-        throw RPCError.invalidParams("Missing 'handleId'")
-    }
-    let unpinned = await handleTable.unpin(handleId)
-    if !unpinned { throw handleLookupError(handleId, await handleTable.classify(handleId)) }
-    return .object(["pinned": .bool(false), "handleId": .string(handleId)])
 }
 
 // Debug: dump all attributes of an element

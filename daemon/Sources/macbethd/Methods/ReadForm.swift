@@ -20,6 +20,7 @@ func registerReadForm(
             }
 
             let maxDepth = Int(obj["maxDepth"]?.numberValue ?? 10)
+            let pin = obj["pin"]?.boolValue ?? false
             let root: AXUIElement
 
             if let handleId = obj["handleId"]?.stringValue {
@@ -33,7 +34,8 @@ func registerReadForm(
                 }
                 let path = QueryPath(steps: querySteps)
                 let (element, _) = try await resolveQuery(
-                    path: path, root: appElement.element, pid: conn.pid, handleTable: handleTable
+                    path: path, root: appElement.element, pid: conn.pid, handleTable: handleTable,
+                    pin: pin
                 )
                 root = element
             } else {
@@ -52,7 +54,8 @@ func registerReadForm(
                 pid: conn.pid,
                 handleTable: handleTable,
                 depth: 0,
-                maxDepth: maxDepth
+                maxDepth: maxDepth,
+                pin: pin
             )
 
             return .object(["fields": .array(fields)])
@@ -65,13 +68,14 @@ private func collectFormFields(
     pid: pid_t,
     handleTable: HandleTable,
     depth: Int,
-    maxDepth: Int
+    maxDepth: Int,
+    pin: Bool
 ) async -> [JSONValue] {
     var fields: [JSONValue] = []
     let role = getStringAttribute(element, kAXRoleAttribute) ?? "unknown"
 
     if formRoles.contains(role) {
-        let field = await buildFormField(element: element, role: role, pid: pid, handleTable: handleTable)
+        let field = await buildFormField(element: element, role: role, pid: pid, handleTable: handleTable, pin: pin)
         fields.append(field)
     }
 
@@ -84,7 +88,8 @@ private func collectFormFields(
             pid: pid,
             handleTable: handleTable,
             depth: depth + 1,
-            maxDepth: maxDepth
+            maxDepth: maxDepth,
+            pin: pin
         )
         fields.append(contentsOf: childFields)
     }
@@ -96,7 +101,8 @@ private func buildFormField(
     element: AXUIElement,
     role: String,
     pid: pid_t,
-    handleTable: HandleTable
+    handleTable: HandleTable,
+    pin: Bool
 ) async -> JSONValue {
     let value = getValueAsString(element)
     let title = getStringAttribute(element, kAXTitleAttribute)
@@ -110,7 +116,8 @@ private func buildFormField(
             role: role,
             subrole: getStringAttribute(element, kAXSubroleAttribute),
             identifier: identifier
-        )
+        ),
+        pinned: pin
     )
     let enabled = getBoolAttribute(element, kAXEnabledAttribute) ?? true
 

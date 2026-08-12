@@ -10,6 +10,7 @@ import { isOperationTimeout, JsonRpcError, RPC_ERROR_NAMES } from "./errors.js";
 import { describeKeyPress, describeKeyStrokes, formatKeyDispatch } from "./key-dispatch.js";
 import { runScreenshotTool } from "./mcp-screenshot.js";
 import { runListWindowsTool } from "./mcp-windows.js";
+import { runPinHandleTool } from "./mcp-pin.js";
 import {
   listSkills,
   loadSkill,
@@ -194,10 +195,11 @@ server.registerTool("query_tree", {
       .describe("Cap breadth (visible nodes the walker emits). When the budget runs out, the parent is emitted with a truncation marker that cites its handleId — re-query that handleId with a higher maxNodes to drill deeper. Must be >= 1 when set."),
     format: z.enum(["text", "json"]).optional().default("text").describe("Tree output format (default: text)"),
     includeInvisible: z.boolean().optional().default(false).describe("Include structural elements normally filtered from the tree"),
+    pin: z.boolean().optional().describe("Pin every minted handle with a 60-min idle TTL (refreshed on use). Use when you'll return to the handles later rather than immediately."),
   },
-}, async ({ app, handleId, maxDepth, maxNodes, format, includeInvisible }) => {
+}, async ({ app, handleId, maxDepth, maxNodes, format, includeInvisible, pin }) => {
   const handle = await client.connect(app);
-  const result = await handle.queryTreeDetailed({ handleId, maxDepth, maxNodes, format, includeInvisible });
+  const result = await handle.queryTreeDetailed({ handleId, maxDepth, maxNodes, format, includeInvisible, pin });
   const warning = result.diagnostics?.warning
     ? `Warning [degraded_accessibility]: ${result.diagnostics.warning}\n\n`
     : "";
@@ -210,7 +212,7 @@ server.registerTool("list_windows", {
     + "Omit 'app' to list windows for every running app — that answers \"is app X open, and what is it showing?\" in one call; "
     + "pass 'app' to scope the listing to one app and its helper processes. "
     + "Each entry has windowId, title, ownerName/ownerPid/bundleId, frame, onScreen/active/minimized, AX role/subrole, kind, and whether it is capturable. "
-    + "windowId is a WindowServer ID, not an element handle: it has no 5-minute TTL, ignores pin_handle, and stays valid until the window closes. "
+    + "windowId is a WindowServer ID, not an element handle: it has no TTL, ignores pin_handle, and stays valid until the window closes. "
     + "Read-only — it does not activate windows or switch Spaces.",
   inputSchema: {
     app: appTargetSchema.optional().describe('Optional filter: app name (fuzzy), PID, or an app handle (e.g. "h_3"). Omit to list windows for every app.'),
@@ -422,11 +424,12 @@ server.registerTool("get_element", {
     app: appTargetSchema,
     query: querySchema.optional(),
     handleId: z.string().optional().describe("Direct element handle (alternative to query)"),
+    pin: z.boolean().optional().describe("Pin the returned handle with a 60-min idle TTL (refreshed on use). Ignored when only handleId is given (the existing handle is already in the table)."),
   },
-}, async ({ app, query, handleId }) => {
+}, async ({ app, query, handleId, pin }) => {
   const handle = await client.connect(app);
   const target = resolveElementTarget(query, handleId);
-  const info = await handle.getElementInfo(target);
+  const info = await handle.getElementInfo(target, pin);
   return {
     content: [{
       type: "text",
@@ -447,42 +450,31 @@ server.registerTool("dump_attributes", {
 });
 
 server.registerTool("pin_handle", {
-  description: "Pin an element handle to prevent it from expiring (default TTL is 5 minutes). Useful for long-running workflows where you need a stable reference to a panel or control.",
+  description: "Extend a handle's idle TTL to 60 minutes (refreshed on each use). Pins are finite — abandoned handles age out on their own, so there is no unpin. Prefer `pin: true` on read_form/query_tree/get_element when you know at mint time; use this tool when you decide later, or when pinning a set of handles together via `handleIds`.",
   inputSchema: {
-    handleId: z.string().describe("Handle ID to pin (e.g. 'h_42')"),
+    handleId: z.string().optional().describe("Single handle ID to pin (e.g. 'h_42'). Mutually exclusive with handleIds."),
+    handleIds: z.array(z.string()).optional().describe("Bulk pin — returns a per-id result map with `true` on success or `{ error: 'stale_handle: <reason>' | 'unknown_handle' }` on failure."),
   },
-}, async ({ handleId }) => {
-  await (client as any).ensureConnected();
-  await (client as any).rpc.call("pin_handle", { handleId });
-  return { content: [{ type: "text", text: `Pinned handle: ${handleId}` }] };
-});
-
-server.registerTool("unpin_handle", {
-  description: "Unpin a previously pinned handle, resuming normal TTL expiry.",
-  inputSchema: {
-    handleId: z.string().describe("Handle ID to unpin"),
-  },
-}, async ({ handleId }) => {
-  await (client as any).ensureConnected();
-  await (client as any).rpc.call("unpin_handle", { handleId });
-  return { content: [{ type: "text", text: `Unpinned handle: ${handleId}` }] };
-});
+}, async ({ handleId, handleIds }) =>
+  runPinHandleTool({ pinHandle: (ids) => client.pinHandle(ids) }, { handleId, handleIds }));
 
 server.registerTool("read_form", {
-  description: "Read all form-like controls (text fields, sliders, checkboxes, popups, etc.) from a subtree. Returns each control's label, current value, type, editability, and handle. Use this to inspect panel contents without parsing the full tree.",
+  description: "Read all form-like controls (text fields, sliders, checkboxes, popups, etc.) from a subtree. Returns each control's label, current value, type, editability, and handle. Use this to inspect panel contents without parsing the full tree. Pass `pin: true` to pin every returned field handle in one call — the cheap path for 'I'm about to fill this form'.",
   inputSchema: {
     app: appTargetSchema,
     query: querySchema.optional().describe("Optional locator chain to scope the search (e.g. to an Inspector panel)"),
     handleId: z.string().optional().describe("Direct subtree handle (alternative to query)"),
     maxDepth: z.number().optional().default(10).describe("Maximum depth to traverse (default: 10)"),
+    pin: z.boolean().optional().describe("Pin every returned field handle with a 60-min idle TTL (refreshed on use). One call covers the whole form."),
   },
   annotations: { readOnlyHint: true },
-}, async ({ app, query, handleId, maxDepth }) => {
+}, async ({ app, query, handleId, maxDepth, pin }) => {
   const handle = await client.connect(app);
   const fields = await handle.readForm({
     query: query ?? undefined,
     handleId: handleId ?? undefined,
     maxDepth,
+    pin,
   });
   if (fields.length === 0) {
     return { content: [{ type: "text", text: "No form controls found in the specified subtree." }] };

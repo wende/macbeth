@@ -144,6 +144,8 @@ export interface TreeOptions {
   handleId?: string;
   format?: "text" | "json";
   includeInvisible?: boolean;
+  /** Pin every minted handle with a 60-min idle TTL (refreshed on use). */
+  pin?: boolean;
 }
 
 export interface ElementInfo {

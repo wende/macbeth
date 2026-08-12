@@ -60,6 +60,7 @@ func registerQueryTree(
             let maxDepth = obj["maxDepth"]?.intValue ?? 5
             let format = obj["format"]?.stringValue ?? "text"
             let includeInvisible = obj["includeInvisible"]?.boolValue ?? false
+            let pin = obj["pin"]?.boolValue ?? false
 
             var budget: NodeBudget? = nil
             if let raw = obj["maxNodes"] {
@@ -72,7 +73,8 @@ func registerQueryTree(
                 handleTable: handleTable,
                 maxDepth: maxDepth,
                 includeInvisible: includeInvisible,
-                budget: budget
+                budget: budget,
+                pin: pin
             )
 
             let webContent = appElement.map { inspectWebContent($0.element) } ?? .noWebArea

@@ -121,6 +121,7 @@ export class AppHandle extends Locator {
       ...(options?.maxNodes !== undefined ? { maxNodes: options.maxNodes } : {}),
       format: options?.format ?? "text",
       includeInvisible: options?.includeInvisible ?? false,
+      ...(options?.pin ? { pin: true } : {}),
     });
     return {
       tree: typeof result.tree === "string"
@@ -164,7 +165,7 @@ export class AppHandle extends Locator {
   }
 
   /** Read form-like controls (text fields, sliders, checkboxes, etc.) from a subtree */
-  async readForm(options?: { handleId?: string; query?: QueryStep[]; maxDepth?: number }): Promise<FormField[]> {
+  async readForm(options?: { handleId?: string; query?: QueryStep[]; maxDepth?: number; pin?: boolean }): Promise<FormField[]> {
     const result = await this.rpc.call<{ fields: FormField[] }>("read_form", {
       appHandle: this.appHandle,
       ...options,
@@ -247,11 +248,14 @@ export class AppHandle extends Locator {
     });
   }
 
-  /** Return the properties of an element addressed by a query or a handle id. */
-  async getElementInfo(target: ElementTarget): Promise<ElementInfo> {
+  /** Return the properties of an element addressed by a query or a handle id.
+   *  When `pin` is true and the target is a query, the daemon mints the new handle
+   *  with a 60-min idle TTL. Ignored when the target is a pre-existing handle id. */
+  async getElementInfo(target: ElementTarget, pin = false): Promise<ElementInfo> {
     return this.rpc.call<ElementInfo>("get_element", {
       appHandle: this.appHandle,
       ...target,
+      ...(pin ? { pin: true } : {}),
     });
   }
 }
@@ -422,6 +426,23 @@ export class MacbethClient {
   async dumpAttributes(handleId: string): Promise<Record<string, unknown>> {
     await this.ensureConnected();
     return this.rpc.call<Record<string, unknown>>("dump_attributes", { handleId });
+  }
+
+  /** Extend a handle's idle TTL to 60 min (refreshed on use). Accepts a single id
+   *  (returns `{pinned, handleId}`, throws on failure) or a batch (returns
+   *  `{results}` with per-id success/error codes — no batch-wide boolean, since a
+   *  mixed batch has no single answer). Pins are finite — there is no unpin. */
+  async pinHandle(
+    ids: string | string[],
+  ): Promise<
+    | { pinned: true; handleId: string }
+    | { results: Record<string, boolean | { error: string }> }
+  > {
+    await this.ensureConnected();
+    const params = Array.isArray(ids)
+      ? { handleIds: ids }
+      : { handleId: ids };
+    return this.rpc.call("pin_handle", params);
   }
 
   /** Extract text from an app window or raw image data using OCR */
