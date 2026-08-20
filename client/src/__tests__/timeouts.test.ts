@@ -11,11 +11,31 @@ import {
 } from "../errors.js";
 import { ServerHealth } from "../health.js";
 import {
+  ACTION_TIMEOUT,
+  actionRequestTimeoutMs,
+  actionTimeoutFromSeconds,
+  clampActionTimeoutMs,
   clampScriptTimeoutMs,
   scriptRequestTimeoutMs,
   scriptTimeoutFromSeconds,
   SCRIPT_TIMEOUT,
 } from "../timeouts.js";
+
+describe("UI action timeout bounds", () => {
+  it("clamps action budgets and converts seconds", () => {
+    expect(clampActionTimeoutMs()).toBe(ACTION_TIMEOUT.defaultMs);
+    expect(clampActionTimeoutMs(-1)).toBe(ACTION_TIMEOUT.minMs);
+    expect(clampActionTimeoutMs(Number.POSITIVE_INFINITY)).toBe(ACTION_TIMEOUT.defaultMs);
+    expect(actionTimeoutFromSeconds(120)).toBe(120_000);
+    expect(actionTimeoutFromSeconds(10_000)).toBe(ACTION_TIMEOUT.maxMs);
+  });
+
+  it("keeps the transport alive beyond the daemon action budget", () => {
+    expect(actionRequestTimeoutMs(120_000)).toBe(
+      120_000 + ACTION_TIMEOUT.clientGraceMs
+    );
+  });
+});
 
 describe("script timeout bounds", () => {
   it("defaults to 30s when no timeout is requested", () => {

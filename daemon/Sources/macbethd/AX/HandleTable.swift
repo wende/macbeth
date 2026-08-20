@@ -34,7 +34,7 @@ actor HandleTable {
     /// "this daemon never issued that id" (a caller bug, or a handle from a previous
     /// daemon process).
     enum Lookup: Sendable {
-        case found(SendableElement, ElementFingerprint)
+        case found(SendableElement, ElementFingerprint, pid_t)
         case stale(HandleInvalidation)
         case unknown
     }
@@ -129,7 +129,7 @@ actor HandleTable {
                 entry.pinnedUntil = now.addingTimeInterval(pinnedTTL)
             }
             handles[handleId] = entry
-            return .found(entry.element, entry.fingerprint)
+            return .found(entry.element, entry.fingerprint, entry.pid)
         }
         return classify(handleId)
     }
@@ -137,7 +137,7 @@ actor HandleTable {
     /// Classify a handle without refreshing last-accessed times. Used on error paths.
     func classify(_ handleId: String) -> Lookup {
         if let entry = handles[handleId] {
-            return .found(entry.element, entry.fingerprint)
+            return .found(entry.element, entry.fingerprint, entry.pid)
         }
         if let reason = invalidated[handleId] {
             return .stale(reason)

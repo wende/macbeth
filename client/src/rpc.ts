@@ -17,6 +17,26 @@ interface JsonRpcResponse {
 
 export { JsonRpcError } from "./errors.js";
 
+// Only methods whose repeated execution is read-only or idempotent may be
+// replayed after a broken connection. For every other method, the daemon may
+// have completed the side effect before the reply was lost, so the outcome is
+// unknown and retrying would risk performing it twice.
+const RECONNECT_RETRYABLE_METHODS = new Set([
+  "connect_app",
+  "dump_attributes",
+  "extract_text",
+  "get_element",
+  "list_apps",
+  "list_menu_bar",
+  "list_methods",
+  "list_windows",
+  "pin_handle",
+  "query_tree",
+  "read_form",
+  "screenshot",
+  "wait_for",
+]);
+
 export class JsonRpcClient {
   private socket: net.Socket | null = null;
   private pending = new Map<number, PendingRequest>();
@@ -82,7 +102,11 @@ export class JsonRpcClient {
       this.serverHealth.recordSuccess();
       return result;
     } catch (err: unknown) {
-      if (this.onReconnect && isConnectionError(err)) {
+      if (
+        this.onReconnect
+        && RECONNECT_RETRYABLE_METHODS.has(method)
+        && isConnectionError(err)
+      ) {
         this.serverHealth.recordFailure(err);
         await this.onReconnect();
         try {

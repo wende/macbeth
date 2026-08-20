@@ -4,6 +4,10 @@ import {
   isRecoverableHandleError,
   isUnknownHandleError,
 } from "./errors.js";
+import {
+  actionRequestTimeoutMs,
+  clampActionTimeoutMs,
+} from "./timeouts.js";
 
 export interface LocatorOptions {
   timeout?: number;
@@ -20,16 +24,16 @@ import type { QueryStep, ElementInfo, ClickOptions, FillStrategy } from "./types
 function buildClickParams(args: {
   appHandle: string;
   query: QueryStep[];
-  defaultTimeout: number;
+  timeoutMs: number;
   options?: ClickOptions;
   handleId?: string;
 }) {
-  const { appHandle, query, defaultTimeout, options, handleId } = args;
+  const { appHandle, query, timeoutMs, options, handleId } = args;
   return {
     appHandle,
     query,
     ...(handleId !== undefined ? { handleId } : {}),
-    timeout: (options?.timeout ?? defaultTimeout) / 1000,
+    timeout: timeoutMs / 1000,
     ...(options?.strategy ? { strategy: options.strategy } : {}),
     ...(options?.waitForIdleMs !== undefined ? { waitForIdleMs: options.waitForIdleMs } : {}),
   };
@@ -121,30 +125,33 @@ export class Locator {
   // --- Terminal action methods (send RPC) ---
 
   async click(options?: ClickOptions): Promise<void> {
+    const timeoutMs = clampActionTimeoutMs(options?.timeout ?? this.defaultTimeout);
     await this.rpc.call("click", buildClickParams({
       appHandle: this.appHandle,
       query: this.queryPath,
-      defaultTimeout: this.defaultTimeout,
+      timeoutMs,
       options,
-    }));
+    }), { timeoutMs: actionRequestTimeoutMs(timeoutMs) });
   }
 
   async fill(value: string, options?: { timeout?: number; strategy?: FillStrategy }): Promise<void> {
+    const timeoutMs = clampActionTimeoutMs(options?.timeout ?? this.defaultTimeout);
     await this.rpc.call("fill", {
       appHandle: this.appHandle,
       query: this.queryPath,
       value,
-      timeout: (options?.timeout ?? this.defaultTimeout) / 1000,
+      timeout: timeoutMs / 1000,
       ...(options?.strategy ? { strategy: options.strategy } : {}),
-    });
+    }, { timeoutMs: actionRequestTimeoutMs(timeoutMs) });
   }
 
   async waitFor(options?: { timeout?: number }): Promise<ElementInfo> {
+    const timeoutMs = clampActionTimeoutMs(options?.timeout ?? this.defaultTimeout);
     return this.rpc.call<ElementInfo>("wait_for", {
       appHandle: this.appHandle,
       query: this.queryPath,
-      timeout: (options?.timeout ?? this.defaultTimeout) / 1000,
-    });
+      timeout: timeoutMs / 1000,
+    }, { timeoutMs: actionRequestTimeoutMs(timeoutMs) });
   }
 
   async getInfo(): Promise<ElementInfo> {
@@ -196,26 +203,28 @@ class ScopedLocator extends Locator {
   }
 
   override async click(options?: ClickOptions): Promise<void> {
+    const timeoutMs = clampActionTimeoutMs(options?.timeout ?? this.defaultTimeout);
     await this.withRediscovery(() =>
       this.rpc.call("click", buildClickParams({
         appHandle: this.appHandle,
         handleId: this.handleId,
         query: this.queryPath,
-        defaultTimeout: this.defaultTimeout,
+        timeoutMs,
         options,
-      }))
+      }), { timeoutMs: actionRequestTimeoutMs(timeoutMs) })
     );
   }
 
   override async fill(value: string, options?: { timeout?: number; strategy?: FillStrategy }): Promise<void> {
+    const timeoutMs = clampActionTimeoutMs(options?.timeout ?? this.defaultTimeout);
     await this.withRediscovery(() =>
       this.rpc.call("fill", {
         appHandle: this.appHandle,
         handleId: this.handleId,
         value,
-        timeout: (options?.timeout ?? this.defaultTimeout) / 1000,
+        timeout: timeoutMs / 1000,
         ...(options?.strategy ? { strategy: options.strategy } : {}),
-      })
+      }, { timeoutMs: actionRequestTimeoutMs(timeoutMs) })
     );
   }
 

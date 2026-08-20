@@ -35,6 +35,10 @@ export {
 export { ServerHealth } from "./health.js";
 export type { FailureKind, HealthSnapshot } from "./health.js";
 export {
+  ACTION_TIMEOUT,
+  actionRequestTimeoutMs,
+  actionTimeoutFromSeconds,
+  clampActionTimeoutMs,
   clampScriptTimeoutMs,
   scriptRequestTimeoutMs,
   scriptTimeoutFromSeconds,

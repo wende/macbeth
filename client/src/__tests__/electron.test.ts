@@ -27,7 +27,7 @@ describe("web content locators", () => {
         { role: "button", title: "Send", identifier: undefined },
       ],
       timeout: 30,
-    });
+    }, { timeoutMs: 32_000 });
   });
 
   it("heading() appends an AXHeading step", async () => {
@@ -54,7 +54,7 @@ describe("action strategies", () => {
       query: [{ role: "button", title: "Canvas", identifier: undefined }],
       timeout: 30,
       strategy: "mouse",
-    });
+    }, { timeoutMs: 32_000 });
   });
 
   it("fill forwards the strategy option", async () => {
@@ -68,7 +68,7 @@ describe("action strategies", () => {
       value: "hi",
       timeout: 30,
       strategy: "keyboard",
-    });
+    }, { timeoutMs: 32_000 });
   });
 
   it("omits strategy when not provided (backward compatible)", async () => {

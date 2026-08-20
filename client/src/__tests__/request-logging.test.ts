@@ -1,27 +1,36 @@
+import { accessSync, constants } from "node:fs";
 import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { connect, createConnection } from "node:net";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import { MacbethClient } from "../client.js";
 import { DaemonManager } from "../daemon.js";
 
-async function findExecutable(): Promise<string | null> {
+function findExecutable(): string | null {
   const candidates = [
+    process.env.MACBETH_DAEMON_PATH,
     join(import.meta.dirname, "../../bin/macbethd"),
     join(import.meta.dirname, "../../../daemon/.build/debug/macbethd"),
     join(import.meta.dirname, "../../../daemon/.build/release/macbethd"),
-  ];
+  ].filter((file): file is string => Boolean(file));
   for (const file of candidates) {
     try {
-      await readFile(file);
+      accessSync(file, constants.X_OK);
       return file;
     } catch {
       // missing
     }
   }
   return null;
+}
+
+const binary = findExecutable() ?? "";
+if (!binary && process.env.MACBETH_REQUIRE_DAEMON_TESTS === "1") {
+  throw new Error(
+    "MACBETH_REQUIRE_DAEMON_TESTS=1 but no executable macbethd binary was found"
+  );
 }
 
 async function waitForSocket(socketPath: string, timeoutMs = 5000): Promise<void> {
@@ -47,13 +56,8 @@ async function waitForSocket(socketPath: string, timeoutMs = 5000): Promise<void
   throw new Error(`socket did not appear at ${socketPath} within ${timeoutMs}ms`);
 }
 
-describe("request logging (real daemon)", () => {
-  let binary: string | null = null;
+describe.skipIf(!binary)("request logging (real daemon)", () => {
   let tempDirs: string[] = [];
-
-  beforeAll(async () => {
-    binary = await findExecutable();
-  });
 
   afterEach(async () => {
     delete process.env.MACBETH_LOG_DIR;
@@ -67,15 +71,7 @@ describe("request logging (real daemon)", () => {
     tempDirs = [];
   });
 
-  afterAll(async () => {
-    // No global cleanup needed.
-  });
-
   it("writes one NDJSON record per RPC call into the configured log dir", async () => {
-    if (!binary) {
-      console.warn("[skip] no macbethd binary available");
-      return;
-    }
     const tempRoot = await mkdtemp(join(tmpdir(), "macbeth-log-test-"));
     tempDirs.push(tempRoot);
     const logDir = join(tempRoot, "logs");
@@ -118,10 +114,6 @@ describe("request logging (real daemon)", () => {
   });
 
   it("does not create a log directory when MACBETH_NO_LOG=1", async () => {
-    if (!binary) {
-      console.warn("[skip] no macbethd binary available");
-      return;
-    }
     const tempRoot = await mkdtemp(join(tmpdir(), "macbeth-nolog-test-"));
     tempDirs.push(tempRoot);
     const targetLogDir = join(tempRoot, "logs");
@@ -156,10 +148,6 @@ describe("request logging (real daemon)", () => {
   });
 
   it("writes to MACBETH_LOG_DIR when MACBETH_NO_LOG is unset", async () => {
-    if (!binary) {
-      console.warn("[skip] no macbethd binary available");
-      return;
-    }
     const tempRoot = await mkdtemp(join(tmpdir(), "macbeth-logdir-test-"));
     tempDirs.push(tempRoot);
     const targetLogDir = join(tempRoot, "logs");
@@ -191,10 +179,6 @@ describe("request logging (real daemon)", () => {
   });
 
   it("records a parse-failure entry for malformed JSON", async () => {
-    if (!binary) {
-      console.warn("[skip] no macbethd binary available");
-      return;
-    }
     const tempRoot = await mkdtemp(join(tmpdir(), "macbeth-parsefail-test-"));
     tempDirs.push(tempRoot);
     const targetLogDir = join(tempRoot, "logs");

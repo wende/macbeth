@@ -35,22 +35,24 @@ func registerQueryTree(
                 throw RPCError.invalidParams("Missing 'appHandle'")
             }
 
+            guard let conn = await appManager.get(appHandle) else {
+                throw RPCError.appNotFound("Invalid app handle: \(appHandle)")
+            }
+
             // Choose walk root: handleId (drill into a prior subtree) or app.
             // appHandle is still required either way — handleTable.store needs
             // a pid, and the diagnostics stay scoped to the app connection.
             // Mirrors read_form's resolution branch (ReadForm.swift:25-44).
             let root: AXUIElement
             if let handleId = obj["handleId"]?.stringValue {
-                root = try await resolveLiveHandle(handleId, in: handleTable).element
+                root = try await resolveLiveHandle(
+                    handleId, in: handleTable, expectedPid: conn.pid
+                ).element
             } else {
                 guard let appElement = await appManager.getElement(appHandle) else {
                     throw RPCError.appNotFound("Invalid app handle: \(appHandle)")
                 }
                 root = appElement.element
-            }
-
-            guard let conn = await appManager.get(appHandle) else {
-                throw RPCError.appNotFound("Invalid app handle: \(appHandle)")
             }
 
             // For diagnostics + warn-on-degraded-web-content we still want the

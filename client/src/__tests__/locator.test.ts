@@ -24,7 +24,7 @@ describe("Locator", () => {
       appHandle: "h_0",
       query: [{ role: "button", title: "OK", identifier: undefined }],
       timeout: 30,
-    });
+    }, { timeoutMs: 32_000 });
   });
 
   it("chains multiple steps", async () => {
@@ -40,7 +40,7 @@ describe("Locator", () => {
         { role: "button", title: "Save", identifier: undefined },
       ],
       timeout: 30,
-    });
+    }, { timeoutMs: 32_000 });
   });
 
   it("locators are immutable and reusable", async () => {
@@ -69,7 +69,7 @@ describe("Locator", () => {
       query: [{ role: "text_field", title: "Name", identifier: undefined }],
       value: "John",
       timeout: 30,
-    });
+    }, { timeoutMs: 32_000 });
   });
 
   it("waitFor sends query", async () => {
@@ -81,7 +81,7 @@ describe("Locator", () => {
       appHandle: "h_0",
       query: [{ role: "window", title: "New", identifier: undefined }],
       timeout: 5,
-    });
+    }, { timeoutMs: 7_000 });
   });
 
   it("locator method accepts QueryStep", async () => {
@@ -93,7 +93,7 @@ describe("Locator", () => {
       appHandle: "h_0",
       query: [{ role: "button", identifier: "save-btn" }],
       timeout: 30,
-    });
+    }, { timeoutMs: 32_000 });
   });
 
   it("supports identifier-based lookups", async () => {
@@ -105,7 +105,7 @@ describe("Locator", () => {
       appHandle: "h_0",
       query: [{ role: "button", title: undefined, identifier: "ok-btn" }],
       timeout: 30,
-    });
+    }, { timeoutMs: 32_000 });
   });
 
   it("forwards mouse strategy and idle protection", async () => {
@@ -119,7 +119,7 @@ describe("Locator", () => {
       timeout: 30,
       strategy: "mouse",
       waitForIdleMs: 500,
-    });
+    }, { timeoutMs: 32_000 });
   });
 
   it("omits idle protection when only the mouse strategy is requested", async () => {

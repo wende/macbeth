@@ -112,3 +112,20 @@ private func named(_ name: String) -> (FakeNode) -> Bool {
 
     #expect(find(tree, matching: named("cell")).count == 2)
 }
+
+@Test func queryIndexesMustBeNonNegativeIntegers() throws {
+    let invalidIndexes: [JSONValue] = [.number(-1), .number(0.5), .string("first")]
+    for invalidIndex in invalidIndexes {
+        #expect(throws: RPCError.self) {
+            try QueryStep.fromArray(.array([
+                .object(["role": "button", "index": invalidIndex]),
+            ]))
+        }
+    }
+
+    let parsed = try QueryStep.fromArray(.array([
+        .object(["role": "button", "index": 0]),
+    ]))
+    #expect(parsed.count == 1)
+    #expect(parsed[0].index == 0)
+}

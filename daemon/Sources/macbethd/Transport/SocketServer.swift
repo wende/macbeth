@@ -16,8 +16,9 @@ final class SocketServer: Sendable {
 
     /// Start listening for connections. Blocks until cancelled.
     func start() async throws {
-        // Remove stale socket file
-        unlink(socketPath)
+        // Remove only an owned stale Unix socket. A typo in --socket-path must
+        // never delete a regular file, symlink, or another user's socket.
+        try removeStaleSocketIfSafe(at: socketPath)
 
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else {
@@ -70,7 +71,9 @@ final class SocketServer: Sendable {
                 }
             }
             close(fd)
-            unlink(self.socketPath)
+            // Preserve anything that replaced our socket path while the server
+            // was running. Failure here is safe and shutdown is already underway.
+            try? removeStaleSocketIfSafe(at: self.socketPath)
         }
     }
 
@@ -244,11 +247,38 @@ final class SocketServer: Sendable {
     }
 }
 
+/// Remove a stale Unix socket only when the path itself (not a symlink target)
+/// is a socket owned by the current user. A missing path is the normal startup case.
+func removeStaleSocketIfSafe(at path: String) throws {
+    var info = stat()
+    guard lstat(path, &info) == 0 else {
+        if errno == ENOENT { return }
+        throw ServerError.socketInspectionFailed(path, errno: errno)
+    }
+
+    let fileType = info.st_mode & mode_t(S_IFMT)
+    guard fileType == mode_t(S_IFSOCK) else {
+        throw ServerError.unsafeSocketPath(path, reason: "path is not a Unix socket")
+    }
+    guard info.st_uid == getuid() else {
+        throw ServerError.unsafeSocketPath(
+            path,
+            reason: "socket is owned by uid \(info.st_uid), not uid \(getuid())"
+        )
+    }
+    guard unlink(path) == 0 else {
+        throw ServerError.socketRemovalFailed(path, errno: errno)
+    }
+}
+
 enum ServerError: Error, CustomStringConvertible {
     case socketCreationFailed(errno: Int32)
     case pathTooLong(String)
     case bindFailed(errno: Int32)
     case listenFailed(errno: Int32)
+    case socketInspectionFailed(String, errno: Int32)
+    case unsafeSocketPath(String, reason: String)
+    case socketRemovalFailed(String, errno: Int32)
 
     var description: String {
         switch self {
@@ -256,6 +286,12 @@ enum ServerError: Error, CustomStringConvertible {
         case .pathTooLong(let p): "Socket path too long: \(p)"
         case .bindFailed(let e): "Failed to bind socket: \(String(cString: strerror(e)))"
         case .listenFailed(let e): "Failed to listen: \(String(cString: strerror(e)))"
+        case .socketInspectionFailed(let path, let e):
+            "Failed to inspect socket path \(path): \(String(cString: strerror(e)))"
+        case .unsafeSocketPath(let path, let reason):
+            "Refusing to remove socket path \(path): \(reason)"
+        case .socketRemovalFailed(let path, let e):
+            "Failed to remove stale socket \(path): \(String(cString: strerror(e)))"
         }
     }
 }

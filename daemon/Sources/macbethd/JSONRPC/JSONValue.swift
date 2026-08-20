@@ -63,7 +63,7 @@ extension JSONValue {
     }
 
     var intValue: Int? {
-        if case .number(let n) = self { return Int(n) }
+        if case .number(let n) = self { return Int(exactly: n) }
         return nil
     }
 
@@ -88,7 +88,7 @@ extension JSONValue {
     }
 
     subscript(index: Int) -> JSONValue? {
-        if case .array(let arr) = self, index < arr.count { return arr[index] }
+        if case .array(let arr) = self, index >= 0, index < arr.count { return arr[index] }
         return nil
     }
 }

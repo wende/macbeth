@@ -4,6 +4,8 @@ import { Locator } from "./elements.js";
 import { appConnectParams, type AppTarget } from "./app-target.js";
 import type { HealthSnapshot } from "./health.js";
 import {
+  actionRequestTimeoutMs,
+  actionTimeoutFromSeconds,
   clampScriptTimeoutMs,
   scriptRequestTimeoutMs,
   SCRIPT_TIMEOUT,
@@ -223,13 +225,14 @@ export class AppHandle extends Locator {
     target: ElementTarget,
     options?: { timeout?: number; strategy?: ClickStrategy; waitForIdleMs?: number }
   ): Promise<void> {
+    const timeoutMs = actionTimeoutFromSeconds(options?.timeout);
     await this.rpc.call("click", {
       appHandle: this.appHandle,
       ...target,
-      timeout: options?.timeout ?? 30,
+      timeout: timeoutMs / 1_000,
       ...(options?.strategy ? { strategy: options.strategy } : {}),
       ...(options?.waitForIdleMs !== undefined ? { waitForIdleMs: options.waitForIdleMs } : {}),
-    });
+    }, { timeoutMs: actionRequestTimeoutMs(timeoutMs) });
   }
 
   /** Fill an element addressed by a locator query or a direct handle id.
@@ -239,13 +242,14 @@ export class AppHandle extends Locator {
     value: string,
     options?: { timeout?: number; strategy?: FillStrategy }
   ): Promise<void> {
+    const timeoutMs = actionTimeoutFromSeconds(options?.timeout);
     await this.rpc.call("fill", {
       appHandle: this.appHandle,
       ...target,
       value,
-      timeout: options?.timeout ?? 30,
+      timeout: timeoutMs / 1_000,
       ...(options?.strategy ? { strategy: options.strategy } : {}),
-    });
+    }, { timeoutMs: actionRequestTimeoutMs(timeoutMs) });
   }
 
   /** Return the properties of an element addressed by a query or a handle id.

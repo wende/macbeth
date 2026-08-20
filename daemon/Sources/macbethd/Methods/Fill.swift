@@ -30,7 +30,7 @@ func registerFill(
             var glowPresented = false
 
             let strategy = FillStrategy(obj["strategy"]?.stringValue)
-            let timeout = obj["timeout"]?.numberValue ?? 5.0
+            let timeout = ActionTimeout.clamp(obj["timeout"]?.numberValue)
             let element = try await resolveTarget(
                 obj: obj, appHandle: appHandle,
                 appManager: appManager, handleTable: handleTable,
@@ -213,8 +213,9 @@ private func fillSlider(element: AXUIElement, target: Double) throws -> JSONValu
         current = v
     }
 
-    // If still above target (stuck), return what we have
+    // If still above target, report the observed miss instead of claiming success.
     if current > roundedTarget {
+        try ensureSliderTargetReached(current: current, target: roundedTarget)
         return .object(["success": .bool(true), "value": .number(current)])
     }
 
@@ -245,7 +246,18 @@ private func fillSlider(element: AXUIElement, target: Double) throws -> JSONValu
         current = v
     }
 
+    try ensureSliderTargetReached(current: current, target: roundedTarget)
     return .object(["success": .bool(true), "value": .number(current)])
+}
+
+/// AX slider actions can report success even when the control is range-limited
+/// or stops responding. Treat the observed value as the source of truth.
+func ensureSliderTargetReached(current: Double, target: Double) throws {
+    guard abs(current - target) < 0.5 else {
+        throw RPCError.actionFailed(
+            "Slider did not reach requested value \(target); actual value is \(current)"
+        )
+    }
 }
 
 /// Type a single character via CGEvent.

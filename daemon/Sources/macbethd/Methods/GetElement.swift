@@ -23,13 +23,16 @@ func registerGetElement(
             }
 
             if let handleId = obj["handleId"]?.stringValue {
-                let resolved = try await resolveLiveHandle(handleId, in: handleTable)
+                let resolved = try await resolveLiveHandle(
+                    handleId, in: handleTable, expectedPid: conn.pid
+                )
                 return elementInfoJSON(resolved.element, handleId: handleId)
             }
 
-            guard let querySteps = QueryStep.fromArray(obj["query"]) else {
+            guard obj["query"] != nil else {
                 throw RPCError.invalidParams("Missing 'query' or 'handleId'")
             }
+            let querySteps = try QueryStep.fromArray(obj["query"])
 
             let pin = obj["pin"]?.boolValue ?? false
             let path = QueryPath(steps: querySteps)

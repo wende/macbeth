@@ -23,7 +23,13 @@ import { formatAppList } from "./app-target.js";
 import { runWithActivity } from "./mcp-activity.js";
 import { toModelPayload } from "./mcp-format.js";
 import { createUsageTracker } from "./mcp-usage-log.js";
-import { SCRIPT_TIMEOUT, scriptTimeoutFromSeconds } from "./timeouts.js";
+import {
+  ACTION_TIMEOUT,
+  actionRequestTimeoutMs,
+  actionTimeoutFromSeconds,
+  SCRIPT_TIMEOUT,
+  scriptTimeoutFromSeconds,
+} from "./timeouts.js";
 import { readInstalledVersion } from "./update.js";
 import type { KeyStroke } from "./types.js";
 
@@ -91,7 +97,7 @@ const querySchema = z
       title: z.string().optional().describe("Element title to match"),
       identifier: z.string().optional().describe("AX identifier to match"),
       titlePattern: z.string().optional().describe("Regex pattern to match against element title"),
-      index: z.number().optional().describe("Which match to select when multiple elements match (0-based, default 0)"),
+      index: z.number().int().nonnegative().optional().describe("Which match to select when multiple elements match (0-based, default 0)"),
     })
   )
   .describe("Locator chain — each step recursively searches descendants of the previous match. No need to specify intermediate containers. Example: [{role:'window'}, {role:'button', title:'Submit'}] finds any button titled 'Submit' anywhere in the window.");
@@ -238,7 +244,12 @@ server.registerTool("click", {
     app: appTargetSchema,
     query: querySchema.optional(),
     handleId: z.string().optional().describe("Direct element handle (alternative to query)"),
-    timeout: z.number().optional().default(30).describe("Timeout in seconds"),
+    timeout: z.number()
+      .min(ACTION_TIMEOUT.minMs / 1_000)
+      .max(ACTION_TIMEOUT.maxMs / 1_000)
+      .optional()
+      .default(ACTION_TIMEOUT.defaultMs / 1_000)
+      .describe("Timeout in seconds"),
     strategy: z.enum(["auto", "ax", "mouse"]).optional().describe("Click strategy (default: auto)"),
     waitForIdleMs: z.number().nonnegative().optional().describe("Mouse fallback only: wait for this much user idle time before briefly activating the target window (capped at 5000ms)"),
   },
@@ -262,7 +273,12 @@ server.registerTool("fill", {
     query: querySchema.optional(),
     handleId: z.string().optional().describe("Direct element handle (alternative to query)"),
     value: z.string().describe("Text value to set"),
-    timeout: z.number().optional().default(30).describe("Timeout in seconds"),
+    timeout: z.number()
+      .min(ACTION_TIMEOUT.minMs / 1_000)
+      .max(ACTION_TIMEOUT.maxMs / 1_000)
+      .optional()
+      .default(ACTION_TIMEOUT.defaultMs / 1_000)
+      .describe("Timeout in seconds"),
     strategy: z.enum(["auto", "ax", "keyboard"]).optional().describe("Fill strategy (default: auto)"),
   },
 }, async ({ app, query, handleId, value, timeout, strategy }) => {
@@ -283,7 +299,12 @@ server.registerTool("wait_for", {
     app: appTargetSchema,
     query: querySchema.optional().describe("Locator chain to find the element"),
     handleId: z.string().optional().describe("Direct element handle (alternative to query)"),
-    timeout: z.number().optional().default(30).describe("Timeout in seconds"),
+    timeout: z.number()
+      .min(ACTION_TIMEOUT.minMs / 1_000)
+      .max(ACTION_TIMEOUT.maxMs / 1_000)
+      .optional()
+      .default(ACTION_TIMEOUT.defaultMs / 1_000)
+      .describe("Timeout in seconds"),
     pollMs: z.number().optional().describe("Polling interval in ms (default: 500)"),
     condition: z.object({
       kind: z.enum(["exists", "value_equals", "value_changes", "enabled"]).describe("What to wait for"),
@@ -292,16 +313,21 @@ server.registerTool("wait_for", {
   },
 }, async ({ app, query, handleId, timeout, pollMs, condition }) => {
   const handle = await client.connect(app);
+  const timeoutMs = actionTimeoutFromSeconds(timeout);
   const params: Record<string, unknown> = {
     appHandle: handle.handle,
-    timeout: timeout ?? 30,
+    timeout: timeoutMs / 1_000,
   };
   if (query) params.query = query;
   if (handleId) params.handleId = handleId;
-  if (pollMs) params.pollMs = pollMs;
+  if (pollMs !== undefined) params.pollMs = pollMs;
   if (condition) params.condition = condition;
 
-  const result = await (handle as any).rpc.call("wait_for", params);
+  const result = await (handle as any).rpc.call(
+    "wait_for",
+    params,
+    { timeoutMs: actionRequestTimeoutMs(timeoutMs) }
+  );
 
   if (result.matched) {
     const kind = condition?.kind ?? "exists";
