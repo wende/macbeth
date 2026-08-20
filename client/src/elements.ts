@@ -14,8 +14,8 @@ export interface LocatorOptions {
   /**
    * Re-connect to the app this locator belongs to and return its current app handle.
    * Supplied by `AppHandle`, which knows the pid. Recovery paths use it when the app
-   * handle itself has stopped being valid — chiefly after a daemon restart, which
-   * invalidates element handles and app handles alike.
+   * handle itself has stopped being valid — chiefly after a daemon restart or an
+   * app/element ownership mismatch, where neither daemon-local id can be trusted.
    */
   reacquireApp?: () => Promise<string>;
 }
@@ -256,10 +256,9 @@ class ScopedLocator extends Locator {
   /**
    * Re-resolve the element from the query path this locator was built from.
    *
-   * The app handle can be dead too. An `unknown_handle` says so outright — the id came
-   * from a previous daemon process, so this one's app handles are unrelated and its
-   * `h_N` may already belong to a *different* app, which would resolve the query against
-   * the wrong window. Re-acquire the app first in that case. For every other stale
+   * The app handle can be dead too. An `unknown_handle` says the element id is not valid
+   * for this app — it came from a previous daemon process or currently belongs to
+   * another process. Re-acquire the app first in that case. For every other stale
    * reason the app handle is presumed good, and re-acquiring is only attempted if the
    * query is actually rejected for it — connect_app waits for Electron web content, so
    * it must not be on the path of an ordinary TTL re-resolve.

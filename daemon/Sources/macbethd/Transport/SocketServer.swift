@@ -72,8 +72,12 @@ final class SocketServer: Sendable {
             }
             close(fd)
             // Preserve anything that replaced our socket path while the server
-            // was running. Failure here is safe and shutdown is already underway.
-            try? removeStaleSocketIfSafe(at: self.socketPath)
+            // was running, and leave an audit trail when cleanup is refused.
+            do {
+                try removeStaleSocketIfSafe(at: self.socketPath)
+            } catch {
+                fputs("[macbethd] Socket cleanup skipped: \(error)\n", stderr)
+            }
         }
     }
 
@@ -250,6 +254,10 @@ final class SocketServer: Sendable {
 /// Remove a stale Unix socket only when the path itself (not a symlink target)
 /// is a socket owned by the current user. A missing path is the normal startup case.
 func removeStaleSocketIfSafe(at path: String) throws {
+    // POSIX exposes no unlink-by-file-descriptor operation, so lstat + unlink
+    // has a narrow TOCTOU window. The check prevents accidental deletion from
+    // a mistyped path; a same-user process racing to replace that path already
+    // has permission to remove either entry itself.
     var info = stat()
     guard lstat(path, &info) == 0 else {
         if errno == ENOENT { return }

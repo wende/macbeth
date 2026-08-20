@@ -215,7 +215,11 @@ private func fillSlider(element: AXUIElement, target: Double) throws -> JSONValu
 
     // If still above target, report the observed miss instead of claiming success.
     if current > roundedTarget {
-        try ensureSliderTargetReached(current: current, target: roundedTarget)
+        try ensureSliderTargetReached(
+            current: current,
+            requested: target,
+            effectiveTarget: roundedTarget
+        )
         return .object(["success": .bool(true), "value": .number(current)])
     }
 
@@ -246,16 +250,25 @@ private func fillSlider(element: AXUIElement, target: Double) throws -> JSONValu
         current = v
     }
 
-    try ensureSliderTargetReached(current: current, target: roundedTarget)
+    try ensureSliderTargetReached(
+        current: current,
+        requested: target,
+        effectiveTarget: roundedTarget
+    )
     return .object(["success": .bool(true), "value": .number(current)])
 }
 
 /// AX slider actions can report success even when the control is range-limited
 /// or stops responding. Treat the observed value as the source of truth.
-func ensureSliderTargetReached(current: Double, target: Double) throws {
-    guard abs(current - target) < 0.5 else {
+func ensureSliderTargetReached(
+    current: Double,
+    requested: Double,
+    effectiveTarget: Double
+) throws {
+    guard abs(current - effectiveTarget) < 0.5 else {
         throw RPCError.actionFailed(
-            "Slider did not reach requested value \(target); actual value is \(current)"
+            "Slider did not reach requested value \(requested) "
+            + "(effective integer target \(effectiveTarget)); actual value is \(current)"
         )
     }
 }

@@ -49,8 +49,16 @@ private func fingerprint(role: String? = nil, subrole: String? = nil, identifier
     try ensureHandleBelongsToApp("h_0", actualPid: 4242, expectedPid: 4242)
     try ensureHandleBelongsToApp("h_0", actualPid: 4242, expectedPid: nil)
 
-    #expect(throws: RPCError.self) {
+    do {
         try ensureHandleBelongsToApp("h_0", actualPid: 4242, expectedPid: 9999)
+        Issue.record("cross-app handle should have been rejected")
+    } catch let error as RPCError {
+        let response = error.toJSONRPC()
+        #expect(response.code == -32011)
+        #expect(response.data?["reason"]?.stringValue == "wrong_app")
+        #expect(response.data?["handleId"]?.stringValue == "h_0")
+    } catch {
+        Issue.record("expected RPCError, got \(error)")
     }
 }
 

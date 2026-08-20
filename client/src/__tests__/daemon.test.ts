@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it, vi } from "vitest";
@@ -39,6 +39,32 @@ describe("DaemonManager socket recovery", () => {
 
     try {
       await expect(manager.ensureRunning()).rejects.toThrow(/not a Unix socket/);
+      await expect(readFile(socketPath, "utf8")).resolves.toBe("keep me");
+      expect(spawn).not.toHaveBeenCalled();
+    } finally {
+      createConnection.mockReset();
+      spawn.mockReset();
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses a socket-path symlink without deleting its target", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "macbeth-daemon-symlink-test-"));
+    const targetPath = join(directory, "important.txt");
+    const socketPath = join(directory, "macbeth.sock");
+    await writeFile(targetPath, "keep me");
+    await symlink(targetPath, socketPath);
+    const manager = new DaemonManager({ socketPath, binaryPath: "/missing/macbethd" });
+
+    createConnection.mockImplementation(() => {
+      const socket = socketStub();
+      queueMicrotask(() => socket.emit("error", new Error("ECONNREFUSED")));
+      return socket;
+    });
+
+    try {
+      await expect(manager.ensureRunning()).rejects.toThrow(/not a Unix socket/);
+      await expect(readFile(targetPath, "utf8")).resolves.toBe("keep me");
       await expect(readFile(socketPath, "utf8")).resolves.toBe("keep me");
       expect(spawn).not.toHaveBeenCalled();
     } finally {

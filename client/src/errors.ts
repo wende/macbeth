@@ -22,7 +22,7 @@ export const RPC_ERROR_CODES = {
   axLookupFailed: -32009,
   /** A handle the daemon issued whose element is gone; `data.reason` says why. */
   staleHandle: -32010,
-  /** A handle id the daemon never issued (or one from a previous daemon process). */
+  /** A handle id not valid for this app; `data.reason` is `never_issued` or `wrong_app`. */
   unknownHandle: -32011,
 } as const;
 
@@ -77,11 +77,11 @@ export function isRecoverableHandleError(err: unknown): boolean {
 }
 
 /**
- * True when the daemon says it never issued this handle id.
+ * True when the handle is not valid in the requested app namespace.
  *
- * That means the id came from a *different daemon process*, so nothing the caller holds
- * from before is trustworthy — including the app handle, whose id the new daemon may
- * already have issued to a different app. Recovery has to re-acquire the app first.
+ * This covers both prior-daemon ids (`never_issued`) and handles currently owned by
+ * another app (`wrong_app`). In either case a scoped locator re-acquires its app by pid
+ * before resolving its saved query path, rather than trusting either daemon-local id.
  */
 export function isUnknownHandleError(err: unknown): boolean {
   return err instanceof JsonRpcError && err.code === RPC_ERROR_CODES.unknownHandle;

@@ -19,7 +19,8 @@ func unknownHandleError(_ handleId: String) -> RPCError {
     RPCError.unknownHandle(
         "Unknown handle \(handleId): this daemon never issued it (handles do not survive a "
         + "daemon restart). Run query_tree or get_element to obtain a valid handle.",
-        handleId: handleId
+        handleId: handleId,
+        reason: "never_issued"
     )
 }
 
@@ -74,7 +75,8 @@ func ensureHandleBelongsToApp(
     // daemon restart reuses the same numeric handle for another process.
     throw RPCError.unknownHandle(
         "Handle \(handleId) was not issued for the supplied appHandle; re-query the app",
-        handleId: handleId
+        handleId: handleId,
+        reason: "wrong_app"
     )
 }
 

@@ -72,11 +72,6 @@ func resolveQuery(
         let matches = findDescendants(current, matching: step)
 
         let targetIndex = step.index ?? 0
-        guard targetIndex >= 0 else {
-            throw RPCError.invalidParams(
-                "Query step \(i + 1) index must be a non-negative integer"
-            )
-        }
         guard targetIndex < matches.count else {
             let stepDesc = describeStep(step)
             let hint = buildHint(parent: current, failedStep: step)

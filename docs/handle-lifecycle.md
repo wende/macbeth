@@ -54,6 +54,7 @@ Two host-app behaviours bound the guarantee:
 | Owning app quit, or its connection was evicted | `stale_handle` | `app_terminated` |
 | Defensive only — not reachable today (see note below) | `stale_handle` | `transient` |
 | Daemon restarted, or the id was never issued | `unknown_handle` (-32011) | `never_issued` |
+| Handle was issued for a different app process | `unknown_handle` (-32011) | `wrong_app` |
 
 What stays valid: unrelated `query_tree` / `get_element` / `read_form` calls, actions on
 other elements, app re-connects, and any interval shorter than the (pinned) TTL. Pinning
@@ -66,8 +67,9 @@ They differ in what recovery is possible:
 
 - **stale** — the id was real and its element is gone. Re-resolve from the query path that
   produced it, or re-run `query_tree`. `data.reason` says which boundary was crossed.
-- **unknown** — this daemon never issued the id. Retrying or re-resolving *that id* can
-  never help; it means a typo, a handle invented by the caller, or one left over from a
+- **unknown** — the id is not valid for the requested app. Retrying *that id* can never
+  help; `data.reason` distinguishes a typo or prior-daemon id (`never_issued`) from a
+  handle minted for another app (`wrong_app`). It may mean a handle left over from a
   previous daemon process (handles do not survive a daemon restart).
 
 Both remain JSON-RPC errors, i.e. call results — neither counts toward `ServerHealth`, so

@@ -189,6 +189,10 @@ export class DaemonManager {
   }
 
   private removeStaleSocketIfSafe(): void {
+    // Node exposes no unlink-by-file-descriptor operation, so lstat + unlink
+    // has a narrow TOCTOU window. The check prevents accidental deletion from
+    // a mistyped path; a same-user process racing to replace that path already
+    // has permission to remove either entry itself.
     let stats: fs.Stats;
     try {
       stats = fs.lstatSync(this._socketPath);
