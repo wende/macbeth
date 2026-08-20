@@ -258,7 +258,7 @@ server.registerTool("click", {
     const handle = await client.connect(app);
     const target = resolveElementTarget(query, handleId);
     await handle.clickTarget(target, {
-      timeout: timeout ?? 30,
+      timeout,
       ...(strategy ? { strategy } : {}),
       ...(waitForIdleMs !== undefined ? { waitForIdleMs } : {}),
     });
@@ -286,7 +286,7 @@ server.registerTool("fill", {
     const handle = await client.connect(app);
     const target = resolveElementTarget(query, handleId);
     await handle.fillTarget(target, value, {
-      timeout: timeout ?? 30,
+      timeout,
       ...(strategy ? { strategy } : {}),
     });
     return { content: [{ type: "text" as const, text: `Set value to "${value}"` }] };
@@ -305,7 +305,7 @@ server.registerTool("wait_for", {
       .optional()
       .default(ACTION_TIMEOUT.defaultMs / 1_000)
       .describe("Timeout in seconds"),
-    pollMs: z.number().optional().describe("Polling interval in ms (default: 500)"),
+    pollMs: z.number().int().positive().optional().describe("Polling interval in ms (default: 500)"),
     condition: z.object({
       kind: z.enum(["exists", "value_equals", "value_changes", "enabled"]).describe("What to wait for"),
       value: z.string().optional().describe("Target value (for value_equals)"),
