@@ -1,9 +1,11 @@
 /**
  * Bounds for UI actions that wait for an element before operating on it.
  *
- * These mirror `ActionTimeout` in the daemon. The client waits slightly longer
- * than the daemon's budget so the daemon normally reports the result before the
- * transport deadline fires.
+ * Min, max, and the 2s client grace match `ActionTimeout` in the daemon. The
+ * defaults differ on purpose: the daemon keeps 5s for omitted raw JSON-RPC
+ * timeouts (historical wire default), while the TypeScript client and MCP
+ * tools send 30s when the caller omits it. The client then waits slightly
+ * longer than the budget it sent so the daemon reports the result first.
  */
 export const ACTION_TIMEOUT = {
   defaultMs: 30_000,

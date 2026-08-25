@@ -103,4 +103,59 @@ describe("JSON-RPC reconnect retries", () => {
     expect(observed).toEqual(["list_apps", "list_apps"]);
     client.close();
   });
+
+  it("does not replay wait_for value_changes after its reply is lost", async () => {
+    const observed: string[] = [];
+    await startServer((request, socket) => {
+      observed.push(request.method);
+      socket.destroy();
+    });
+
+    let reconnects = 0;
+    const client = new JsonRpcClient({
+      onReconnect: async () => {
+        reconnects += 1;
+        await client.connect(socketPath);
+      },
+    });
+    await client.connect(socketPath);
+
+    await expect(client.call("wait_for", {
+      appHandle: "h_0",
+      handleId: "h_1",
+      condition: { kind: "value_changes" },
+    })).rejects.toThrow("Connection closed");
+    expect(observed).toEqual(["wait_for"]);
+    expect(reconnects).toBe(0);
+    client.close();
+  });
+
+  it("reconnects and retries wait_for exists after a dropped reply", async () => {
+    const observed: string[] = [];
+    await startServer((request, socket) => {
+      observed.push(request.method);
+      if (observed.length === 1) {
+        socket.destroy();
+        return;
+      }
+      socket.write(JSON.stringify({
+        jsonrpc: "2.0",
+        id: request.id,
+        result: { matched: true },
+      }) + "\n");
+    });
+
+    const client = new JsonRpcClient({
+      onReconnect: () => client.connect(socketPath),
+    });
+    await client.connect(socketPath);
+
+    await expect(client.call("wait_for", {
+      appHandle: "h_0",
+      query: [{ role: "button" }],
+      condition: { kind: "exists" },
+    })).resolves.toEqual({ matched: true });
+    expect(observed).toEqual(["wait_for", "wait_for"]);
+    client.close();
+  });
 });

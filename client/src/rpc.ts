@@ -21,6 +21,10 @@ export { JsonRpcError } from "./errors.js";
 // replayed after a broken connection. For every other method, the daemon may
 // have completed the side effect before the reply was lost, so the outcome is
 // unknown and retrying would risk performing it twice.
+//
+// `wait_for` is in the set for exists / value_equals / enabled (and the default
+// exists path). `value_changes` is not idempotent: a retry samples a new
+// baseline, so a successful wait whose reply was dropped becomes a timeout.
 const RECONNECT_RETRYABLE_METHODS = new Set([
   "connect_app",
   "dump_attributes",
@@ -36,6 +40,17 @@ const RECONNECT_RETRYABLE_METHODS = new Set([
   "screenshot",
   "wait_for",
 ]);
+
+function isReconnectRetryable(
+  method: string,
+  params?: Record<string, unknown>,
+): boolean {
+  if (!RECONNECT_RETRYABLE_METHODS.has(method)) return false;
+  if (method !== "wait_for") return true;
+  const condition = params?.condition;
+  if (typeof condition !== "object" || condition === null) return true;
+  return (condition as { kind?: unknown }).kind !== "value_changes";
+}
 
 export class JsonRpcClient {
   private socket: net.Socket | null = null;
@@ -104,7 +119,7 @@ export class JsonRpcClient {
     } catch (err: unknown) {
       if (
         this.onReconnect
-        && RECONNECT_RETRYABLE_METHODS.has(method)
+        && isReconnectRetryable(method, params)
         && isConnectionError(err)
       ) {
         this.serverHealth.recordFailure(err);

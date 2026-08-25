@@ -87,7 +87,9 @@ the app handle as well, and the new daemon may already have issued that same `h_
 different app — replaying the query against it would act on the wrong window. So recovery
 re-acquires the app handle (`AppHandle.reconnect()`, by pid) when it must:
 
-- on `unknown_handle`, which proves the id came from another daemon process
+- on `unknown_handle`, which means the element id is not valid for this app
+  (`never_issued` after a daemon restart, or `wrong_app` if it belongs to
+  another process)
 - on any other stale reason *only if* the replayed query is rejected for the app handle
   (`app_not_found`), because `connect_app` waits for Electron web content to build and
   must not sit on the path of an ordinary TTL re-resolve
