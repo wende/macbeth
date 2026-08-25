@@ -28,8 +28,15 @@ describe("macbeth CLI", () => {
   it("still shows full help for an unrelated unknown command", () => {
     const result = runCli(["frobnicate"]);
     expect(result.status).toBe(1);
-    expect(result.stderr).toContain("Unknown command: frobnicate");
     expect(result.stdout).toContain("macbeth — open-source Computer Use for macOS");
+    if (cliBuilt) {
+      expect(result.stderr).toContain("Unknown command: frobnicate");
+    } else {
+      // Vitest does not compile dist/; without it we cannot tell a typo from a
+      // real tool name, so we must not claim the command is unknown.
+      expect(result.stderr).toContain("The CLI catalog is not built yet");
+      expect(result.stderr).not.toContain("Unknown command: frobnicate");
+    }
   });
 
   it.skipIf(!cliBuilt)("lists MCP tools in `macbeth help` and per-tool --help", () => {
