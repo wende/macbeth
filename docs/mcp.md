@@ -72,6 +72,9 @@ npx macbeth update --check  # report only
 
 ## Tools
 
+The same tools are available as `macbeth <tool>` on the command line. `--json`
+passes the MCP argument object verbatim; see [CLI](cli.md).
+
 | Tool | Description |
 |---|---|
 | `list_daemon_methods` | List registered daemon RPCs for MCP parity checks |

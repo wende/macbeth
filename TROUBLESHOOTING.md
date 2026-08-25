@@ -69,7 +69,8 @@ The agent connects but shows no `macbeth` tools (or "server failed to start").
 
 2. **Check the config shape.** The command is `npx` and args are `["-y", "macbeth"]`
    with **no extra arguments** — any unrecognized bare word makes the CLI print
-   help and exit instead of starting the server. Config file locations:
+   help and exit instead of starting the server. Tool names (`list_apps`, `click`,
+   …) are subcommands; they do not start the MCP server. Config file locations:
 
    - Claude Code (project): `.mcp.json` in the repo root
    - Claude Desktop: `~/Library/Application Support/Claude/claude_desktop_config.json`

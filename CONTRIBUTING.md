@@ -21,7 +21,7 @@ swift test --package-path daemon
 
 GUI and Electron tests require the relevant macOS permissions and applications. See [Developing with Macbeth](skills/DEVELOPING_MACBETH.md#writing-tests) before running them.
 
-For a new RPC method, update the shared schema, Swift handler, TypeScript client, and MCP surface together. The complete path is documented in [Architecture](docs/architecture.md#adding-an-rpc-method).
+For a new RPC method, update the shared schema, Swift handler, TypeScript client, and the shared MCP/CLI catalog in `client/src/tools.ts` together. The complete path is documented in [Architecture](docs/architecture.md#adding-an-rpc-method).
 
 ## Contributing an application skill
 
