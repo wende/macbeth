@@ -43,6 +43,12 @@ describe("CLI argument parsing", () => {
       values: { app: "Finder", handleId: "h_1" },
     });
     expect(() => parseToolArgv(["--json", "{}", "--app", "Finder"])).toThrow(CliParseError);
+    expect(() => parseToolArgv(["--json", "--app", "Finder"])).toThrow(/requires a JSON object/);
+    expect(parseToolArgv(["--json", "-"])).toEqual({
+      help: false,
+      json: "-",
+      values: {},
+    });
   });
 
   it("coerces all-digit --app flags to a PID and leaves JSON strings alone", () => {
@@ -74,5 +80,28 @@ describe("CLI argument parsing", () => {
   it("parses --json objects and rejects arrays", () => {
     expect(parseJsonObject('{"app":"Finder"}')).toEqual({ app: "Finder" });
     expect(() => parseJsonObject("[]")).toThrow(/JSON object/);
+  });
+
+  it("rejects a repeated non-array flag instead of stringifying the pair", () => {
+    expect(() => parseToolArgv(["--app", "Finder", "--app", "1234"], clickLike))
+      .toThrow(/Repeated --app/);
+    const raw = parseToolArgv(["--app", "Finder", "--app", "1234"]).values;
+    expect(() => materializeToolArgs(clickLike, raw)).toThrow(/Repeated --app/);
+  });
+
+  it("rejects --no-<field> and a bare flag on non-boolean options", () => {
+    expect(() => parseToolArgv(["--no-handle-id"], clickLike))
+      .toThrow(/only valid for boolean options/);
+    expect(() => parseToolArgv(["--handle-id"], clickLike))
+      .toThrow(/requires a value/);
+    const parsed = parseToolArgv(["--app", "Finder", "--no-pin"], clickLike);
+    expect(materializeToolArgs(clickLike, parsed.values).pin).toBe(false);
+  });
+
+  it("uses singular Unknown option for a single typo", () => {
+    expect(() => materializeToolArgs(clickLike, { app: "Finder", nope: true }))
+      .toThrow(/Unknown option for click: --nope/);
+    expect(() => materializeToolArgs(clickLike, { app: "Finder", foo: 1, bar: 2 }))
+      .toThrow(/Unknown options for click: --foo, --bar/);
   });
 });

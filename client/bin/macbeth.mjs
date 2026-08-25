@@ -170,6 +170,14 @@ function isModuleNotFound(err) {
   );
 }
 
+function printUnbuiltCatalogHint(command) {
+  process.stderr.write(
+    `The CLI catalog is not built yet (missing client/dist/cli.js).\n` +
+      `Run \`npm --prefix client run build\`, then retry \`macbeth ${command}\`.\n\n`
+  );
+  printHelp();
+}
+
 function printHelp() {
   process.stdout.write(
     `macbeth — open-source Computer Use for macOS\n` +
@@ -181,7 +189,8 @@ function printHelp() {
       `  macbeth update --check  Report whether an update is available, without installing\n` +
       `  macbeth version       Print the installed version\n` +
       `  macbeth help          Show this help, including every MCP tool as a CLI command\n` +
-      `  macbeth <tool>        Run an MCP tool (same names and arguments as the MCP server)\n` +
+      `  macbeth <tool>        Run an MCP tool (same names and arguments as the MCP server;\n` +
+      `                       requires a built client: npm --prefix client run build)\n` +
       `  macbeth <tool> --json '{...}'\n` +
       `                       Pass arguments as JSON — the CLI equivalent of an MCP tool call\n`
   );
@@ -241,8 +250,7 @@ try {
           process.exit(1);
         } catch (err) {
           if (isModuleNotFound(err)) {
-            process.stderr.write(`Unknown command: ${command}\n\n`);
-            printHelp();
+            printUnbuiltCatalogHint(command);
             process.exit(1);
           }
           throw err;

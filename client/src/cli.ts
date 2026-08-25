@@ -21,11 +21,13 @@ import {
 
 export { isToolCommand, findTool };
 
-function firstSentence(text: string): string {
-  const line = text.split("\n")[0] ?? text;
-  const match = line.match(/^[^.]+(?:\.(?=\s|$))?/);
-  const sentence = (match?.[0] ?? line).trim();
-  return sentence.length > 110 ? `${sentence.slice(0, 107)}...` : sentence;
+export function firstSentence(text: string, max = 110): string {
+  const line = (text.split("\n")[0] ?? text).trim();
+  // Periods inside tokens like `SKILL.md` are not sentence boundaries.
+  const boundary = line.search(/\.\s/);
+  const sentence = boundary === -1 ? line : line.slice(0, boundary + 1);
+  if (sentence.length <= max) return sentence;
+  return `${sentence.slice(0, Math.max(0, max - 1))}…`;
 }
 
 export function formatGlobalHelp(): string {
@@ -116,7 +118,7 @@ export async function runCli(argv: string[], options: RunCliOptions = {}): Promi
   }
 
   try {
-    const parsed = parseToolArgv(rest);
+    const parsed = parseToolArgv(rest, tool);
     if (parsed.help) {
       stdout.write(formatToolHelp(tool));
       return 0;

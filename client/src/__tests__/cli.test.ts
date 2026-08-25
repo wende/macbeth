@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { firstSentence, formatGlobalHelp } from "../cli.js";
 
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const cliEntry = join(rootDir, "client/bin/macbeth.mjs");
@@ -50,5 +51,30 @@ describe("macbeth CLI", () => {
     expect(result.status).toBe(0);
     expect(result.stdout).toMatch(/macbeth/i);
     expect(result.stderr).not.toMatch(/macbethd binary not found/);
+  });
+
+  it.skipIf(!cliBuilt)("rejects ambiguous --json and repeated --app flags", () => {
+    const jsonFlag = runCli(["click", "--json", "--app", "Finder"]);
+    expect(jsonFlag.status).toBe(1);
+    expect(jsonFlag.stderr).toMatch(/requires a JSON object/);
+
+    const repeated = runCli(["click", "--app", "Finder", "--app", "1234"]);
+    expect(repeated.status).toBe(1);
+    expect(repeated.stderr).toMatch(/Repeated --app/);
+
+    const noHandle = runCli(["click", "--no-handle-id"]);
+    expect(noHandle.status).toBe(1);
+    expect(noHandle.stderr).toMatch(/only valid for boolean options/);
+  });
+});
+
+describe("CLI help blurbs", () => {
+  it("does not split a sentence on SKILL.md and truncates long text with an ellipsis", () => {
+    expect(firstSentence("Load a skill's SKILL.md instructions (and list any runnable scripts). Next.")).toBe(
+      "Load a skill's SKILL.md instructions (and list any runnable scripts)."
+    );
+    expect(firstSentence("a".repeat(200)).endsWith("…")).toBe(true);
+    expect(firstSentence("a".repeat(200)).length).toBe(110);
+    expect(formatGlobalHelp()).toContain("SKILL.md");
   });
 });

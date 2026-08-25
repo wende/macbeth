@@ -88,10 +88,51 @@ export function schemaDescription(schema: ZodTypeAny): string {
     ?? "";
 }
 
+function fieldSchema(tool: ToolArgSchema | undefined, field: string): ZodTypeAny | undefined {
+  return tool?.inputSchema?.[field];
+}
+
+function isArraySchema(schema: ZodTypeAny | undefined): boolean {
+  return schema !== undefined && typeNameOf(schema) === "ZodArray";
+}
+
+function isBooleanSchema(schema: ZodTypeAny | undefined): boolean {
+  return schema !== undefined && typeNameOf(schema) === "ZodBoolean";
+}
+
 function assignValue(existing: unknown, value: unknown): unknown {
   if (existing === undefined) return value;
   if (Array.isArray(existing)) return [...existing, value];
   return [existing, value];
+}
+
+function setFlagValue(
+  values: Record<string, unknown>,
+  field: string,
+  value: unknown,
+  tool?: ToolArgSchema
+): void {
+  const schema = fieldSchema(tool, field);
+  if (values[field] !== undefined && schema && !isArraySchema(schema)) {
+    throw new CliParseError(
+      `Repeated --${fieldToFlag(field)} is not allowed; pass the value once`
+    );
+  }
+  values[field] = schema === undefined || isArraySchema(schema)
+    ? assignValue(values[field], value)
+    : value;
+}
+
+function takeJsonOperand(argv: string[], index: number): { value: string; nextIndex: number } {
+  const value = argv[index];
+  if (value === undefined) {
+    throw new CliParseError("`--json` requires a JSON object, or `-` to read stdin");
+  }
+  // `-` is the stdin sentinel. Any other leading-dash token is a flag, not JSON.
+  if (value.startsWith("-") && value !== "-") {
+    throw new CliParseError("`--json` requires a JSON object, or `-` to read stdin");
+  }
+  return { value, nextIndex: index };
 }
 
 function splitEquals(token: string): [string, string | undefined] {
@@ -103,8 +144,11 @@ function splitEquals(token: string): [string, string | undefined] {
 /**
  * Parse argv *after* the tool name into either `--help`, a `--json` blob, or
  * per-field flags that match the MCP input schema.
+ *
+ * Pass `tool` so duplicates and `--no-<field>` can be rejected against the
+ * schema instead of turning into a later "invalid value" from `coerce`.
  */
-export function parseToolArgv(argv: string[]): ParsedToolArgv {
+export function parseToolArgv(argv: string[], tool?: ToolArgSchema): ParsedToolArgv {
   const values: Record<string, unknown> = {};
   let json: string | undefined;
   let help = false;
@@ -116,11 +160,9 @@ export function parseToolArgv(argv: string[]): ParsedToolArgv {
       continue;
     }
     if (token === "--json" || token === "-j") {
-      const value = argv[++i];
-      if (value === undefined) {
-        throw new CliParseError("`--json` requires a JSON object, or `-` to read stdin");
-      }
-      json = value;
+      const taken = takeJsonOperand(argv, i + 1);
+      json = taken.value;
+      i = taken.nextIndex;
       continue;
     }
     if (token.startsWith("--json=")) {
@@ -129,22 +171,35 @@ export function parseToolArgv(argv: string[]): ParsedToolArgv {
     }
     if (token.startsWith("--no-")) {
       const field = flagToFieldName(token.slice("--no-".length));
-      values[field] = false;
+      if (!field) {
+        throw new CliParseError("`--no-` must be followed by a boolean option name");
+      }
+      const schema = fieldSchema(tool, field);
+      if (schema && !isBooleanSchema(schema)) {
+        throw new CliParseError(
+          `--no-${fieldToFlag(field)} is only valid for boolean options`
+        );
+      }
+      setFlagValue(values, field, false, tool);
       continue;
     }
     if (token.startsWith("--")) {
       const [rawName, inline] = splitEquals(token.slice(2));
       const field = flagToFieldName(rawName);
       if (inline !== undefined) {
-        values[field] = assignValue(values[field], inline);
+        setFlagValue(values, field, inline, tool);
         continue;
       }
       const next = argv[i + 1];
+      const schema = fieldSchema(tool, field);
       if (next === undefined || next.startsWith("-")) {
-        values[field] = true;
+        if (schema && !isBooleanSchema(schema)) {
+          throw new CliParseError(`Option --${fieldToFlag(field)} requires a value`);
+        }
+        setFlagValue(values, field, true, tool);
       } else {
         i += 1;
-        values[field] = assignValue(values[field], next);
+        setFlagValue(values, field, next, tool);
       }
       continue;
     }
@@ -266,15 +321,28 @@ export function materializeToolArgs(
   const shape = tool.inputSchema ?? {};
   const unknown = Object.keys(raw).filter((key) => !(key in shape));
   if (unknown.length > 0) {
-    throw new CliParseError(
-      `Unknown option(s) for ${tool.name}: ${unknown.map((k) => `--${fieldToFlag(k)}`).join(", ")}`
-    );
+    const flags = unknown.map((k) => `--${fieldToFlag(k)}`).join(", ");
+    const label = unknown.length === 1 ? "Unknown option" : "Unknown options";
+    throw new CliParseError(`${label} for ${tool.name}: ${flags}`);
   }
 
   const coerceValues = options?.coerce !== false;
   const coerced: Record<string, unknown> = {};
   for (const [field, schema] of Object.entries(shape)) {
     if (raw[field] === undefined) continue;
+    const flag = fieldToFlag(field);
+    if (Array.isArray(raw[field]) && typeNameOf(schema) !== "ZodArray") {
+      throw new CliParseError(
+        `Repeated --${flag} is not allowed; pass the value once`
+      );
+    }
+    if (typeof raw[field] === "boolean" && typeNameOf(schema) !== "ZodBoolean") {
+      throw new CliParseError(
+        raw[field]
+          ? `Option --${flag} requires a value`
+          : `--no-${flag} is only valid for boolean options`
+      );
+    }
     coerced[field] = coerceValues ? coerce(schema, raw[field], field) : raw[field];
   }
   const parsed = toolZodObject(tool).safeParse(coerced);
