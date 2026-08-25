@@ -155,6 +155,7 @@ You can add a skill without changing the Swift daemon. Start with the [contribut
 | Guide | Contents |
 |---|---|
 | [MCP server](docs/mcp.md) | Installation, smoke test, tools, skills, and updates |
+| [CLI](docs/cli.md) | Every MCP tool as a `macbeth <tool>` subcommand |
 | [TypeScript API](skills/DEVELOPING_MACBETH.md) | Client API, locators, Electron, and tests |
 | [Architecture](docs/architecture.md) | Daemon, protocol, fallbacks, and design notes |
 | [Security](SECURITY.md) | Trust boundaries, data handling, and permission revocation |

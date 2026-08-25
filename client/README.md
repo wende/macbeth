@@ -25,6 +25,8 @@ Generic MCP configuration:
 
 Run `npx macbeth doctor` to check Accessibility and Screen Recording permissions.
 
+Every MCP tool is also a CLI command (`npx macbeth list_apps`, `npx macbeth click --json '{...}'`). See [CLI](../docs/cli.md).
+
 ## TypeScript API
 
 ```bash

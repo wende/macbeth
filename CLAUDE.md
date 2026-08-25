@@ -40,7 +40,9 @@ TypeScript Client ←→ macbethd (Swift) ←→ macOS Accessibility API
 - `elements.ts` — `Locator` class: chainable, immutable, lazy (no RPC until a terminal method like `.click()` or `.fill()`)
 - `rpc.ts` — JSON-RPC client over Unix socket
 - `daemon.ts` — Auto-spawns and manages the daemon subprocess
-- `mcp.ts` — MCP server tool registration and handlers
+- `mcp.ts` — MCP server: registers the shared tool catalog over stdio
+- `tools.ts` — Shared MCP/CLI tool catalog (schemas + handlers)
+- `cli.ts` / `cli-args.ts` — CLI dispatch and argv parsing for the same catalog
 - `applescript.ts`, `native-bridge.ts`, `shell.ts`, `shortcuts.ts` — Utilities used by skills
 
 ### Daemon (`daemon/Sources/macbethd/`)
@@ -104,7 +106,8 @@ Swift script executed directly for EventKit access (Calendar, Reminders, Contact
 2. Create Swift handler in `daemon/Sources/macbethd/Methods/<Method>.swift`
 3. Register the handler in `daemon/Sources/macbethd/main.swift`
 4. Add TypeScript client method in `client/src/client.ts`
-5. If exposing via MCP, add tool in `client/src/mcp.ts`
+5. If exposing via MCP/CLI, add the tool to the catalog in `client/src/tools.ts`
+   (MCP and the CLI both execute that list)
 
 ## Dev Notes
 

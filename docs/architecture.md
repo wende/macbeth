@@ -3,7 +3,7 @@
 ```
 TypeScript Client  ←→  macbethd (Swift)  ←→  macOS Accessibility API
        ↑
-  MCP Server
+  MCP Server  /  CLI (`macbeth <tool>`)
 ```
 
 **Transport:** JSON-RPC 2.0 over a Unix domain socket (`/tmp/macbeth-<uid>.sock`), newline-delimited JSON.
@@ -26,7 +26,7 @@ macbeth/
 │   ├── Sources/GlowProtocol/
 │   └── Sources/macbeth-glow/  # AppKit overlay renderer
 ├── client/                 # TypeScript client + MCP server
-│   ├── src/                # client, locators, rpc, daemon, mcp
+│   ├── src/                # client, locators, rpc, daemon, mcp, cli
 │   ├── test-electron/      # Electron e2e fixture
 │   └── bin/macbeth.mjs     # npx entry
 ├── protocol/               # Shared JSON-RPC schema
@@ -52,7 +52,7 @@ macbeth/
 2. Swift handler in `daemon/Sources/macbethd/Methods/<Method>.swift`
 3. Register in `daemon/Sources/macbethd/main.swift`
 4. TypeScript client method in `client/src/client.ts`
-5. MCP tool in `client/src/mcp.ts` if exposing to agents
+5. Shared tool catalog in `client/src/tools.ts` (MCP server *and* CLI)
 
 ## Error codes
 

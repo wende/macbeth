@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- The `macbeth` CLI now exposes every MCP tool as a subcommand (`macbeth list_apps`,
+  `macbeth click --json '{...}'`, …), sharing the same catalog and handlers as the
+  MCP server. `--json` is the lossless MCP-equivalent argument path. See
+  [CLI](docs/cli.md).
+
 ### Changed
 - `pin_handle` is now a finite operation: pins live for 60 minutes (refreshed on use)
   and age out automatically, so the `unpin_handle` RPC was removed and mints are
