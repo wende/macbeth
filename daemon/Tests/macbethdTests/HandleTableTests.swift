@@ -45,6 +45,34 @@ private func fingerprint(role: String? = nil, subrole: String? = nil, identifier
     #expect(describe(await table.lookup(handleId)) == "found")
 }
 
+@Test func appScopedHandleResolutionRejectsAnotherProcess() throws {
+    try ensureHandleBelongsToApp("h_0", actualPid: 4242, expectedPid: 4242)
+    try ensureHandleBelongsToApp("h_0", actualPid: 4242, expectedPid: nil)
+
+    do {
+        try ensureHandleBelongsToApp("h_0", actualPid: 4242, expectedPid: 9999)
+        Issue.record("cross-app handle should have been rejected")
+    } catch let error as RPCError {
+        let response = error.toJSONRPC()
+        #expect(response.code == -32011)
+        #expect(response.data?["reason"]?.stringValue == "wrong_app")
+        #expect(response.data?["handleId"]?.stringValue == "h_0")
+    } catch {
+        Issue.record("expected RPCError, got \(error)")
+    }
+}
+
+@Test func handleLookupPreservesOwningProcess() async {
+    let table = HandleTable(ttl: 60)
+    let handleId = await table.store(appElement(4242), pid: 4242)
+
+    guard case .found(_, _, let pid) = await table.lookup(handleId) else {
+        Issue.record("stored handle was not found")
+        return
+    }
+    #expect(pid == 4242)
+}
+
 @Test func sameElementReusesItsHandle() async {
     let table = HandleTable(ttl: 60)
     let identity = fingerprint(role: "AXButton", identifier: "save")

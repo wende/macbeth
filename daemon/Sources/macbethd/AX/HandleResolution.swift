@@ -19,7 +19,8 @@ func unknownHandleError(_ handleId: String) -> RPCError {
     RPCError.unknownHandle(
         "Unknown handle \(handleId): this daemon never issued it (handles do not survive a "
         + "daemon restart). Run query_tree or get_element to obtain a valid handle.",
-        handleId: handleId
+        handleId: handleId,
+        reason: "never_issued"
     )
 }
 
@@ -34,7 +35,11 @@ func unknownHandleError(_ handleId: String) -> RPCError {
 /// call, and it doubles as the recycled-reference check: if the app handed the same AX
 /// reference to a different element, the recorded fingerprint contradicts the current one
 /// and the handle is retired instead of quietly acting on the wrong control.
-func resolveLiveHandle(_ handleId: String, in handleTable: HandleTable) async throws -> SendableElement {
+func resolveLiveHandle(
+    _ handleId: String,
+    in handleTable: HandleTable,
+    expectedPid: pid_t? = nil
+) async throws -> SendableElement {
     switch await handleTable.lookup(handleId) {
     case .unknown:
         throw unknownHandleError(handleId)
@@ -42,7 +47,8 @@ func resolveLiveHandle(_ handleId: String, in handleTable: HandleTable) async th
     case .stale(let reason):
         throw staleHandleError(handleId, reason: reason)
 
-    case .found(let element, let recorded):
+    case .found(let element, let recorded, let pid):
+        try ensureHandleBelongsToApp(handleId, actualPid: pid, expectedPid: expectedPid)
         let (alive, current) = ElementFingerprint.captureChecked(element.element)
         if !alive {
             await handleTable.invalidate(handleId, reason: .destroyed)
@@ -54,6 +60,24 @@ func resolveLiveHandle(_ handleId: String, in handleTable: HandleTable) async th
         }
         return element
     }
+}
+
+/// App-scoped methods must not accept a live handle minted for another process.
+/// Keeping this check in the shared resolver covers actions and read operations alike.
+func ensureHandleBelongsToApp(
+    _ handleId: String,
+    actualPid: pid_t,
+    expectedPid: pid_t?
+) throws {
+    guard let expectedPid, actualPid != expectedPid else { return }
+    // Treat this as unknown in the supplied app's namespace. Besides being
+    // precise for direct callers, it lets scoped locators recover after a
+    // daemon restart reuses the same numeric handle for another process.
+    throw RPCError.unknownHandle(
+        "Handle \(handleId) was not issued for the supplied appHandle; re-query the app",
+        handleId: handleId,
+        reason: "wrong_app"
+    )
 }
 
 /// Build the error for a handle-table operation that needs no liveness check (pinning,

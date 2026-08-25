@@ -3,6 +3,7 @@ export interface QueryStep {
   title?: string;
   identifier?: string;
   titlePattern?: string;
+  /** 0-based match index. Must be a non-negative integer. */
   index?: number;
 }
 

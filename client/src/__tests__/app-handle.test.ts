@@ -21,6 +21,30 @@ function mockRpcWithResult(result: unknown): JsonRpcClient {
 }
 
 describe("AppHandle", () => {
+  it("pairs long action budgets with a longer transport deadline", async () => {
+    const rpc = mockRpc();
+    const app = new AppHandle(rpc, "h_0", {
+      name: "Finder",
+      pid: 1,
+      bundleId: "com.apple.finder",
+    });
+
+    await app.clickTarget({ handleId: "h_1" }, { timeout: 120 });
+    expect(rpc.call).toHaveBeenLastCalledWith("click", {
+      appHandle: "h_0",
+      handleId: "h_1",
+      timeout: 120,
+    }, { timeoutMs: 122_000 });
+
+    await app.fillTarget({ handleId: "h_2" }, "hello", { timeout: 500 });
+    expect(rpc.call).toHaveBeenLastCalledWith("fill", {
+      appHandle: "h_0",
+      handleId: "h_2",
+      value: "hello",
+      timeout: 300,
+    }, { timeoutMs: 302_000 });
+  });
+
   it("lists windows through the connected app handle", async () => {
     const rpc = mockRpc();
     const windows = [{

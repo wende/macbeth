@@ -28,7 +28,7 @@ func registerClick(
 
             let strategy = ClickStrategy(obj["strategy"]?.stringValue)
             let waitForIdleMs = obj["waitForIdleMs"]?.numberValue ?? 0
-            let timeout = obj["timeout"]?.numberValue ?? 5.0
+            let timeout = ActionTimeout.clamp(obj["timeout"]?.numberValue)
             let element = try await resolveTarget(
                 obj: obj, appHandle: appHandle,
                 appManager: appManager, handleTable: handleTable,

@@ -19,17 +19,21 @@ func registerReadForm(
                 throw RPCError.invalidParams("Missing 'appHandle'")
             }
 
-            let maxDepth = Int(obj["maxDepth"]?.numberValue ?? 10)
+            guard let conn = await appManager.get(appHandle) else {
+                throw RPCError.appNotFound("Invalid app handle: \(appHandle)")
+            }
+
+            let maxDepth = obj["maxDepth"]?.intValue ?? 10
             let pin = obj["pin"]?.boolValue ?? false
             let root: AXUIElement
 
             if let handleId = obj["handleId"]?.stringValue {
-                root = try await resolveLiveHandle(handleId, in: handleTable).element
-            } else if let querySteps = QueryStep.fromArray(obj["query"]) {
+                root = try await resolveLiveHandle(
+                    handleId, in: handleTable, expectedPid: conn.pid
+                ).element
+            } else if obj["query"] != nil {
+                let querySteps = try QueryStep.fromArray(obj["query"])
                 guard let appElement = await appManager.getElement(appHandle) else {
-                    throw RPCError.appNotFound("Invalid app handle: \(appHandle)")
-                }
-                guard let conn = await appManager.get(appHandle) else {
                     throw RPCError.appNotFound("Invalid app handle: \(appHandle)")
                 }
                 let path = QueryPath(steps: querySteps)
@@ -43,10 +47,6 @@ func registerReadForm(
                     throw RPCError.appNotFound("Invalid app handle: \(appHandle)")
                 }
                 root = appElement.element
-            }
-
-            guard let conn = await appManager.get(appHandle) else {
-                throw RPCError.appNotFound("Invalid app handle: \(appHandle)")
             }
 
             let fields = await collectFormFields(

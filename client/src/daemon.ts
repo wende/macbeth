@@ -53,13 +53,9 @@ export class DaemonManager {
     }
 
     // A stale socket file makes a newly spawned daemon look ready before it has
-    // bound its own listener. Remove it before spawning and wait for a real
-    // connection below.
-    try {
-      fs.unlinkSync(this._socketPath);
-    } catch {
-      // Missing socket is expected on a first launch.
-    }
+    // bound its own listener. Remove only an owned Unix socket: a typo in a
+    // caller-supplied socketPath must never delete an ordinary file or symlink.
+    this.removeStaleSocketIfSafe();
 
     // Spawn daemon
     if (this.verbose) {
@@ -180,12 +176,45 @@ export class DaemonManager {
 
     this.process = null;
 
-    // Clean up socket file
+    // Clean up the socket only if the path still names an owned Unix socket.
+    // Another process may have replaced the path while shutdown was in flight.
     try {
-      fs.unlinkSync(this._socketPath);
-    } catch {
-      // Ignore
+      this.removeStaleSocketIfSafe();
+    } catch (err) {
+      if (this.verbose) {
+        const detail = err instanceof Error ? err.message : String(err);
+        process.stderr.write(`[macbeth] Socket cleanup skipped: ${detail}\n`);
+      }
     }
+  }
+
+  private removeStaleSocketIfSafe(): void {
+    // Node exposes no unlink-by-file-descriptor operation, so lstat + unlink
+    // has a narrow TOCTOU window. The check prevents accidental deletion from
+    // a mistyped path; a same-user process racing to replace that path already
+    // has permission to remove either entry itself.
+    let stats: fs.Stats;
+    try {
+      stats = fs.lstatSync(this._socketPath);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") return;
+      throw err;
+    }
+
+    if (!stats.isSocket()) {
+      throw new Error(
+        `Refusing to remove socket path because it is not a Unix socket: ${this._socketPath}`
+      );
+    }
+
+    const currentUid = process.getuid?.();
+    if (currentUid !== undefined && stats.uid !== currentUid) {
+      throw new Error(
+        `Refusing to remove Unix socket not owned by uid ${currentUid}: ${this._socketPath}`
+      );
+    }
+
+    fs.unlinkSync(this._socketPath);
   }
 
   private findDaemonBinary(): string {

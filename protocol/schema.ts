@@ -18,14 +18,18 @@
  *    `"recycled"`
  *  - the owning app quits — `stale_handle` with `"app_terminated"`
  *  - the daemon restarts, which clears every handle — `unknown_handle` (-32011)
+ *    with `data.reason === "never_issued"`
+ *  - the handle was issued for a different app process — `unknown_handle` with
+ *    `"wrong_app"`
  *
  * Pins are finite: a pinned handle's TTL extends to 60 min, refreshed on every use,
  * but pins age out on their own. `pin_handle` (bulk: `handleIds[]`) and the `pin: true`
  * flag on the minting methods (`query_tree`, `get_element`, `read_form`) are the only
  * ways to pin — there is no unpin.
  *
- * Stale means "re-resolve from the query that produced it"; unknown means the id was
- * never issued and retrying it can't help.
+ * Stale means "re-resolve from the query that produced it"; unknown means the id is
+ * not valid for the requested app. `data.reason` distinguishes a never-issued or
+ * prior-daemon id (`never_issued`) from a handle minted for another app (`wrong_app`).
  */
 export type ElementHandle = string;
 
@@ -36,6 +40,10 @@ export interface QueryStep {
   title?: string;
   identifier?: string;
   titlePattern?: string;
+  /**
+   * 0-based match index when several elements satisfy this step. Must be a
+   * non-negative integer; fractional and negative values are `invalid_params`.
+   */
   index?: number;
 }
 
@@ -298,6 +306,11 @@ export interface ClickParams {
   appHandle: string;
   handleId?: string;
   query?: QueryStep[];
+  /**
+   * Seconds to wait for the target. The daemon clamps to 0.1–300 (default 5
+   * when omitted on the wire). The TypeScript client and MCP tools send 30
+   * when the caller omits it, and wait 2s past that budget on the transport.
+   */
   timeout?: number;
   strategy?: ClickStrategy;
   /**
@@ -317,12 +330,21 @@ export interface FillParams {
   handleId?: string;
   query?: QueryStep[];
   value: string;
+  /**
+   * Seconds to wait for the target. The daemon clamps to 0.1–300 (default 5
+   * when omitted on the wire). The TypeScript client and MCP tools send 30
+   * when the caller omits it, and wait 2s past that budget on the transport.
+   */
   timeout?: number;
   strategy?: FillStrategy;
 }
 
 // wait_for
 export interface WaitForCondition {
+  /**
+   * `value_changes` is not retried after a lost reply: a replay would sample a
+   * new baseline and wait for a second change. Other kinds are idempotent.
+   */
   kind: "exists" | "value_equals" | "value_changes" | "enabled";
   value?: string;
 }
@@ -331,7 +353,16 @@ export interface WaitForParams {
   appHandle: string;
   query?: QueryStep[];
   handleId?: string;
+  /**
+   * Seconds to wait for the condition. The daemon clamps to 0.1–300 (default 5
+   * when omitted on the wire). The TypeScript client and MCP tools send 30
+   * when the caller omits it, and wait 2s past that budget on the transport.
+   */
   timeout?: number;
+  /**
+   * Polling interval in milliseconds. Must be a positive integer; the daemon
+   * floors values below 1 to 1 (default 500).
+   */
   pollMs?: number;
   condition?: WaitForCondition;
 }

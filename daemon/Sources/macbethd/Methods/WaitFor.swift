@@ -22,8 +22,8 @@ func registerWaitFor(
                 throw RPCError.appNotFound("Invalid app handle: \(appHandle)")
             }
 
-            let timeout = obj["timeout"]?.numberValue ?? 5.0
-            let pollMs = Int(obj["pollMs"]?.numberValue ?? 500)
+            let timeout = ActionTimeout.clamp(obj["timeout"]?.numberValue)
+            let pollMs = max(1, obj["pollMs"]?.intValue ?? 500)
             let conditionObj = obj["condition"]?.objectValue
             let conditionKind = conditionObj?["kind"]?.stringValue ?? "exists"
 
@@ -31,9 +31,10 @@ func registerWaitFor(
 
             switch conditionKind {
             case "exists":
-                guard let querySteps = QueryStep.fromArray(obj["query"]) else {
+                guard obj["query"] != nil else {
                     throw RPCError.invalidParams("Missing 'query'")
                 }
+                let querySteps = try QueryStep.fromArray(obj["query"])
                 let path = QueryPath(steps: querySteps)
                 while Date() < deadline {
                     if let (element, handleId) = await tryResolveQuery(
@@ -107,12 +108,15 @@ private func resolveWaitTarget(
     handleTable: HandleTable
 ) async throws -> AXUIElement {
     if let handleId = obj["handleId"]?.stringValue {
-        return try await resolveLiveHandle(handleId, in: handleTable).element
+        return try await resolveLiveHandle(
+            handleId, in: handleTable, expectedPid: conn.pid
+        ).element
     }
 
-    guard let querySteps = QueryStep.fromArray(obj["query"]) else {
+    guard obj["query"] != nil else {
         throw RPCError.invalidParams("Missing 'query' or 'handleId'")
     }
+    let querySteps = try QueryStep.fromArray(obj["query"])
 
     let path = QueryPath(steps: querySteps)
     let (element, _) = try await resolveQuery(
@@ -131,21 +135,24 @@ func resolveTarget(
     handleTable: HandleTable,
     timeout: Double
 ) async throws -> SendableElement {
-    // Direct handle resolution (no wait)
-    if let handleId = obj["handleId"]?.stringValue {
-        return try await resolveLiveHandle(handleId, in: handleTable)
-    }
-
-    // Query-based resolution with auto-wait
-    guard let querySteps = QueryStep.fromArray(obj["query"]) else {
-        throw RPCError.invalidParams("Missing 'query' or 'handleId'")
-    }
-
-    guard let appElement = await appManager.getElement(appHandle) else {
+    guard let conn = await appManager.get(appHandle) else {
         throw RPCError.appNotFound("Invalid app handle: \(appHandle)")
     }
 
-    guard let conn = await appManager.get(appHandle) else {
+    // Direct handle resolution (no wait)
+    if let handleId = obj["handleId"]?.stringValue {
+        return try await resolveLiveHandle(
+            handleId, in: handleTable, expectedPid: conn.pid
+        )
+    }
+
+    // Query-based resolution with auto-wait
+    guard obj["query"] != nil else {
+        throw RPCError.invalidParams("Missing 'query' or 'handleId'")
+    }
+    let querySteps = try QueryStep.fromArray(obj["query"])
+
+    guard let appElement = await appManager.getElement(appHandle) else {
         throw RPCError.appNotFound("Invalid app handle: \(appHandle)")
     }
 

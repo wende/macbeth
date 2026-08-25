@@ -68,8 +68,9 @@ jobs:
 
       - name: Validate client and MCP Registry metadata
         run: |
+          swift build --package-path daemon
           npm --prefix client run build
-          npm --prefix client test
+          MACBETH_REQUIRE_DAEMON_TESTS=1 npm --prefix client test
 
       - name: Install verified MCP Registry publisher
         run: |

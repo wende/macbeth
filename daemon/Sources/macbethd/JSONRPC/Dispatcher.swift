@@ -100,8 +100,9 @@ enum RPCError: Error {
     /// A handle this daemon issued whose element is gone. Carries the lifecycle reason
     /// so callers can tell a TTL eviction from a destroyed or recycled element.
     case staleHandle(String, handleId: String?, reason: String)
-    /// A handle id this daemon never issued.
-    case unknownHandle(String, handleId: String?)
+    /// A handle id that is not valid in the requested app namespace. `reason`
+    /// distinguishes an id this daemon never issued from one owned by another app.
+    case unknownHandle(String, handleId: String?, reason: String)
 
     func toJSONRPC() -> JSONRPCErrorData {
         switch self {
@@ -118,8 +119,8 @@ enum RPCError: Error {
         case .axLookupFailed(let msg): .axLookupFailed(msg)
         case .staleHandle(let msg, let handleId, let reason):
             .staleHandle(msg, data: handleErrorData(handleId: handleId, reason: reason))
-        case .unknownHandle(let msg, let handleId):
-            .unknownHandle(msg, data: handleErrorData(handleId: handleId, reason: "never_issued"))
+        case .unknownHandle(let msg, let handleId, let reason):
+            .unknownHandle(msg, data: handleErrorData(handleId: handleId, reason: reason))
         }
     }
 }

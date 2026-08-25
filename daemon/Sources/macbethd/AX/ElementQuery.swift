@@ -10,21 +10,40 @@ struct QueryStep: Sendable {
     let index: Int?
 
     /// Parse a QueryStep from a JSON params object.
-    static func from(_ json: JSONValue) -> QueryStep? {
-        guard case .object(let obj) = json else { return nil }
+    static func from(_ json: JSONValue, position: Int) throws -> QueryStep {
+        guard case .object(let obj) = json else {
+            throw RPCError.invalidParams("Query step \(position) must be an object")
+        }
+
+        let index: Int?
+        if let rawIndex = obj["index"] {
+            guard let parsed = rawIndex.intValue, parsed >= 0 else {
+                throw RPCError.invalidParams(
+                    "Query step \(position) index must be a non-negative integer"
+                )
+            }
+            index = parsed
+        } else {
+            index = nil
+        }
+
         return QueryStep(
             role: obj["role"]?.stringValue,
             title: obj["title"]?.stringValue,
             identifier: obj["identifier"]?.stringValue,
             titlePattern: obj["titlePattern"]?.stringValue,
-            index: obj["index"]?.intValue
+            index: index
         )
     }
 
     /// Parse an array of QuerySteps from JSON.
-    static func fromArray(_ json: JSONValue?) -> [QueryStep]? {
-        guard let arr = json?.arrayValue else { return nil }
-        return arr.compactMap { QueryStep.from($0) }
+    static func fromArray(_ json: JSONValue?) throws -> [QueryStep] {
+        guard let arr = json?.arrayValue else {
+            throw RPCError.invalidParams("Query must be an array")
+        }
+        return try arr.enumerated().map { offset, step in
+            try QueryStep.from(step, position: offset + 1)
+        }
     }
 }
 

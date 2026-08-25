@@ -4,14 +4,18 @@ import {
   isRecoverableHandleError,
   isUnknownHandleError,
 } from "./errors.js";
+import {
+  actionRequestTimeoutMs,
+  clampActionTimeoutMs,
+} from "./timeouts.js";
 
 export interface LocatorOptions {
   timeout?: number;
   /**
    * Re-connect to the app this locator belongs to and return its current app handle.
    * Supplied by `AppHandle`, which knows the pid. Recovery paths use it when the app
-   * handle itself has stopped being valid — chiefly after a daemon restart, which
-   * invalidates element handles and app handles alike.
+   * handle itself has stopped being valid — chiefly after a daemon restart or an
+   * app/element ownership mismatch, where neither daemon-local id can be trusted.
    */
   reacquireApp?: () => Promise<string>;
 }
@@ -20,16 +24,16 @@ import type { QueryStep, ElementInfo, ClickOptions, FillStrategy } from "./types
 function buildClickParams(args: {
   appHandle: string;
   query: QueryStep[];
-  defaultTimeout: number;
+  timeoutMs: number;
   options?: ClickOptions;
   handleId?: string;
 }) {
-  const { appHandle, query, defaultTimeout, options, handleId } = args;
+  const { appHandle, query, timeoutMs, options, handleId } = args;
   return {
     appHandle,
     query,
     ...(handleId !== undefined ? { handleId } : {}),
-    timeout: (options?.timeout ?? defaultTimeout) / 1000,
+    timeout: timeoutMs / 1000,
     ...(options?.strategy ? { strategy: options.strategy } : {}),
     ...(options?.waitForIdleMs !== undefined ? { waitForIdleMs: options.waitForIdleMs } : {}),
   };
@@ -121,30 +125,33 @@ export class Locator {
   // --- Terminal action methods (send RPC) ---
 
   async click(options?: ClickOptions): Promise<void> {
+    const timeoutMs = clampActionTimeoutMs(options?.timeout ?? this.defaultTimeout);
     await this.rpc.call("click", buildClickParams({
       appHandle: this.appHandle,
       query: this.queryPath,
-      defaultTimeout: this.defaultTimeout,
+      timeoutMs,
       options,
-    }));
+    }), { timeoutMs: actionRequestTimeoutMs(timeoutMs) });
   }
 
   async fill(value: string, options?: { timeout?: number; strategy?: FillStrategy }): Promise<void> {
+    const timeoutMs = clampActionTimeoutMs(options?.timeout ?? this.defaultTimeout);
     await this.rpc.call("fill", {
       appHandle: this.appHandle,
       query: this.queryPath,
       value,
-      timeout: (options?.timeout ?? this.defaultTimeout) / 1000,
+      timeout: timeoutMs / 1000,
       ...(options?.strategy ? { strategy: options.strategy } : {}),
-    });
+    }, { timeoutMs: actionRequestTimeoutMs(timeoutMs) });
   }
 
   async waitFor(options?: { timeout?: number }): Promise<ElementInfo> {
+    const timeoutMs = clampActionTimeoutMs(options?.timeout ?? this.defaultTimeout);
     return this.rpc.call<ElementInfo>("wait_for", {
       appHandle: this.appHandle,
       query: this.queryPath,
-      timeout: (options?.timeout ?? this.defaultTimeout) / 1000,
-    });
+      timeout: timeoutMs / 1000,
+    }, { timeoutMs: actionRequestTimeoutMs(timeoutMs) });
   }
 
   async getInfo(): Promise<ElementInfo> {
@@ -196,26 +203,28 @@ class ScopedLocator extends Locator {
   }
 
   override async click(options?: ClickOptions): Promise<void> {
+    const timeoutMs = clampActionTimeoutMs(options?.timeout ?? this.defaultTimeout);
     await this.withRediscovery(() =>
       this.rpc.call("click", buildClickParams({
         appHandle: this.appHandle,
         handleId: this.handleId,
         query: this.queryPath,
-        defaultTimeout: this.defaultTimeout,
+        timeoutMs,
         options,
-      }))
+      }), { timeoutMs: actionRequestTimeoutMs(timeoutMs) })
     );
   }
 
   override async fill(value: string, options?: { timeout?: number; strategy?: FillStrategy }): Promise<void> {
+    const timeoutMs = clampActionTimeoutMs(options?.timeout ?? this.defaultTimeout);
     await this.withRediscovery(() =>
       this.rpc.call("fill", {
         appHandle: this.appHandle,
         handleId: this.handleId,
         value,
-        timeout: (options?.timeout ?? this.defaultTimeout) / 1000,
+        timeout: timeoutMs / 1000,
         ...(options?.strategy ? { strategy: options.strategy } : {}),
-      })
+      }, { timeoutMs: actionRequestTimeoutMs(timeoutMs) })
     );
   }
 
@@ -247,10 +256,9 @@ class ScopedLocator extends Locator {
   /**
    * Re-resolve the element from the query path this locator was built from.
    *
-   * The app handle can be dead too. An `unknown_handle` says so outright — the id came
-   * from a previous daemon process, so this one's app handles are unrelated and its
-   * `h_N` may already belong to a *different* app, which would resolve the query against
-   * the wrong window. Re-acquire the app first in that case. For every other stale
+   * The app handle can be dead too. An `unknown_handle` says the element id is not valid
+   * for this app — it came from a previous daemon process or currently belongs to
+   * another process. Re-acquire the app first in that case. For every other stale
    * reason the app handle is presumed good, and re-acquiring is only attempted if the
    * query is actually rejected for it — connect_app waits for Electron web content, so
    * it must not be on the path of an ordinary TTL re-resolve.

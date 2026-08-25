@@ -116,8 +116,8 @@ struct JSONRPCErrorData: Sendable, Codable {
         JSONRPCErrorData(code: -32010, message: msg, data: data)
     }
 
-    /// A handle id this daemon never issued — distinct from stale, because retrying or
-    /// re-resolving the same id can never succeed.
+    /// A handle id that is not valid for the requested app — either never issued by
+    /// this daemon or issued for another app. `data.reason` distinguishes the cases.
     static func unknownHandle(_ msg: String, data: JSONValue? = nil) -> JSONRPCErrorData {
         JSONRPCErrorData(code: -32011, message: msg, data: data)
     }
