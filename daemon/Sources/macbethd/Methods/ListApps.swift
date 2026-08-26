@@ -73,6 +73,9 @@ func probeAccessibility(pid: pid_t, timeout: Float = 0.25) -> AXError {
 
 /// List running GUI applications, probing each one for accessibility readiness.
 ///
+/// Restricted to `.regular` (Dock) apps so menu-bar helpers do not flood discovery.
+/// `findApp` still resolves `.accessory` names after that list comes up empty.
+///
 /// - Parameter probe: Accessibility probe, injectable for tests.
 func listApps(probe: (pid_t) -> AXError = { probeAccessibility(pid: $0) }) -> [AppInfo] {
     NSWorkspace.shared.runningApplications
