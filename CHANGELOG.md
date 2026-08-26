@@ -13,6 +13,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   MCP server. `--json` is the lossless MCP-equivalent argument path. See
   [CLI](docs/cli.md).
 
+### Fixed
+- App name matching falls back to LSUIElement / menu-bar (`.accessory`) apps after
+  Dock apps, so `screenshot` / `connect_app` resolve owner names from `list_windows`
+  (Übersicht, Raycast, iTerm2, …). `list_apps` stays Dock-only.
+- `titlePattern` regexes NFC-normalize both pattern and haystack so composed `Ü`
+  matches the NFD `U` + combining diaeresis macOS reports.
+
 ### Changed
 - `pin_handle` is now a finite operation: pins live for 60 minutes (refreshed on use)
   and age out automatically, so the `unpin_handle` RPC was removed and mints are

@@ -287,41 +287,21 @@ actor AppConnectionManager {
     }
 
     private nonisolated func findApp(byName name: String) -> AppMatch? {
-        let apps = NSWorkspace.shared.runningApplications
-            .filter { $0.activationPolicy == .regular }
-
-        let lowered = name.lowercased()
-
-        if let exact = apps.first(where: { $0.localizedName?.lowercased() == lowered }) {
-            return AppMatch(app: exact, kind: .exactName, value: exact.localizedName ?? name)
+        // `.regular` (Dock) first, then `.accessory` (LSUIElement / menu-bar).
+        // `list_apps` stays regular-only so helpers do not flood discovery;
+        // name matching still has to resolve owner names from `list_windows`.
+        let running = NSWorkspace.shared.runningApplications.filter {
+            $0.activationPolicy == .regular || $0.activationPolicy == .accessory
         }
-        for app in apps {
-            if let alias = appAliases(app).first(where: { $0.lowercased() == lowered }) {
-                return AppMatch(app: app, kind: .declaredAlias, value: alias)
-            }
-        }
-        if let bundle = apps.first(where: { $0.bundleIdentifier?.lowercased() == lowered }) {
-            return AppMatch(
-                app: bundle,
-                kind: .bundleIdentifier,
-                value: bundle.bundleIdentifier ?? name
+        let candidates = running.map { app in
+            AppNameCandidate(
+                localizedName: app.localizedName,
+                bundleIdentifier: app.bundleIdentifier,
+                aliases: appAliases(app),
+                isRegular: app.activationPolicy == .regular
             )
         }
-        if let partial = apps.first(where: { $0.localizedName?.lowercased().contains(lowered) == true }) {
-            return AppMatch(app: partial, kind: .partialName, value: partial.localizedName ?? name)
-        }
-        for app in apps {
-            if let alias = appAliases(app).first(where: { $0.lowercased().contains(lowered) }) {
-                return AppMatch(app: app, kind: .partialAlias, value: alias)
-            }
-        }
-        if let bundle = apps.first(where: { $0.bundleIdentifier?.lowercased().contains(lowered) == true }) {
-            return AppMatch(
-                app: bundle,
-                kind: .partialBundleIdentifier,
-                value: bundle.bundleIdentifier ?? name
-            )
-        }
-        return nil
+        guard let match = matchApp(byName: name, among: candidates) else { return nil }
+        return AppMatch(app: running[match.index], kind: match.kind, value: match.value)
     }
 }

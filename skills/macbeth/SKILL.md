@@ -38,6 +38,9 @@ Tool **results** are YAML; tool **arguments** remain JSON (MCP input schemas are
 { "name": "list_windows", "arguments": {} }
 { "name": "list_windows", "arguments": { "app": "Unity" } }
 
+// Menu-bar / LSUIElement apps (Übersicht, Raycast, iTerm2) are omitted from
+// list_apps. Discover them with list_windows, then pass ownerName or ownerPid.
+
 // Inspect UI (connects automatically — no prior connect_app)
 { "name": "query_tree", "arguments": { "app": "Finder", "maxDepth": 5 } }
 ```

@@ -161,7 +161,10 @@ Unknown or dead handles fail with an `app_not_found` that says to reconnect by n
 (`probeAccessibility`, 0.25s messaging timeout) and reports `connectable` /
 `permission_required` / `not_connectable`. "Running" and "automatable" are different
 things — listing a launcher like Unity Hub as if it were drivable is what makes discovery
-untrustworthy.
+untrustworthy. The listing is `.regular` (Dock) apps only; menu-bar / `LSUIElement`
+hosts (Übersicht, Raycast, iTerm2) stay off it. `findApp` still resolves those names:
+regular first, then `.accessory`. `list_windows` is the discovery path; `titlePattern`
+and locator regexes NFC-normalize so NFD owner names match composed characters.
 
 Raw `AXError` codes never reach a caller uninterpreted. `axErrorInfo`
 (`AX/AXErrorInfo.swift`) is the single mapping from code → name, plain-language
