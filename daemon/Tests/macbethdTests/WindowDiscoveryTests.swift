@@ -259,3 +259,14 @@ private func listedWindowIDs(_ payload: JSONValue) -> [UInt32] {
         _ = try windowsMatchingTitlePattern(windows, pattern: "[")
     }
 }
+
+@Test func titlePatternUnifiesNfcQueryWithNfdOwnerName() throws {
+    let nfd = "U\u{0308}bersicht"
+    let nfc = "\u{00DC}bersicht"
+    let windows = [
+        testWindow(67, pid: 1760, app: nfd, bundle: "tracesOf.Uebersicht", title: nil),
+    ]
+    #expect(try windowsMatchingTitlePattern(windows, pattern: nfc).map(\.windowID) == [67])
+    #expect(try windowsMatchingTitlePattern(windows, pattern: nfd).map(\.windowID) == [67])
+    #expect(try windowsMatchingTitlePattern(windows, pattern: "bersicht").map(\.windowID) == [67])
+}

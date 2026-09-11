@@ -161,6 +161,14 @@ else works without Screen Recording access.
   request for `Codex` may resolve to the running `ChatGPT` process through its declared
   alias while retaining bundle ID `com.openai.codex`.
 
+## `list_windows` shows an app that `list_apps` omits
+
+Menu-bar apps (`LSUIElement`, activation policy accessory — Übersicht, Raycast,
+iTerm2, and similar) are left out of `list_apps` so helper processes do not flood
+discovery. Name matching on `connect_app`, `screenshot`, and other app-taking
+tools still finds them after Dock apps. Discover via `list_windows` and pass
+`ownerName` or `ownerPid`.
+
 ## An app is listed but `connect_app` fails with an AX error
 
 `list_apps` probes every running app and splits the output into **Connectable

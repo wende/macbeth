@@ -267,12 +267,14 @@ private func matchesStep(_ element: AXUIElement, _ step: QueryStep) -> Bool {
         }
     }
 
-    // Title pattern match (regex)
+    // Title pattern match (regex). NFC-normalize the pattern; `titleMatches`
+    // NFC-normalizes the haystack so NFD AX titles match composed characters.
     if let pattern = step.titlePattern {
         let elementTitle = getStringAttr(element, kAXTitleAttribute) ?? ""
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return false }
-        let range = NSRange(elementTitle.startIndex..., in: elementTitle)
-        if regex.firstMatch(in: elementTitle, range: range) == nil {
+        guard let regex = try? NSRegularExpression(
+            pattern: pattern.precomposedStringWithCanonicalMapping
+        ) else { return false }
+        if !titleMatches(elementTitle, regex: regex) {
             return false
         }
     }
