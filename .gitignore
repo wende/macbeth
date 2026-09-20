@@ -13,6 +13,7 @@ dist/
 /.env.local
 
 # macbeth
+.venv-smart/
 *.sock
 client/bin/macbethd
 client/bin/macbeth-glow
