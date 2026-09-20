@@ -200,6 +200,7 @@ describe("CLI / MCP interface parity", () => {
 
   it("exposes every MCP tool as a CLI command", () => {
     expect(MACBETH_TOOL_NAMES).toEqual([
+      "smart",
       "list_apps",
       "list_daemon_methods",
       "begin_activity",

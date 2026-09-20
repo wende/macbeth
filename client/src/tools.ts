@@ -22,6 +22,7 @@ import {
   resolveSkillsDir,
 } from "./mcp-skills.js";
 import { saveScreenshotToTempFile } from "./screenshots.js";
+import { QwenSmartReranker, runSmartFlow } from "./smart.js";
 import { resolveElementTarget } from "./mcp-target.js";
 import { formatAppList } from "./app-target.js";
 import { runWithActivity } from "./mcp-activity.js";
@@ -166,6 +167,33 @@ function resolveShortcutName(query: string, shortcuts: string[]): string | null 
 }
 
 export const MACBETH_TOOLS: ToolDefinition[] = [
+  {
+    name: "smart",
+    description: "Use the local Qwen3 MLX reranker to identify and activate the accessibility element most likely to make direct progress toward a plain-language computer-use goal. Returns the bounded tools-used log and optional scored candidate diagnostics.",
+    inputSchema: {
+      task: z.string().min(1).describe('Plain-language goal, for example "Find and open the settings panel"'),
+      steps: z.number().int().min(1).max(50).optional().default(10).describe("Maximum number of Macbeth tool calls before stopping"),
+      debug: z.boolean().optional().default(false).describe("Include reranker latency, model, winning score, and top scored candidates"),
+    },
+    handler: async (ctx, { task, steps, debug }) => {
+      const reranker = new QwenSmartReranker();
+      try {
+        const result = await runSmartFlow({
+          task: String(task),
+          steps: Number(steps),
+          debug: Boolean(debug),
+          ctx,
+          tools: MACBETH_TOOLS,
+          rerank: reranker.rerank,
+        });
+        return result.status === "failure" ? fail(toModelPayload(result)) : ok(toModelPayload(result));
+      } catch (error) {
+        return fail(formatError("Smart flow failed", error));
+      } finally {
+        reranker.close();
+      }
+    },
+  },
   {
     name: "list_apps",
     description: "List running macOS apps, split into the ones that are currently reachable through the Accessibility API and the ones that are running but will fail to connect (launchers, helper processes, apps that never implement AX). Blocked entries carry the AX error code, what it means, and what to do instead.",
